@@ -235,7 +235,7 @@ fun AROverlay() {
                 .padding(top = 16.dp, start = 16.dp, end = 16.dp)
         ) {
             Text(
-                text = "Ensemble: DINOv2-B+DETR+SAM2+CLIP+OCR -> Llama 3B - 2.06GB offline, zero-shot, no 4.5GB ImageBind - AR READY",
+                text = "Ensemble: DINOv2-B+DETR+SAM2+CLIP+OCR -> Gemma 3n E2B offline, zero-shot, no 4.5GB ImageBind - AR READY",
                 color = Color(0xFF00E676),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
@@ -477,8 +477,8 @@ fun SettingsDialog(
                     (modelStatusText.contains("fail", true) || modelStatusText.contains("error", true) || modelStatusText.contains("✗"))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("AI on this phone", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    // Phone AI choice: Meta Llama (with the Meta vision models) or Gemma (one model that
-                    // also sees photos and the camera). Meta Llama falls back to Gemma if it cannot load.
+                    // Phone AI choice: Auto (Gemma 3n first, Llama only when forced) or Gemma only (also
+                    // sees photos and the camera).
                     val gemmaInstalled = modelFileManager?.gemmaModelFile() != null
                     var gemmaChosen by remember { mutableStateOf(forceMode == ForceModelMode.GEMMA_ONLY) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -491,7 +491,7 @@ fun SettingsDialog(
                                 modelFileManager?.setLlamaDisconnected(false)
                                 onPhoneEngineChanged?.invoke()
                             },
-                            label = { Text("Meta Llama", fontSize = 12.sp) }
+                            label = { Text("Auto (Gemma first)", fontSize = 12.sp) }
                         )
                         FilterChip(
                             selected = gemmaChosen,
@@ -506,20 +506,20 @@ fun SettingsDialog(
                         )
                     }
                     PhoneAiStatusLine(
-                        label = if (gemmaChosen) "Answers and camera — Gemma" else "Answers — Meta Llama 3.2",
+                        label = if (gemmaChosen) "Answers and camera — Gemma" else "Answers — Auto (Gemma first)",
                         ok = modelLoaded,
                         detail = when {
                             modelLoaded -> "Ready, works offline"
                             llamaFailed -> modelStatusText.removePrefix("Local model failed: ").removePrefix("✗ ").take(160)
                             llamaFile -> "Loading…"
-                            else -> "Not installed — install the Meta models zip"
+                            else -> "Not installed — install the Gemma 3n model in Setup"
                         },
                         warn = llamaFile && !modelLoaded && !llamaFailed
                     )
                     PhoneAiStatusLine(
                         label = "Camera — Meta DETR · CLIP · DINOv2 · SAM",
                         ok = visionFiles,
-                        detail = if (visionFiles) "Installed" else "Not installed — install the Meta models zip",
+                        detail = if (visionFiles) "Installed" else "Not installed",
                         warn = false
                     )
                     Button(
@@ -553,7 +553,7 @@ fun SettingsDialog(
                             val gemmaActive = !gemmaDisconnected && modelLoaded && modelStatusText.contains("LiteRT")
                             Text("Gemma (.litertlm, optional)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Gemma: ${if (gemmaActive) "Active - answers coming from Gemma" else if (gemmaDisconnected) "Disconnected" else "Not in use (Meta Llama is preferred)"}",
+                                "Gemma: ${if (gemmaActive) "Active - answers coming from Gemma" else if (gemmaDisconnected) "Disconnected" else "Not in use"}",
                                 color = if (gemmaActive) Color(0xFF00E676) else Color(0xFF9E9E9E),
                                 fontSize = 11.sp
                             )
@@ -661,13 +661,13 @@ fun SettingsDialog(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    "Meta Stack (Recommended)",
+                                    "Phone vision stack (optional)",
                                     color = Color(0xFF80D8FF),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    "DINOv2 + SAM 3.1 / MobileSAM + Llama 3.2 3B local stack",
+                                    "DINOv2 + SAM / MobileSAM + Gemma 3n local stack",
                                     color = Color(0xFF9E9E9E),
                                     fontSize = 11.sp
                                 )
@@ -862,24 +862,24 @@ fun SettingsDialog(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Meta online voice", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Online voice (retired — Whisper is used)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "With internet and a Meta key, spoken questions are transcribed by Meta Muse Voice (Hindi and English, " +
-                                    "mixed too); the recording is sent online. Off, or offline: Whisper on this phone.",
+                                "Online voice is not available in this version. Spoken questions are transcribed by Whisper on this phone " +
+                                    "(Hindi and English, mixed too); nothing is sent online.",
                                 color = Color(0xFF9E9E9E), fontSize = 11.sp, lineHeight = 15.sp
                             )
                         }
                         Spacer(Modifier.width(12.dp))
-                        Switch(checked = onlineVoice, onCheckedChange = { enabled -> onOnlineVoiceChanged?.invoke(enabled) })
+                        Switch(checked = false, onCheckedChange = {}, enabled = false)
                     }
                 }
 
                 Divider(color = Color(0xFF333355))
 
-                // ── Cloud AI / Meta Llama API ─────────────────────────────────
+                // ── Cloud AI / Groq ─────────────────────────────────────────────
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Online AI (optional)", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("Meta Model API key (LLM|…): Muse Spark for answers, photos and web search, plus SAM 3.1 and Muse Voice. Stored encrypted on this phone only; names and phone numbers are masked before anything is sent.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                    Text("Groq API key (gsk_…): Qwen for answers, photos and web search. Stored encrypted on this phone only; names and phone numbers are masked before anything is sent.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier.size(6.dp).background(
@@ -894,7 +894,7 @@ fun SettingsDialog(
                         value = groqKeyInput,
                         onValueChange = { groqKeyInput = it },
                         label = {
-                            val name = "Meta API key (LLM|…)"
+                            val name = "Groq API key (gsk_…)"
                             Text(if (groqKeyConfigured) "Replace $name" else name)
                         },
                         singleLine = true,
@@ -950,8 +950,8 @@ fun SettingsDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("About", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Text("ArogyaDoot • guidance for ASHA & ANM health workers", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                    Text("Offline: Meta Llama 3.2 + Meta vision models, answers cited from your knowledge base", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                    Text("Online (optional): Meta Muse Spark, SAM 3.1, Muse Voice via the Meta Model API", color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                    Text("Offline: Gemma 3n + on-phone vision models, answers cited from your knowledge base", color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                    Text("Online (optional): Qwen on Groq", color = Color(0xFF9E9E9E), fontSize = 11.sp)
                     if (showAdvanced) {
                         Text("Last answer source: ${lastSource.detailText} at $formattedTime", color = Color(0xFF00E676), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     }

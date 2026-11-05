@@ -335,7 +335,7 @@ class AndroVoiceLoop(
         var chunkCount = 0L
         var sampleCount = 0L
         var stopReason = "cancelled"
-        // The same audio is kept for Meta Muse Voice (online voice, Settings); Whisper is the fallback.
+        // Online voice retired: Whisper transcribes this audio on the phone.
         val onlineVoice = runCatching { AnswerPolicyStore(context).onlineVoice() }.getOrDefault(false)
         val pcm = if (onlineVoice) PcmAccumulator(rec.actualSampleRate * settings.sttMaxSeconds.coerceAtMost(120)) else null
 
@@ -627,9 +627,9 @@ class AndroVoiceLoop(
      * semantic rewriting. Example: "A. B? A. B?" -> "A. B?".
      */
     /**
-     * Meta Muse Voice Transcribe for one utterance (Hindi/English code-switching). Null when the
-     * phone is offline, no Meta key is saved, the rate is not 16/24 kHz, or the call fails: the
-     * caller then uses Whisper on the same audio.
+     * Online voice for one utterance — RETIRED (always null): Whisper on the phone transcribes instead.
+     * Kept so the caller compiles unchanged (MetaOnline.ready() is false since the retirement).
+     * The old Meta path below never runs.
      */
     private suspend fun metaOnlineTranscript(pcm: PcmAccumulator, sampleRate: Int): String? {
         if (pcm.size < sampleRate / 4 || (sampleRate != 16_000 && sampleRate != 24_000)) return null

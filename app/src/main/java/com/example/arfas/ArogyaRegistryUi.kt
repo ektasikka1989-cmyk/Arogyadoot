@@ -23,7 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -71,7 +73,7 @@ fun ArogyaAiPage(hindi: Boolean, ai: ArogyaVisitAi?, onOpenLibrary: () -> Unit, 
     // Everything read live: the one setting, signal, loaded phone model, endpoint, keys.
     val cloudFirst = remember(refresh) { ArogyaCloud.cloudFirst(context) }
     val online = remember(refresh) { ArogyaCloud.online(context) }
-    val metaKey = remember(refresh) { ArogyaCloud.metaKey(context).isNotBlank() }
+    val groqKey = remember(refresh) { ArogyaCloud.groqKey(context).isNotBlank() }
     val togetherKey = remember(refresh) { ArogyaCloud.togetherKey(context).isNotBlank() }
     val ep = remember(refresh) { ArogyaCloud.textEndpoint(context) }
     val (llama, llamaReady) = remember(refresh) { ai?.modelInfo() ?: ("" to false) }
@@ -82,7 +84,7 @@ fun ArogyaAiPage(hindi: Boolean, ai: ArogyaVisitAi?, onOpenLibrary: () -> Unit, 
     }
     val cloudTextKey = cloudText.isNotBlank() && (ep?.let { ArogyaCloud.keyFor(context, it).isNotBlank() } == true)
     val visionOk = remember(refresh) { ai?.visionOk() ?: false }
-    val status = AiTableStatus(cloudFirst, online, llama, llamaReady, cloudText, cloudTextKey, metaKey, visionOk)
+    val status = AiTableStatus(cloudFirst, online, llama, llamaReady, cloudText, cloudTextKey, groqKey, visionOk)
     val rows = remember(status, hindi) { ArogyaAiTable.rows(status, hindi) }
     var guideLabel by remember { mutableStateOf(tr("Guide …", "गाइड …")) }
     var guideCount by remember { mutableStateOf(-1) }
@@ -97,7 +99,7 @@ fun ArogyaAiPage(hindi: Boolean, ai: ArogyaVisitAi?, onOpenLibrary: () -> Unit, 
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 AssistChip(onClick = {}, label = { Text(if (cloudFirst) "☁ Cloud first" else "📱 Local first") })
                 AssistChip(onClick = {}, label = { Text(if (online) tr("✓ Online", "✓ ऑनलाइन") else tr("✗ Offline", "✗ ऑफ़लाइन")) })
-                AssistChip(onClick = {}, label = { Text(if (metaKey) tr("Meta key ✓", "Meta key ✓") else tr("Meta key —", "Meta key —")) })
+                AssistChip(onClick = {}, label = { Text(if (groqKey) tr("Groq key ✓", "Groq key ✓") else tr("Groq key —", "Groq key —")) })
                 AssistChip(onClick = {}, label = { Text(guideLabel) })
             }
             if (portrait) rows.forEach { r -> AiRowCard(r, hindi) } else AiTableGrid(rows, hindi)
@@ -557,19 +559,56 @@ private fun PatientsTab(hindi: Boolean, data: RegistryData, visits: List<ArogyaV
     }
 }
 
-/** Text field with a mic button: dictation follows the Offline/Online setting. */
+/** Text field with inline mic dictation: speech lands at the cursor, no popup. */
 @Composable
-internal fun MicField(value: String, onValue: (String) -> Unit, label: String, dictate: (((String) -> Unit)) -> Unit,
+internal fun MicField(value: String, onValue: (String) -> Unit, label: String,
     singleLine: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) {
-    OutlinedTextField(value, onValue, label = { Text(label) }, singleLine = singleLine, modifier = modifier,
-        trailingIcon = { IconButton(onClick = { dictate { t -> onValue(t.take(200)) } }) { Text("🎤") } })
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val hindi = ArogyaLang.uiHindi(context)
+    val controller = rememberInlineDictationController()
+    var tfv by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    // Parent-driven changes (clear, load) resync the field when we are not dictating.
+    LaunchedEffect(value) {
+        if (value != tfv.text && !controller.isActive) tfv = TextFieldValue(value, TextRange(value.length))
+    }
+    var base by remember { mutableStateOf<TextFieldValue?>(null) }
+    fun applyDictation(dictated: String) {
+        val b = base ?: return
+        val e = ArogyaDictationText.insertAtCursor(b.text, b.selection.start, b.selection.end, dictated)
+        tfv = TextFieldValue(e.text, TextRange(e.selStart))
+        onValue(e.text)
+    }
+    fun start() {
+        base = tfv
+        controller.toggle(scope, ArogyaLang.voiceLang(context), hindi,
+            onPartial = { applyDictation(it) },
+            onFinal = { applyDictation(it); base = null },
+            onError = { base = null })
+    }
+    Column(modifier) {
+        OutlinedTextField(tfv, {
+            // Typing while listening stops the session (typed words win); partial text stays, editable.
+            if (controller.isActive) { controller.cancel(); base = null }
+            tfv = it; onValue(it.text)
+        }, label = { Text(label) }, singleLine = singleLine, modifier = Modifier.fillMaxWidth(),
+            trailingIcon = { DictationMicButton(controller, hindi) { start() } })
+        if (controller.state == InlineDictationController.State.LISTENING)
+            Text(if (hindi) "● सुन रहे हैं… रोकने के लिए ■ दबाएँ" else "● Listening… tap ■ to stop",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        if (controller.state == InlineDictationController.State.WORKING)
+            Text(if (hindi) "लिख रहे हैं…" else "Transcribing…", style = MaterialTheme.typography.bodySmall)
+        if (controller.state == InlineDictationController.State.ERROR && controller.errorText.isNotBlank())
+            Text(controller.errorText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    // (mic dictation is inline now; see DictationMicButton above)
 }
 
 /** Shared editable person fields for add, edit and the import review screen. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, onWeight: (String) -> Unit,
-    onChange: (Beneficiary) -> Unit, villages: List<String>, dictate: (((String) -> Unit)) -> Unit) {
+    onChange: (Beneficiary) -> Unit, villages: List<String>) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     var villageMenu by remember { mutableStateOf(false) }
     var villageNew by remember { mutableStateOf(false) }
@@ -578,9 +617,9 @@ internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, o
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             BenCategory.values().forEach { c -> FilterChip(selected = b.category == c, onClick = { onChange(b.copy(category = c, sex = if (c == BenCategory.CHILD) b.sex else "F")) }, label = { Text(if (hindi) c.titleHi else c.title) }) }
         }
-        MicField(b.name, { onChange(b.copy(name = it.take(80))) }, tr("Name *", "नाम *"), dictate)
-        MicField(b.relativeName, { onChange(b.copy(relativeName = it.take(80))) }, tr("Husband / mother / father", "पति / माँ / पिता"), dictate)
-        MicField(b.household, { onChange(b.copy(household = it.take(60))) }, tr("Household (house no. / family head) — from line listing", "परिवार (मकान नं. / मुखिया) — सूची से"), dictate)
+        MicField(b.name, { onChange(b.copy(name = it.take(80))) }, tr("Name *", "नाम *"))
+        MicField(b.relativeName, { onChange(b.copy(relativeName = it.take(80))) }, tr("Husband / mother / father", "पति / माँ / पिता"))
+        MicField(b.household, { onChange(b.copy(household = it.take(60))) }, tr("Household (house no. / family head) — from line listing", "परिवार (मकान नं. / मुखिया) — सूची से"))
         if (villages.isNotEmpty() && !villageNew) {
             Box {
                 OutlinedButton(onClick = { villageMenu = true }, modifier = Modifier.fillMaxWidth()) {
@@ -595,10 +634,10 @@ internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, o
                     }
                 }
             }
-        } else MicField(b.village, { onChange(b.copy(village = it.take(80))) }, tr("Village / hamlet", "गाँव / टोला"), dictate)
+        } else MicField(b.village, { onChange(b.copy(village = it.take(80))) }, tr("Village / hamlet", "गाँव / टोला"))
         if (b.category != BenCategory.CHILD) OutlinedTextField(b.age, { onChange(b.copy(age = it.filter { c -> c.isDigit() }.take(3))) }, label = { Text(tr("Age (years)", "उम्र (साल)")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        MicField(b.phone, { onChange(b.copy(phone = it.filter { c -> c.isDigit() || c == '+' }.take(15))) }, tr("Phone", "फ़ोन"), dictate)
-        MicField(b.rchId, { onChange(b.copy(rchId = it.take(30))) }, tr("RCH ID (if any)", "RCH ID (हो तो)"), dictate)
+        MicField(b.phone, { onChange(b.copy(phone = it.filter { c -> c.isDigit() || c == '+' }.take(15))) }, tr("Phone", "फ़ोन"))
+        MicField(b.rchId, { onChange(b.copy(rchId = it.take(30))) }, tr("RCH ID (if any)", "RCH ID (हो तो)"))
         if (b.category == BenCategory.CHILD) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("F" to tr("Girl", "लड़की"), "M" to tr("Boy", "लड़का")).forEach { (s, l) -> FilterChip(selected = b.sex == s, onClick = { onChange(b.copy(sex = s)) }, label = { Text(l) }) } }
             DateBox(tr("Date of birth *", "जन्मतिथि *"), b.dob, Modifier.fillMaxWidth()) { onChange(b.copy(dob = it)) }
@@ -611,12 +650,12 @@ internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, o
         if (b.category == BenCategory.PREGNANT) {
             DateBox(tr("LMP *", "अंतिम माहवारी *"), b.lmp, Modifier.fillMaxWidth()) { onChange(b.copy(lmp = it)) }
             ArogyaRegistryLogic.edd(b)?.let { Text(tr("EDD: ", "प्रसव तिथि: ") + it) }
-            MicField(b.ancNumber, { onChange(b.copy(ancNumber = it.take(10))) }, tr("ANC number", "ANC नंबर"), dictate)
+            MicField(b.ancNumber, { onChange(b.copy(ancNumber = it.take(10))) }, tr("ANC number", "ANC नंबर"))
             DateBox(tr("Delivery date (after birth)", "प्रसव तारीख़ (जन्म के बाद)"), b.deliveryDate, Modifier.fillMaxWidth()) { onChange(b.copy(deliveryDate = it)) }
         }
         if (b.category == BenCategory.ELIGIBLE_COUPLE || b.category == BenCategory.MOTHER)
-            MicField(b.familyPlanning, { onChange(b.copy(familyPlanning = it.take(60))) }, tr("Family planning method", "परिवार नियोजन साधन"), dictate)
-        MicField(b.notes, { onChange(b.copy(notes = it.take(1000))) }, tr("Notes", "नोट"), dictate, singleLine = false)
+            MicField(b.familyPlanning, { onChange(b.copy(familyPlanning = it.take(60))) }, tr("Family planning method", "परिवार नियोजन साधन"))
+        MicField(b.notes, { onChange(b.copy(notes = it.take(1000))) }, tr("Notes", "नोट"), singleLine = false)
     }
 }
 
@@ -626,15 +665,15 @@ private fun PatientForm(hindi: Boolean, initial: Beneficiary, onDismiss: () -> U
     val context = LocalContext.current
     var b by remember { mutableStateOf(initial) }
     var weight by remember { mutableStateOf(initial.birthWeightKg?.toString().orEmpty()) }
-    var dictateTarget by remember { mutableStateOf<((String) -> Unit)?>(null) }
-    if (dictateTarget != null) ArogyaDictationDialog(onDismiss = { dictateTarget = null },
+    // Dictation is inline in each MicField now (no popup).
+    if (false) ArogyaDictationDialog(onDismiss = { },
         cloudVoice = { s, l -> ArogyaCloud.transcribe(context, s, l) },
         cloudFirst = ArogyaCloud.cloudFirst(context), hindi = hindi,
-        onAccept = { dictateTarget?.invoke(it); dictateTarget = null })
+        onAccept = { })
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (initial.name.isBlank()) tr("Add patient", "रोगी जोड़ें") else tr("Edit patient", "रोगी सुधारें")) }, text = {
         Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Use fictional names in demos.", "डेमो में काल्पनिक नाम लिखें।"), style = MaterialTheme.typography.bodySmall)
-            PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, emptyList()) { dictateTarget = it }
+            PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, emptyList())
         }
     }, confirmButton = {
         val ok = b.name.isNotBlank() && (b.category != BenCategory.CHILD || b.dob.isNotBlank()) && (b.category != BenCategory.PREGNANT || b.lmp.isNotBlank())
@@ -683,7 +722,7 @@ private fun McpCardDialog(hindi: Boolean, b: Beneficiary, data: RegistryData, vi
     var updateMode by remember { mutableStateOf(false) }
     var ancEdit by remember { mutableStateOf<Int?>(null) }
     val official = remember(b, data, visits) { ArogyaForms.mcpCard(b, data.beneficiaries, visits, today) }
-    // Read the paper MCP card: photo/PDF → ML Kit text (Google) → fields (Llama 3.2, Meta) → ASHA ticks → digital card.
+    // Read the paper MCP card: photo/PDF → ML Kit text (Google) → fields (Gemma 3n, Google) → ASHA ticks → digital card.
     val scope = rememberCoroutineScope()
     var readBusy by remember { mutableStateOf(false) }
     var reading by remember { mutableStateOf<ArogyaCardReading?>(null) }

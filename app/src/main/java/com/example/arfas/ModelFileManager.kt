@@ -220,8 +220,8 @@ class ModelFileManager(private val context: Context) {
     )
 
     /**
-     * The on-device text model to load. Meta Llama (GGUF) whenever it is installed, unless the
-     * user forced Gemma or disconnected Llama; otherwise the installed .litertlm bundle.
+     * The on-device text model to load. Gemma 3n (.litertlm) whenever it is installed, unless the
+     * user forced Llama or disconnected Gemma; otherwise nothing (Llama loads only when forced).
      */
     /** The installed Gemma .litertlm file, or null (used as the phone AI by choice or as Llama's stand-by). */
     fun gemmaModelFile(): File? {
@@ -238,8 +238,8 @@ class ModelFileManager(private val context: Context) {
         return when {
             force == ForceModelMode.GEMMA_ONLY -> gemma
             force == ForceModelMode.LLAMA_ONLY -> llama
-            llama != null && !isLlamaDisconnected() -> llama
-            else -> gemma
+            gemma != null && !isGemmaDisconnected() -> gemma
+            else -> null // Llama loads only when forced (LLAMA_ONLY); AUTO without Gemma means no phone model.
         }
     }
 

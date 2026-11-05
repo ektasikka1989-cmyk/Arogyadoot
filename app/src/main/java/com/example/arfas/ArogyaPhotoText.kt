@@ -2,7 +2,7 @@ package com.example.arfas
 
 /**
  * Pure text side of [ArogyaPhotoVision] (host-tested): the prompts, which OCR boxes hide Aadhaar before a photo
- * leaves the phone, and turning Muse Spark's transcript into the lines the phone's own readers already parse.
+ * leaves the phone, and turning the cloud transcript into the lines the phone's own readers already parse.
  */
 object ArogyaPhotoText {
     enum class Kind { PERSON, CARD, MEDICINE }

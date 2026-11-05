@@ -225,7 +225,8 @@ fun VoiceStockDialog(hindi: Boolean, ai: ArogyaVisitAi?, items: List<StockItem>,
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val catalog = remember(items) { items.map { it.name } }
-    var dictating by remember { mutableStateOf(true) }
+    val inlineDictation = rememberInlineDictationController()
+    var dictateBase by remember { mutableStateOf("") }
     var transcript by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var lines by remember { mutableStateOf<List<VoiceStockLine>>(emptyList()) }
@@ -248,18 +249,30 @@ fun VoiceStockDialog(hindi: Boolean, ai: ArogyaVisitAi?, items: List<StockItem>,
             } finally { busy = false }
         }
     }
-    if (dictating) ArogyaDictationDialog(onDismiss = { dictating = false },
-        cloudVoice = { s, l -> ArogyaCloud.transcribe(context, s, l) },
-        cloudFirst = ArogyaCloud.cloudFirst(context), hindi = hindi,
-        onAccept = { dictating = false; transcript = it; parse(it) })
+    // Nested dictation popup retired: the transcript below is dictated inline.
+    // (was: nested ArogyaDictationDialog)
+    // (transcript field + mic button are inline now)
+    // (final transcript still calls parse; see onFinal below)
     val ops = listOf(ArogyaVoiceStock.RECEIVE, ArogyaVoiceStock.WRITEOFF, ArogyaVoiceStock.CORRECTION)
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(tr("🎤 Speak stock change", "🎤 स्टॉक बोलकर लिखें")) }, text = {
         Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Say what changed, e.g. “received 100 ORS and 60 zinc”, “10 ORS damaged”, “counted 45 IFA”.",
                 "बदलाव बोलें, जैसे “100 ORS और 60 ज़िंक मिला”, “10 ORS ख़राब”, “45 IFA गिना”।"), style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = { dictating = true }, enabled = !busy) { Text(if (transcript.isBlank()) tr("🎤 Speak", "🎤 बोलें") else tr("🎤 Speak again", "🎤 फिर बोलें")) }
-            if (transcript.isNotBlank()) Text(tr("Heard: ", "सुना: ") + transcript, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                DictationMicButton(inlineDictation, hindi, enabled = !busy) {
+                    dictateBase = transcript
+                    inlineDictation.toggle(scope, ArogyaLang.voiceLang(context), hindi,
+                        onPartial = { transcript = (if (dictateBase.isBlank()) "" else dictateBase + " ") + it },
+                        onFinal = { val full = (if (dictateBase.isBlank()) "" else dictateBase + " ") + it; transcript = full; parse(full) })
+                }
+                Text(if (inlineDictation.isActive) tr("■ Tap to stop", "■ रोकने के लिए दबाएँ") else if (transcript.isBlank()) tr("🎤 Speak", "🎤 बोलें") else tr("🎤 Speak again", "🎤 फिर बोलें"))
+            }
+            if (inlineDictation.state == InlineDictationController.State.ERROR && inlineDictation.errorText.isNotBlank())
+                Text(inlineDictation.errorText, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (transcript.isNotBlank() || inlineDictation.isActive) OutlinedTextField(transcript, { transcript = it },
+                label = { Text(tr("Heard (edit if needed)", "सुना (बदलें अगर चाहिए)")) },
+                minLines = 2, modifier = Modifier.fillMaxWidth())
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (err.isNotBlank()) Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             if (notUnderstood.isNotEmpty()) Text(tr("Not understood — not saved: ", "समझ नहीं आया — सेव नहीं होगा: ") + notUnderstood.joinToString(" · ") { "“$it”" } +
@@ -357,12 +370,12 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
         busy = true; onlineNote = ""; phase = tr("Muse Spark is reading the label…", "Muse Spark लेबल पढ़ रहा है…")
         scope.launch {
             try {
-                val (net, key) = withContext(Dispatchers.IO) { MetaOnline.hasInternet(context) to MetaOnline.api(context).isConfigured }
+                val (net, key) = withContext(Dispatchers.IO) { MetaOnline.hasInternet(context) to runCatching { ArogyaCloud.textChoice(context).let { it.first != null && it.second.isNotBlank() } }.getOrDefault(false) }
                 if (!net || !key) { onlineNote = if (!net) tr("No internet on the phone. Connect to Wi-Fi or mobile data, then press again.", "फ़ोन पर इंटरनेट नहीं। Wi-Fi या मोबाइल डेटा जोड़कर फिर दबाएँ।")
-                    else tr("No Meta key saved. Add it in ✨ AI → Cloud settings (a Meta key, starting LLM|), then press again.", "Meta key सेव नहीं। ✨ AI → Cloud सेटिंग में Meta key डालें (Groq gsk_ नहीं), फिर दबाएँ।"); return@launch }
+                    else tr("No Groq key saved. Add it in ✨ AI → Cloud settings (a Groq key, starting gsk_), then press again.", "Groq key सेव नहीं। ✨ AI → Cloud सेटिंग में Groq key डालें (gsk_ से शुरू), फिर दबाएँ।"); return@launch }
                 val t = System.currentTimeMillis()
                 val text = ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE)
-                if (text == null) { onlineNote = tr("Muse Spark could not read this label.", "Muse Spark यह लेबल नहीं पढ़ पाया।"); return@launch }
+                if (text == null) { onlineNote = tr("Qwen3 could not read this label.", "Qwen3 यह लेबल नहीं पढ़ पाया।"); return@launch }
                 val (res, eng0, _) = withContext(Dispatchers.IO) { ai.scanMedicine(text) }
                 scan = res; ocrText = text; ms = System.currentTimeMillis() - t
                 engine = listOf(engine, ArogyaPhotoVision.LABEL, eng0).filter { it.isNotBlank() }.joinToString(" · ")
@@ -391,7 +404,7 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
                 val phoneScan = ArogyaMedScan.parse(phoneOcr)
                 // Online (Cloud first, or the phone's reading is incomplete): Muse Spark reads the label like a person.
                 val seen = if (ArogyaPhotoVision.wanted(context, phoneScan.name.isNotBlank() && phoneScan.batch.isNotBlank() && phoneScan.expiry.isNotBlank())) {
-                    phase = tr("Muse Spark is reading the label…", "Muse Spark लेबल पढ़ रहा है…")
+                    phase = tr("Qwen3 is reading the label…", "Qwen3 लेबल पढ़ रहा है…")
                     ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE) } else null
                 val ocr = seen ?: phoneOcr
                 if (ocr.isBlank()) throw IllegalStateException(tr("No readable text on this photo", "फ़ोटो में पढ़ने लायक अक्षर नहीं मिले"))

@@ -80,12 +80,18 @@ class ArogyaKeyVault(context: Context, private val name: String) {
 object ArogyaCloud {
     private const val TAG = "ArogyaDemo"
     fun prefs(c: Context) = c.getSharedPreferences("arogya_model", Context.MODE_PRIVATE)
-    /** Cloud model used for ArogyaDoot's AI: Muse Spark by default, or Muse Glimmer. */
-    fun textEndpoint(c: Context) = ArogyaModelEndpoints.byId(prefs(c).getString("endpoint", "meta") ?: "meta") ?: ArogyaModelEndpoints.byId("meta")
-    /** The Meta key saved in ArogyaDoot's settings (GroqKeyStore). Voice and SAM go through ArogyaDoot's MetaOnline client. */
+    /** Cloud model used for ArogyaDoot's AI: Qwen3 on Groq by default (Muse Spark retired; Glimmer stays via Together AI). */
+    fun textEndpoint(c: Context) = ArogyaModelEndpoints.byId(prefs(c).getString("endpoint", "groq") ?: "groq")?.takeIf { it.id != "meta" } ?: ArogyaModelEndpoints.byId("groq")
+    /** The retired Meta key in settings (GroqKeyStore); kept readable for migration, no longer routed. */
     fun metaKey(c: Context) = runCatching { GroqKeyStore(c.applicationContext).metaKey() }.getOrDefault("")
     fun togetherKey(c: Context) = ArogyaKeyVault(c.applicationContext, "together").get()
-    fun keyFor(c: Context, ep: ArogyaModelEndpoint) = if (ep.keyFor == "together") togetherKey(c) else metaKey(c)
+    /** The Groq key saved in ArogyaDoot's settings (GroqKeyStore). */
+    fun groqKey(c: Context) = runCatching { GroqKeyStore(c.applicationContext).groqKey() }.getOrDefault("")
+    fun keyFor(c: Context, ep: ArogyaModelEndpoint) = when (ep.keyFor) {
+        "together" -> togetherKey(c)
+        "groq" -> groqKey(c)
+        else -> "" // "meta" endpoint retired: never usable, even with a saved Meta key
+    }
     fun online(c: Context) = MetaOnline.hasInternet(c)
     fun setCloudFirst(c: Context, on: Boolean) = AnswerPolicyStore(c.applicationContext).set(if (on) AnswerPolicy.CLOUD_FIRST else AnswerPolicy.LOCAL_FIRST)
 
@@ -125,8 +131,9 @@ object ArogyaCloud {
         val k = keyFor(c, ep); return if (k.isBlank()) null to "" else ep to k
     }
 
-    /** Muse Voice Transcribe (online, Meta key); null → use Whisper on the phone. The Settings order decides when it is tried. */
+    /** Online voice retired: always null → callers use Whisper on the phone. Kept so callers compile unchanged. */
     suspend fun transcribe(c: Context, samples: FloatArray, languages: List<String> = listOf("Hindi", "English")): String? = withContext(Dispatchers.IO) {
+        Log.i(TAG, "AROGYA_VOICE_CLOUD_SKIP reason=muse_retired samples=${samples.size}"); return@withContext null
         if (samples.size < 8_000) { Log.i(TAG, "AROGYA_VOICE_CLOUD_SKIP reason=too_short samples=${samples.size}"); return@withContext null }
         if (!MetaOnline.ready(c)) { Log.i(TAG, "AROGYA_VOICE_CLOUD_SKIP reason=cloud_not_ready samples=${samples.size}"); return@withContext null }
         val t = System.currentTimeMillis()
@@ -140,14 +147,14 @@ object ArogyaCloud {
     }
 
     fun status(c: Context): String {
-        val ep = textEndpoint(c); val mk = metaKey(c).isNotBlank(); val tk = togetherKey(c).isNotBlank()
+        val ep = textEndpoint(c); val gk = groqKey(c).isNotBlank(); val tk = togetherKey(c).isNotBlank()
         return listOf(
             "Order: " + (if (cloudFirst(c)) "Cloud first" else "Local first") + " (from Settings, same as Ask SOP)",
             "Forms & text: " + (ep?.let { it.label + if (keyFor(c, it).isNotBlank()) " (key saved)" else " (no key — phone model used)" } ?: "phone model only (offline)"),
-            "Voice: " + if (cloudFirst(c)) (if (mk) "Muse Voice Transcribe first, Whisper if offline" else "Whisper on the phone (add the Meta key for Muse)") else "Whisper only (on this phone)",
+            "Voice: Whisper on the phone",
             "Reading aloud: " + if (cloudFirst(c)) "best Android voice (online voice when there is signal)" else "offline Android voice",
-            "Photo counting: " + if (mk) "SAM 3.1 when online" else "type the count (needs the Meta key)",
-            "Keys: Meta ${if (mk) "✓ (Settings)" else "— add it in Settings"} · Together ${if (tk) "✓" else "—"}"
+            "Photo counting: type the count (photo reading runs on the phone)",
+            "Keys: Groq ${if (gk) "✓ (Settings)" else "— add it in Settings"} · Together ${if (tk) "✓" else "—"}"
         ).joinToString("\n")
     }
 }
@@ -165,7 +172,7 @@ fun ArogyaModeSwitch(hindi: Boolean, context: Context, refresh: Int = 0, onOpenS
     val tick = refresh + ownTick
     val online = remember(tick) { MetaOnline.hasInternet(context) }
     val cloudFirst = remember(tick) { ArogyaCloud.cloudFirst(context) }
-    val hasKey = remember(tick) { ArogyaCloud.metaKey(context).isNotBlank() }
+    val hasKey = remember(tick) { ArogyaCloud.groqKey(context).isNotBlank() }
     val (modeText, modeOk) = remember(cloudFirst, online, hasKey, hindi) { ArogyaModeStatus.line(cloudFirst, online, hasKey, hindi) }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -185,7 +192,7 @@ fun ArogyaCloudSettingsDialog(hindi: Boolean = false, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val p = remember { ArogyaCloud.prefs(context) }
-    var choice by remember { mutableStateOf(ArogyaCloud.textEndpoint(context)?.id ?: "meta") }
+    var choice by remember { mutableStateOf(ArogyaCloud.textEndpoint(context)?.id ?: "groq") }
     var cloudFirst by remember { mutableStateOf(ArogyaCloud.cloudFirst(context)) }
     var togetherKey by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf("") }
@@ -200,10 +207,10 @@ fun ArogyaCloudSettingsDialog(hindi: Boolean = false, onDismiss: () -> Unit) {
     }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(tr("☁ Cloud or phone AI", "☁ क्लाउड या फ़ोन AI")) }, text = {
         Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(tr("Online features need a Meta Model API key. Everything works offline without it.",
-                "ऑनलाइन फ़ीचर को Meta Model API key चाहिए। उसके बिना भी सब ऑफ़लाइन चलता है।"), fontWeight = FontWeight.Bold)
-            Text(tr("One setting for every AI action — answers, voice, forms, card reading, messages. Cloud first: Meta's cloud models, and the phone takes over automatically with no signal, a slow network or an error. Local first: the phone, and the cloud only if the phone cannot do it. The Meta key is in the app's Settings.",
-                "हर AI काम के लिए एक सेटिंग — जवाब, आवाज़, फ़ॉर्म, कार्ड पढ़ना, संदेश। क्लाउड पहले: Meta के क्लाउड मॉडल, और बिना सिग्नल, धीमे नेटवर्क या गलती पर फ़ोन अपने आप ले लेता है। फ़ोन पहले: फ़ोन, और क्लाउड तभी जब फ़ोन न कर पाए। Meta key ऐप की Settings में है।"),
+            Text(tr("Online features need a Groq API key. Everything works offline without it.",
+                "ऑनलाइन फ़ीचर को Groq API key चाहिए। उसके बिना भी सब ऑफ़लाइन चलता है।"), fontWeight = FontWeight.Bold)
+            Text(tr("One setting for every AI action — answers, forms, card reading, messages. Cloud first: Groq's cloud model, and the phone takes over automatically with no signal, a slow network or an error. Local first: the phone, and the cloud only if the phone cannot do it. The Groq key is in the app's Settings.",
+                "हर AI काम के लिए एक सेटिंग — जवाब, फ़ॉर्म, कार्ड पढ़ना, संदेश। क्लाउड पहले: Groq का क्लाउड मॉडल, और बिना सिग्नल, धीमे नेटवर्क या गलती पर फ़ोन अपने आप ले लेता है। फ़ोन पहले: फ़ोन, और क्लाउड तभी जब फ़ोन न कर पाए। Groq key ऐप की Settings में है।"),
                 style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = cloudFirst, onClick = { cloudFirst = true }, label = { Text(tr("☁ Cloud first", "☁ क्लाउड पहले")) })
@@ -211,7 +218,7 @@ fun ArogyaCloudSettingsDialog(hindi: Boolean = false, onDismiss: () -> Unit) {
             }
             if (saved.isNotBlank()) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) { Text(saved, Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall) }
             Text(tr("Cloud model for forms, messages and card reading", "फ़ॉर्म, संदेश और कार्ड पढ़ने के लिए क्लाउड मॉडल"), fontWeight = FontWeight.Bold)
-            ArogyaModelEndpoints.all.map { it.id to it.label }.forEach { (id, label) ->
+            ArogyaModelEndpoints.all.filter { it.id != "meta" }.map { it.id to it.label }.forEach { (id, label) ->
                 Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(choice == id, { choice = id }); Text(label, style = MaterialTheme.typography.bodyMedium) }
             }
             Text(tr("Together AI key — Muse Glimmer 30B", "Together AI key — Muse Glimmer 30B"), fontWeight = FontWeight.Bold)
@@ -261,9 +268,9 @@ private fun DotsPhoto(bmp: Bitmap, dots: List<CountDot>, onTap: (Float, Float) -
 
 /**
  * Count drug-kit items from a photo with numbered dots the ASHA fixes by tapping.
- * Online + Cloud first uses SAM 3.1; otherwise the on-phone MobileSAM + DINOv2
- * counter (taught by tapping one example item once); manual tap-to-count always
- * works as a fallback. Nothing reaches the register until she confirms the count.
+ * Counting runs on the phone (MobileSAM + DINOv2, taught by tapping one example item once);
+ * manual tap-to-count always works as a fallback. Nothing reaches the register until
+ * she confirms the count.
  */
 @Composable
 fun SamCountDialog(hindi: Boolean = false, balances: Map<String, Int>, vision: MetaVisionEngine? = null,
@@ -373,7 +380,7 @@ fun SamCountDialog(hindi: Boolean = false, balances: Map<String, Int>, vision: M
                     b to ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
                 }
                 bitmap = bmp
-                val cloud = withContext(Dispatchers.IO) { ArogyaCloud.cloudFirst(context) && MetaOnline.ready(context) }
+                val cloud = false // SAM 3.1 retired: the on-phone counter or tap-to-count handles every photo.
                 val canPhone = vision != null && vision.has(MetaModelStore.Component.DINOV2)
                 busy = false
                 if (cloud) runSam31(jpegBytes)

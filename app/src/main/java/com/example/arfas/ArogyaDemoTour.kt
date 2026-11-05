@@ -388,9 +388,9 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         transcriptLive = true; transcript = ""
                         val tstt = System.currentTimeMillis()
                         suspend fun cloud(): Pair<String, String>? {
-                            status = tr("Transcribing with Muse Voice Transcribe (Meta, online)…", "Muse Voice Transcribe (Meta, ऑनलाइन) से लिख रहे हैं…")
+                            status = tr("Transcribing on this phone…", "इसी फ़ोन पर लिख रहे हैं…")
                             val t = withContext(Dispatchers.IO) { ArogyaCloud.transcribe(context, pcm, ArogyaLang.metaLanguages(choice)) }?.takeIf { it.isNotBlank() } ?: return null
-                            return t to "Muse Voice Transcribe (Meta, online)"
+                            return t to "Online voice (retired)"
                         }
                         suspend fun phone(): Pair<String, String>? {
                             status = tr("Transcribing on this phone…", "इसी फ़ोन पर लिख रहे हैं…")
@@ -410,11 +410,11 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         }
                         val cloudFirstNow = ArogyaCloud.cloudFirst(context)
                         val heardCloud = if (cloudFirstNow) cloud() else null
-                        // Cloud first but Muse Voice did not answer: the label says so and why (never a silent switch).
+                        // Cloud first but there is no online voice: the label says so (never a silent switch).
                         val heard = heardCloud ?: phone()?.let { ph ->
                             if (!cloudFirstNow) ph else {
-                                val why = withContext(Dispatchers.IO) { if (!MetaOnline.hasInternet(context)) "no internet" else if (!MetaOnline.api(context).isConfigured) "no Meta key saved" else "no reply in time or the call failed" }
-                                ph.first to "Muse Voice Transcribe • online — not used: $why · ${ph.second}"
+                                val why = "online voice is not available"
+                                ph.first to "Online voice • not used: $why · ${ph.second}"
                             } }
                         val sttMs = System.currentTimeMillis() - tstt
                         if (heard == null) {
@@ -433,7 +433,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                     val note = transcript.ifBlank { ArogyaDemoScript.note(wf, demoHindi) }
                     val (v, ex) = engine.fillForm(b, sp, column, note)
                     filled = v; formModel = ex.modelLabel; formMs = ex.ms; formNote = ex.note
-                    ticks += ArogyaAiTick("form filling + evidence check", "फ़ॉर्म + सबूत जाँच", ex.modelLabel, ex.ms, ex.metaModel)
+                    ticks += ArogyaAiTick("form filling + evidence check", "फ़ॉर्म + सबूत जाँच", ex.modelLabel, ex.ms, ex.cloudUsed)
                 }
                 "danger" -> {
                     // Fixed rules only: the danger-sign engine on her words + the form's own action rules.
@@ -597,34 +597,34 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
         if (scale < 1f) Bitmap.createScaledBitmap(raw, (raw.width * scale).toInt(), (raw.height * scale).toInt(), true) else raw
     }
 
-    // "Read online with Muse Spark": the phone's offline reading was incomplete, so the ASHA asks for the same photo
-    // to be read online. Nothing is sent before she presses it. The steps (phone first, then Meta) stay visible in
+    // "Read online with Qwen": the phone's offline reading was incomplete, so the ASHA asks for the same photo
+    // to be read online. Nothing is sent before she presses it. The steps (phone first, then cloud) stay visible in
     // the result's tag, so the demo shows exactly where each answer came from.
     fun readOnline(kind: String) {
         if (onlineBusy) return
         scope.launch {
             onlineBusy = true; onlineNote = ""
             try {
-                val (net, key) = withContext(Dispatchers.IO) { MetaOnline.hasInternet(context) to MetaOnline.api(context).isConfigured }
+                val (net, key) = withContext(Dispatchers.IO) { MetaOnline.hasInternet(context) to runCatching { ArogyaCloud.textChoice(context).let { it.first != null && it.second.isNotBlank() } }.getOrDefault(false) }
                 if (!net || !key) { onlineNote = if (!net) tr("No internet on the phone. Connect to Wi-Fi or mobile data, then press again.", "फ़ोन पर इंटरनेट नहीं। Wi-Fi या मोबाइल डेटा जोड़कर फिर दबाएँ।")
-                    else tr("No Meta key saved. Add it in ✨ AI → Cloud settings (a Meta key, starting LLM|), then press again.", "Meta key सेव नहीं। ✨ AI → Cloud सेटिंग में Meta key डालें (Groq gsk_ नहीं), फिर दबाएँ।"); return@launch }
+                    else tr("No Groq key saved. Add it in ✨ AI → Cloud settings (a Groq key, starting gsk_), then press again.", "Groq key सेव नहीं। ✨ AI → Cloud सेटिंग में Groq key डालें (gsk_ से शुरू), फिर दबाएँ।"); return@launch }
                 val t = System.currentTimeMillis()
                 when (kind) {
                     "person" -> {
                         val (bmp, ls) = personPhoto ?: return@launch
                         val seen = ArogyaPhotoVision.transcribe(context, bmp, ls, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it).firstOrNull() }
-                        if (seen == null) { onlineNote = tr("Muse Spark found no person's details on this photo. Check that it is the right document, or type the details.", "Muse Spark को इस फ़ोटो पर किसी व्यक्ति की जानकारी नहीं मिली। सही कागज़ है, जाँचें या जानकारी लिखें।"); return@launch }
+                        if (seen == null) { onlineNote = tr("Qwen3 found no person's details on this photo. Check that it is the right document, or type the details.", "Qwen3 को इस फ़ोटो पर किसी व्यक्ति की जानकारी नहीं मिली। सही कागज़ है, जाँचें या जानकारी लिखें।"); return@launch }
                         personFields = personFields + seen
                         personPreview = ArogyaPersonCsv.toBeneficiary(personFields)
                         personEngine = listOf(personEngine, ArogyaPhotoVision.LABEL).filter { it.isNotBlank() }.joinToString(" · ")
                         personAgreed = false
-                        personMsg = tr("Read again online by Muse Spark. Aadhaar was blacked out on the phone before sending.", "Muse Spark ने ऑनलाइन दोबारा पढ़ा। भेजने से पहले आधार फ़ोन पर काला किया गया।")
+                        personMsg = tr("Read again online by Qwen3. Aadhaar was blacked out on the phone before sending.", "Qwen3 ने ऑनलाइन दोबारा पढ़ा। भेजने से पहले आधार फ़ोन पर काला किया गया।")
                         ticks += ArogyaAiTick("add person from photo (online)", "फ़ोटो से नया व्यक्ति (ऑनलाइन)", ArogyaPhotoVision.LABEL, System.currentTimeMillis() - t, true)
                     }
                     "med" -> {
                         val bmp = medPhoto ?: return@launch
                         val text = ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE)
-                        if (text == null) { onlineNote = tr("Muse Spark could not read this label. Enter it on the stock screen.", "Muse Spark लेबल नहीं पढ़ पाया। स्टॉक स्क्रीन पर लिखें।"); return@launch }
+                        if (text == null) { onlineNote = tr("Qwen3 could not read this label. Enter it on the stock screen.", "Qwen3 लेबल नहीं पढ़ पाया। स्टॉक स्क्रीन पर लिखें।"); return@launch }
                         val (res, eng0, _) = withContext(Dispatchers.IO) { (ai ?: error("AI is not ready")).scanMedicine(text) }
                         medScan = res; medSaved = false; medMs = System.currentTimeMillis() - t
                         medEngine = listOf(medEngine, ArogyaPhotoVision.LABEL, eng0).filter { it.isNotBlank() }.joinToString(" · ")
@@ -634,7 +634,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                     }
                     "card" -> {
                         val got = (ai ?: error("AI is not ready")).readCardOnline()
-                        if (got == null) { onlineNote = tr("Muse Spark could not read more from this card.", "Muse Spark इस कार्ड से और नहीं पढ़ पाया।"); return@launch }
+                        if (got == null) { onlineNote = tr("Qwen3 could not read more from this card.", "Qwen3 इस कार्ड से और नहीं पढ़ पाया।"); return@launch }
                         card = got.first; cardModel = listOf(cardModel, got.second).filter { it.isNotBlank() }.joinToString(" · ")
                         cardChecked = got.first.fields.indices.filter { !got.first.fields[it].value.contains("not readable") }.toSet(); cardApplied = false
                         ticks += ArogyaAiTick("card reading (online)", "कार्ड पढ़ना (ऑनलाइन)", ArogyaPhotoVision.LABEL, System.currentTimeMillis() - t, true)
@@ -646,7 +646,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
         }
     }
 
-    // Manual photo steps (MCP card, medicine strip, SAM shelf): the presenter picks
+    // Manual photo steps (MCP card, medicine strip, drug-kit shelf): the presenter picks
     // the photo by hand; nothing is generated and nothing is searched for.
     fun handlePhoto(uri: Uri, temp: Boolean) {
         manualJob?.cancel()
@@ -673,9 +673,9 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                             finally { runCatching { ocrProc.close() } }
                         val phoneScan = ArogyaMedScan.parse(ocr)
                         medPhoto = bmp; onlineNote = ""
-                        // Online (Cloud first, or the phone's reading is incomplete): Muse Spark reads the label like a person.
+                        // Online (Cloud first, or the phone's reading is incomplete): Qwen reads the label like a person.
                         val seen = if (ArogyaPhotoVision.wanted(context, phoneScan.name.isNotBlank() && phoneScan.batch.isNotBlank() && phoneScan.expiry.isNotBlank())) {
-                            status = tr("Muse Spark is reading the label…", "Muse Spark लेबल पढ़ रहा है…")
+                            status = tr("Qwen3 is reading the label…", "Qwen3 लेबल पढ़ रहा है…")
                             ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE) } else null
                         val text = seen ?: ocr
                         if (text.isBlank()) error(tr("No readable text on this photo", "फ़ोटो में पढ़ने लायक अक्षर नहीं मिले"))
@@ -700,9 +700,9 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         // page with its layout kept, only for details still missing. Rules win where both answer.
                         val rules = ArogyaTableOcr.readPerson(lines)
                         val missing = ArogyaTableOcr.CORE.filter { rules[it].isNullOrBlank() }
-                        // Online (Cloud first, or the phone's reading is incomplete): Muse Spark reads the photo like a
+                        // Online (Cloud first, or the phone's reading is incomplete): Qwen reads the photo like a
                         // person, Aadhaar blacked out first. Its values win; the phone's fill gaps (e.g. the Aadhaar).
-                        val seen = if (ArogyaPhotoVision.wanted(context, missing.isEmpty())) { status = tr("Muse Spark is reading the photo…", "Muse Spark फ़ोटो पढ़ रहा है…")
+                        val seen = if (ArogyaPhotoVision.wanted(context, missing.isEmpty())) { status = tr("Qwen3 is reading the photo…", "Qwen3 फ़ोटो पढ़ रहा है…")
                             ArogyaPhotoVision.transcribe(context, bmp, lines, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it).firstOrNull() } } else null
                         val (fields, eng) = if (seen != null) (rules + seen) to ArogyaPhotoVision.LABEL
                             else if (missing.isEmpty()) rules to tr("On-phone rules (offline): every column read", "फ़ोन पर नियम (ऑफ़लाइन): हर कॉलम पढ़ा")
@@ -716,13 +716,13 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         Log.i("ArogyaDemo", "AROGYA_PERSON_OCR lines=${lines.size} ocr_chars=${ocr.length} rows=" + ArogyaTableOcr.rows(lines).joinToString("|") { r -> r.size.toString() } +
                             " headerless=${ArogyaTableOcr.headerlessRow(lines)?.keys?.joinToString(",") ?: "none"}")
                         // No name found: never a dead end. The review opens with what was captured, the missing details
-                        // listed, and the "Read online with Muse Spark" button; Sunita can also type them.
+                        // listed, and the "Read online with Qwen" button; Sunita can also type them.
                         val coreFound = ArogyaTableOcr.CORE.count { !fields[it].isNullOrBlank() }
                         personMsg = if (coreFound == 0) tr("⚠ This does not look like a registration slip, register page or card: no name, age, mobile, house, village or LMP was found. Check that it is the right document, then take the photo again.",
                             "⚠ यह पंजीकरण पर्ची, रजिस्टर या कार्ड नहीं लगता: नाम, उम्र, मोबाइल, मकान, गाँव या LMP नहीं मिला। सही कागज़ है, जाँचें और फिर से फ़ोटो लें।")
                             else if (fields["name"].isNullOrBlank()) tr("The phone could not read the name on this photo. Press \"Read online\" below, or type the details.",
                             "फ़ोन इस फ़ोटो पर नाम नहीं पढ़ पाया। नीचे \"ऑनलाइन पढ़ें\" दबाएँ, या जानकारी लिखें।") else listOfNotNull(
-                            tr("Photo read by Muse Spark online. Aadhaar was blacked out on the phone before sending.", "फ़ोटो Muse Spark ने ऑनलाइन पढ़ी। भेजने से पहले आधार फ़ोन पर ही काला किया गया।").takeIf { seen != null },
+                            tr("Photo read by Qwen3 online. Aadhaar was blacked out on the phone before sending.", "फ़ोटो Qwen3 ने ऑनलाइन पढ़ी। भेजने से पहले आधार फ़ोन पर ही काला किया गया।").takeIf { seen != null },
                             tr("Aadhaar number read on the phone — saved encrypted, shown masked.", "आधार नंबर फ़ोन पर पढ़ा — सुरक्षित सेव, छिपाकर दिखाया।").takeIf { !fields["aadhaar"].isNullOrBlank() }).joinToString(" ")
                         personPreview = ArogyaPersonCsv.toBeneficiary(fields); personEngine = eng
                         personFields = fields; personPhoto = bmp to lines; onlineNote = ""
@@ -737,9 +737,9 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         val bmp = decodePhoto(uri, 1280)
                         val jpeg = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
                         samBitmap = bmp
-                        if (!withContext(Dispatchers.IO) { MetaOnline.ready(context) }) {
-                            samMsg = tr("No internet — SAM 3.1 runs only online. Count by hand.",
-                                "इंटरनेट नहीं — SAM 3.1 सिर्फ़ ऑनलाइन चलता है। हाथ से गिनें।")
+                        if (true) { // Online counting (SAM 3.1) retired in ArogyaDoot; the shelf is counted by hand.
+                            samMsg = tr("Online counting is not available — count by hand.",
+                                "ऑनलाइन गिनती नहीं है — हाथ से गिनें।")
                         } else {
                             status = tr("SAM 3.1 is counting…", "SAM 3.1 गिन रहा है…")
                             val t = System.currentTimeMillis()
@@ -1303,8 +1303,8 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                     val ageDoubt = p.age.toIntOrNull()?.let { p.category == BenCategory.PREGNANT && it !in 14..50 } == true
                     if (ageDoubt && !personSaved) Text(tr("⚠ Age ${p.age} looks unusual for a pregnancy — check it.", "⚠ उम्र ${p.age} गर्भावस्था के लिए असामान्य — जाँचें।"),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                    // Offline reading incomplete → say what was captured and offer the online reading (Muse Spark).
-                    if (!personSaved && !personEngine.contains("Muse Spark")) {
+                    // Offline reading incomplete → say what was captured and offer the online reading (Qwen).
+                    if (!personSaved && !personEngine.contains("online")) {
                         val unclear = buildList { if (phoneDoubt) add("phone"); if (ageDoubt) add("age") }
                         val got = ArogyaTableOcr.CORE.filter { !personFields[it].isNullOrBlank() && it !in unclear }
                         ReadOnlineOffer(got.map { personFieldLabel(it, hindi) },
@@ -1467,7 +1467,7 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                     }
                     if (r.fields.isEmpty()) Text(tr("⚠ No vaccines, dates or weights were found. Check that this is the MCP card's immunization page.",
                         "⚠ कोई टीका, तारीख या वज़न नहीं मिला। जाँचें कि यह MCP कार्ड का टीकाकरण पेज है।"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    if (!cardApplied && !cardModel.contains("Muse Spark")) {
+                    if (!cardApplied && !cardModel.contains("online")) {
                         val bad = r.fields.filter { it.value.contains("not readable") }
                         ReadOnlineOffer(r.fields.filter { it !in bad }.map { it.label }, bad.map { it.label + tr(" (date)", " (तारीख)") }.ifEmpty { if (r.fields.isEmpty()) listOf(tr("vaccines and dates", "टीके और तारीखें")) else emptyList() },
                             hindi, onlineBusy, onlineNote) { onReadOnline("card") }
@@ -1516,14 +1516,14 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                         if (!medSaved) Button(onClick = onSaveMed) {
                             Text(if (medMatched.isNotBlank()) tr("Save as Stock received", "स्टॉक मिला — सहेजें") else tr("Add as new item", "नई दवा जोड़ें")) }
                         else Text("✓ " + tr("In the stock register", "स्टॉक रजिस्टर में"), fontWeight = FontWeight.Bold)
-                        if (!medSaved && !medEngine.contains("Muse Spark")) {
+                        if (!medSaved && !medEngine.contains("online")) {
                             val parts = listOf(tr("Name", "नाम") to s.name, tr("Batch", "बैच") to s.batch, tr("Expiry", "एक्सपायरी") to s.expiry, tr("Quantity", "मात्रा") to (if (s.qty > 0) "x" else ""))
                             ReadOnlineOffer(parts.filter { it.second.isNotBlank() }.map { it.first }, parts.filter { it.second.isBlank() }.map { it.first },
                                 hindi, onlineBusy, onlineNote) { onReadOnline("med") }
                         }
                     }
                 }
-                DemoCard("☁ " + tr("Drug-kit count · Meta SAM 3.1 (online only)", "दवा किट गिनती · Meta SAM 3.1 (सिर्फ़ ऑनलाइन)")) {
+                DemoCard(tr("Drug-kit count · counted by hand", "दवा किट गिनती · हाथ से गिनती")) {
                     Text(tr("Offline, the kit is counted by hand — the app never guesses a count.",
                         "ऑफ़लाइन किट हाथ से गिनी जाती है — ऐप गिनती का अंदाज़ा नहीं लगाता।"),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1570,13 +1570,13 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                 }
             }
             "aitable" -> {
-                // Item 11: every AI feature with its offline (phone) and online (cloud) tool; Meta tools marked;
+                // Item 11: every AI feature with its offline (phone) and online (cloud) tool;
                 // ✓ = it ran in this demo (with where and how long). Tools are named as wired in code.
                 val rows = remember(ticks.size, dangersRan) { ArogyaDemoTicks.toolRows(ticks, dangersRan) }
                 val ranCount = rows.count { it.ran && !it.tool.rule }
-                val (mOff, mOn) = remember { ArogyaDemoTicks.metaCounts() }
-                Text(tr("Meta tools power $mOff features on the phone and $mOn in the cloud · $ranCount ran in this demo",
-                    "Meta के टूल फ़ोन पर $mOff और क्लाउड में $mOn सुविधाएँ चलाते हैं · इस डेमो में $ranCount चलीं"),
+                // Meta-tool counts retired with the Meta tools.
+                Text(tr("AI features in this demo: $ranCount ran",
+                    "इस डेमो में AI सुविधाएँ: $ranCount चलीं"),
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 val head = MaterialTheme.typography.labelSmall
                 val cellStyle = MaterialTheme.typography.labelSmall
@@ -1609,8 +1609,8 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                         }
                     }
                 }
-                Text(tr("Blue = Meta tool · ⚙ = fixed government rule, not AI · names never leave the phone for card and register reading.",
-                    "नीला = Meta टूल · ⚙ = तय सरकारी नियम, AI नहीं · कार्ड और रजिस्टर पढ़ते समय नाम फ़ोन से बाहर नहीं जाते।"),
+                Text(tr("⚙ = fixed government rule, not AI · names never leave the phone for card and register reading.",
+                    "⚙ = तय सरकारी नियम, AI नहीं · कार्ड और रजिस्टर पढ़ते समय नाम फ़ोन से बाहर नहीं जाते।"),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(tr("App built and optimised with Muse Code.", "ऐप Muse Code से बनाया और बेहतर किया गया।"),
                     style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)

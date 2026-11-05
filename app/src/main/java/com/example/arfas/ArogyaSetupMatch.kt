@@ -5,7 +5,7 @@ package com.example.arfas
  * The wizard looks for these names; anything else is ignored.
  */
 object ArogyaSetupMatch {
-    enum class Kind { LLAMA, WHISPER, GUIDE_V2, GUIDE_V1 }
+    enum class Kind { LLAMA, GEMMA, WHISPER, GUIDE_V2, GUIDE_V1 }
 
     const val GUIDE_V1_NAME = "ASHA_Health_Guide.db"
     const val GUIDE_V2_NAME = "ASHA_Health_Guide_v2.db"
@@ -16,6 +16,7 @@ object ArogyaSetupMatch {
         if (n == GUIDE_V2_NAME.lowercase()) return Kind.GUIDE_V2
         if (n == GUIDE_V1_NAME.lowercase()) return Kind.GUIDE_V1
         if (n.endsWith(".gguf")) return Kind.LLAMA
+        if (n == "gemma-3n-e2b-it-int4.litertlm") return Kind.GEMMA
         if ((n.contains("whisper") || n.startsWith("ggml")) && (n.endsWith(".bin") || n.endsWith(".onnx"))) return Kind.WHISPER
         return null
     }
@@ -24,6 +25,7 @@ object ArogyaSetupMatch {
     fun missingFix(kind: Kind): String = when (kind) {
         Kind.LLAMA -> "Put the Llama .gguf file in Downloads (e.g. Llama-3.2-3B-Instruct-Q4_K_M.gguf), then tap Retry."
         Kind.WHISPER -> "Put the Whisper model (ggml-small.bin) in Downloads, then tap Retry."
+        Kind.GEMMA -> "Put gemma-3n-E2B-it-int4.litertlm in Downloads, then tap Retry — or download it from Setup step 1."
         Kind.GUIDE_V2 -> "Put ASHA_Health_Guide_v2.db in Downloads, then tap Retry — or use the copy bundled with the app."
         Kind.GUIDE_V1 -> "Put ASHA_Health_Guide.db in Downloads, then tap Retry."
     }

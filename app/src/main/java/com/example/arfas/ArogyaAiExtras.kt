@@ -400,28 +400,28 @@ object ArogyaAiExtras {
 data class ArogyaAiFeature(val feature: String, val whatAiDoes: String, val model: String, val maker: String, val metaModel: Boolean, val where: String)
 
 object ArogyaAiCatalog {
-    const val LLAMA = "Llama 3.2 3B Instruct (Q4, llama.cpp)"
+    const val GEMMA = "Gemma 3n E2B (on-device)"
     val features = listOf(
-        ArogyaAiFeature("Ask SOP", "Finds the guideline passages and writes the answer from them; every statement is checked against the passages", LLAMA, "Meta (open weights)", true, "On phone, offline"),
+        ArogyaAiFeature("Ask SOP", "Finds the guideline passages and writes the answer from them; every statement is checked against the passages", GEMMA, "Google (open weights)", false, "On phone, offline"),
         ArogyaAiFeature("Ask SOP — search", "Understands the question's meaning to find the right guideline pages (semantic search)", "multilingual-e5-small", "Microsoft (open)", false, "On phone, offline"),
         ArogyaAiFeature("Ask SOP — ranking", "Re-ranks the found passages so the best page comes first", "mMiniLMv2 cross-encoder", "open model", false, "On phone, offline"),
-        ArogyaAiFeature("Finish visit", "Reads the ASHA's notes and fills temperature, weight, feeding, breathing, cord, actions — each checked against her words", LLAMA, "Meta (open weights)", true, "On phone, offline"),
+        ArogyaAiFeature("Finish visit", "Reads the ASHA's notes and fills temperature, weight, feeding, breathing, cord, actions — each checked against her words", GEMMA, "Google (open weights)", false, "On phone, offline"),
         ArogyaAiFeature("Read MCP card photo", "Reads the printed/handwritten text on the card photo", "ML Kit text recognition (Latin + Devanagari)", "Google", false, "On phone, offline"),
-        ArogyaAiFeature("Read MCP card photo — fields", "Turns the card text into dates, vaccines and weights; only values found on the card are kept", LLAMA, "Meta (open weights)", true, "On phone, offline"),
-        ArogyaAiFeature("Photo / PDF with a question", "Reads text from the attached photo or PDF and uses it with the question", "ML Kit OCR + PDF text, then $LLAMA", "Google + Meta", true, "On phone, offline"),
+        ArogyaAiFeature("Read MCP card photo — fields", "Turns the card text into dates, vaccines and weights; only values found on the card are kept", GEMMA, "Google (open weights)", false, "On phone, offline"),
+        ArogyaAiFeature("Photo / PDF with a question", "Reads text from the attached photo or PDF and uses it with the question", "ML Kit OCR + PDF text, then $GEMMA", "Google", false, "On phone, offline"),
         ArogyaAiFeature("Speak instead of typing", "Turns Hindi/English speech into text", "Whisper (on-device)", "OpenAI (open)", false, "On phone, offline"),
-        ArogyaAiFeature("Explain to family", "Rewrites the guideline answer in 5 to 8 simple sentences (Hindi or English); new numbers are removed", LLAMA, "Meta (open weights)", true, "On phone, offline"),
-        ArogyaAiFeature("Message to ANM", "Polishes the fixed record-based message; every number and danger sign must survive or the template is shown", LLAMA, "Meta (open weights)", true, "On phone, offline"),
-        ArogyaAiFeature("Daily practice", "Makes questions from guide passages; the answer must be in the passage", LLAMA, "Meta (open weights)", true, "On phone, offline"),
-        ArogyaAiFeature("Organise notes", "Sorts spoken notes into observations, family report, action, pending question", LLAMA, "Meta (open weights)", true, "On phone, offline"),
-        ArogyaAiFeature("Finish visit — online", "With signal and a key, a larger Meta model fills the official form from the voice note instead (identifiers removed first); the phone model takes over if the call fails",
-            "Muse Spark 1.3 (Meta Model API) or Muse Glimmer 30B (Together AI)", "Meta", true, "Cloud, when online and a key is saved"),
-        ArogyaAiFeature("Speak instead of typing — online", "With signal, the voice note is transcribed by Meta's speech model, tuned with health words (ORS, IFA, Td…); Whisper is used offline",
-            "Muse Voice Transcribe 1.0 (Meta Model API)", "Meta", true, "Cloud, when online and a key is saved"),
+        ArogyaAiFeature("Explain to family", "Rewrites the guideline answer in 5 to 8 simple sentences (Hindi or English); new numbers are removed", GEMMA, "Google (open weights)", false, "On phone, offline"),
+        ArogyaAiFeature("Message to ANM", "Polishes the fixed record-based message; every number and danger sign must survive or the template is shown", GEMMA, "Google (open weights)", false, "On phone, offline"),
+        ArogyaAiFeature("Daily practice", "Makes questions from guide passages; the answer must be in the passage", GEMMA, "Google (open weights)", false, "On phone, offline"),
+        ArogyaAiFeature("Organise notes", "Sorts spoken notes into observations, family report, action, pending question", GEMMA, "Google (open weights)", false, "On phone, offline"),
+        ArogyaAiFeature("Finish visit — online", "With signal and a key, Qwen3.8 27B on Groq fills the official form from the voice note instead (identifiers removed first); the phone model takes over if the call fails",
+            "Qwen3.8 27B (Groq) or Muse Glimmer 30B (Together AI)", "Alibaba (open weights), via Groq", false, "Cloud, when online and a key is saved"),
+        ArogyaAiFeature("Speak instead of typing — online", "Retired in this version: voice notes always use Whisper on the phone.",
+            "—", "—", false, "Retired"),
         ArogyaAiFeature("Count drug kit", "Counts items in a photo as numbered dots she fixes by tapping; the ASHA confirms the number before it goes in the register",
-            "MobileSAM + DINOv2 on the phone (estimate), or SAM 3.1 — Segment Anything (Meta Model API)", "Meta", true, "On phone, offline — or cloud, when online and a key is saved"),
+            "MobileSAM + DINOv2 on the phone (estimate); tap-to-count always works", "Meta (open weights)", true, "On phone, offline"),
         ArogyaAiFeature("Scan medicine", "Reads a strip/box label and pulls out name, batch, expiry and quantity; only text on the label is kept, and the ASHA confirms the stock entry",
-            "ML Kit text recognition + on-phone rules and model fill", "Google + Meta", true, "On phone, offline"),
+            "ML Kit text recognition + on-phone rules and model fill", "Google", false, "On phone, offline"),
         ArogyaAiFeature("Reading aloud", "Reads answers and the demo to the ASHA in Hindi or English",
             "Android text-to-speech, offline voices", "Google", false, "On phone, offline"),
         ArogyaAiFeature("Danger signs, schedules, incentives", "Fixed rules from the guidelines — deliberately NOT AI, so they are predictable", "Rules (no AI)", "—", false, "On phone")
@@ -440,12 +440,12 @@ data class AiTableStatus(
     val llama: String,
     val llamaReady: Boolean,
     /**
-     * Configured cloud text label (e.g. "Muse Spark 1.3 (Meta)"), "" when no cloud
+     * Configured cloud text label (e.g. "Qwen3.8 27B — Groq"), "" when no cloud
      * text model applies. Glimmer is passed only when a Together key is saved.
      */
     val cloudText: String,
     val cloudTextKey: Boolean,
-    val metaKey: Boolean,
+    val metaKey: Boolean, // legacy name: Groq-key presence since the Meta retirement
     /** On-phone counter models (DINOv2 + both SAM files) installed. */
     val visionOk: Boolean
 )
@@ -458,7 +458,7 @@ data class AiTableRow(val icon: String, val feature: String, val does: String, v
 object ArogyaAiTable {
     private data class Def(val icon: String, val en: String, val hi: String, val doesEn: String, val doesHi: String,
         val safeEn: String, val safeHi: String, val kind: Int)
-    // kind: 0 = speech (Whisper / Muse Voice), 1 = phone Llama + cloud text, 2 = count (phone vision / cloud SAM), 3 = phone-only, 4 = cloud-only, 5 = phone Llama only (names never go online).
+    // kind: 0 = speech (Whisper; online voice retired), 1 = phone model + cloud text, 2 = count (phone vision; cloud SAM retired), 3 = phone-only, 4 = cloud-only, 5 = phone model only (names never go online).
     private val DEFS = listOf(
         Def("🎤", "Speak instead of typing", "बोलकर लिखें",
             "Turns Hindi/English speech into text", "हिन्दी/अंग्रेज़ी बोली को लिखता है",
@@ -494,7 +494,7 @@ object ArogyaAiTable {
 
     fun rows(s: AiTableStatus, hindi: Boolean): List<AiTableRow> {
         fun tr(en: String, hi: String) = if (hindi) hi else en
-        val noKey = tr("(Meta key not saved)", "(Meta key नहीं है)")
+        val noKey = tr("(Groq key not saved)", "(Groq key नहीं है)")
         val noTextKey = tr("(key not saved)", "(key नहीं है)")
         val off = tr("(offline)", "(ऑफ़लाइन)")
         val notLoaded = tr("Phone model (not loaded)", "फ़ोन मॉडल (लोड नहीं)")
@@ -522,7 +522,7 @@ object ArogyaAiTable {
             val safety = if (hindi) d.safeHi else d.safeEn
             when (d.kind) {
                 0 -> {
-                    val (box, ok) = metaCloud("Muse Voice Transcribe 1.0")
+                    val (box, ok) = "—" to false // online voice retired
                     val active = if (s.cloudFirst && ok) 1 else 0
                     AiTableRow(d.icon, feature, does, "Whisper (on-device)", box, true, ok, active, safety)
                 }
@@ -531,7 +531,7 @@ object ArogyaAiTable {
                     AiTableRow(d.icon, feature, does, llamaPhone, cloudTextBox, s.llamaReady, cloudTextOk, active, safety)
                 }
                 2 -> {
-                    val (box, ok) = metaCloud("SAM 3.1")
+                    val (box, ok) = "—" to false // cloud counting (SAM) retired
                     val phoneBox = if (s.visionOk) tr("MobileSAM + DINOv2 (estimate)", "MobileSAM + DINOv2 (अनुमान)")
                         else tr("MobileSAM + DINOv2 (models not installed)", "MobileSAM + DINOv2 (मॉडल नहीं हैं)")
                     val active = if (s.cloudFirst && ok) 1 else if (s.visionOk) 0 else -1
@@ -562,12 +562,12 @@ object ArogyaAiTable {
             " · $guideLabel · " + tr("$guideCount official guides", "$guideCount आधिकारिक गाइड"))
         b.appendLine()
         b.appendLine(cell(tr("Feature", "सुविधा"), 36) + " | " + cell(tr("Phone (offline)", "फ़ोन (ऑफ़लाइन)"), 34) +
-            " | " + cell(tr("Meta cloud (online)", "Meta क्लाउड (ऑनलाइन)"), 34) + " | " + tr("Safety check", "सुरक्षा जाँच"))
-        b.appendLine("-".repeat(126))
+            " | " + cell(tr("Groq cloud (online)", "Groq क्लाउड (ऑनलाइन)"), 44) + " | " + tr("Safety check", "सुरक्षा जाँच"))
+        b.appendLine("-".repeat(136))
         rows.forEach { r ->
             val ph = (if (r.active == 0) "▶ " else "") + r.phone + (if (!r.phoneOk && r.phone != "—") tr(" [unavailable]", " [नहीं है]") else "")
             val cl = (if (r.active == 1) "▶ " else "") + r.cloud + (if (!r.cloudOk && r.cloud != "—") tr(" [unavailable]", " [नहीं है]") else "")
-            b.appendLine(cell(r.icon + " " + r.feature, 36) + " | " + cell(ph, 34) + " | " + cell(cl, 34) + " | " + r.safety)
+            b.appendLine(cell(r.icon + " " + r.feature, 36) + " | " + cell(ph, 34) + " | " + cell(cl, 44) + " | " + r.safety)
         }
         b.appendLine()
         b.appendLine(tr("Fixed government rules, not AI: danger signs, schedules, vaccine due dates, incentives, next visit date.",

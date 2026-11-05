@@ -13,7 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Meta Model API (https://api.meta.ai/v1) — the newest Meta models, used where the phone alone
+ * Meta Model API (https://api.meta.ai/v1) — RETIRED in ArogyaDoot (META_ENABLED = false):
  * cannot do the job:
  *  - Muse Spark 1.3     reads a photo (MCP card, register page, medicine label, MUAC tape),
  *                       writes structured visit records (JSON schema), web-search-grounded checks
@@ -39,17 +39,20 @@ class MetaModelApi(
         const val VOICE = "muse-voice-transcribe-1.0"
         const val IMAGE = "muse-image-1.0"
         private val JSON = "application/json; charset=utf-8".toMediaType()
+        /** ArogyaDoot: the Meta Model API is retired; every call fails closed, nothing is sent. */
+        const val META_ENABLED = false
     }
 
     class ApiException(val code: Int, message: String) : Exception(message)
 
-    val isConfigured: Boolean get() = apiKey().let { it.isNotBlank() && !it.startsWith("gsk_") }
+    val isConfigured: Boolean get() = META_ENABLED && apiKey().let { it.isNotBlank() && !it.startsWith("gsk_") }
 
     private fun request(path: String) = Request.Builder()
         .url(BASE + path)
         .addHeader("Authorization", "Bearer ${apiKey()}")
 
     private fun execute(req: Request, feature: String, bytesOut: Long): String {
+        if (!META_ENABLED) throw ApiException(403, "Meta API retired in ArogyaDoot ($feature): no request was sent")
         val started = System.currentTimeMillis()
         http.newCall(req).execute().use { r ->
             val body = r.body?.string().orEmpty()
@@ -138,6 +141,7 @@ class MetaModelApi(
      * Boxes are in pixels of the sent image; the mask payload is not decoded (boxes drive the AR box).
      */
     suspend fun sam(feature: String, imageJpeg: ByteArray, concept: String): List<SamBox> = withContext(Dispatchers.IO) {
+        if (!META_ENABLED) throw ApiException(403, "Meta API retired in ArogyaDoot ($feature): no request was sent")
         val b64 = android.util.Base64.encodeToString(imageJpeg, android.util.Base64.NO_WRAP)
         val body = JSONObject()
             .put("model", SAM)

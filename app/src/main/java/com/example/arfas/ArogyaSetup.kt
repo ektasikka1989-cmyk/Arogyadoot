@@ -11,7 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Evaluator-proof first run: find the Llama model, Whisper model and guide DB in
+ * Evaluator-proof first run: find the Gemma model, Whisper model and guide DB in
  * Downloads (or the bundled asset) and install them with progress, then load the
  * sample village. Completion is one flag in its own prefs file; clearing only that
  * flag replays the wizard without touching app data.
@@ -20,10 +20,10 @@ object ArogyaSetup {
     private const val PREFS = "arogya_setup"
     private const val TAG = "ArogyaDemo"
 
-    enum class Step { LLAMA, WHISPER, GUIDE, SAMPLE }
+    enum class Step { GEMMA, WHISPER, GUIDE, SAMPLE }
 
     data class Scan(
-        val llamaReady: Boolean, val whisperReady: Boolean,
+        val gemmaReady: Boolean, val whisperReady: Boolean,
         val guideReady: Boolean, val guideV2: Boolean, val sampleLoaded: Boolean,
         val found: Map<ArogyaSetupMatch.Kind, Pair<Uri, String>>
     )
@@ -31,10 +31,34 @@ object ArogyaSetup {
     fun isDone(c: Context): Boolean = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("done", false)
     fun markDone(c: Context) { c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("done", true).apply() }
 
-    /** Setup wizard status: models (Llama installed), guide, Meta key. Call off the main thread. */
+    /** Setup wizard status: models (Gemma installed), guide, Groq key. Call off the main thread. */
     fun status(c: Context, guideReady: Boolean): ArogyaSetupPlan.Status =
-        ArogyaSetupPlan.Status(llamaInstalled(c), guideReady, runCatching { GroqKeyStore(c.applicationContext).metaKey().isNotBlank() }.getOrDefault(false))
+        ArogyaSetupPlan.Status(gemmaInstalled(c), guideReady, runCatching { GroqKeyStore(c.applicationContext).groqKey().isNotBlank() }.getOrDefault(false))
 
+    /** The Gemma 3n bundle in filesDir/models (the offline engine). Call off the main thread. */
+    fun gemmaInstalled(c: Context): Boolean = runCatching { ModelFileManager(c.applicationContext).isModelInstalled(ModelFileManager.ModelType.GEMMA_E2B) }.getOrDefault(false)
+
+    /** Copy a Gemma .litertlm bundle from [uri] into filesDir/models and select it. */
+    suspend fun installGemma(c: Context, uri: Uri, name: String, onProgress: (Int) -> Unit): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!ArogyaSetupPlan.gemmaFileNameOk(name)) error("not the Gemma bundle")
+            val dir = File(c.filesDir, "models").also { it.mkdirs() }
+            val target = File(dir, ArogyaSetupPlan.GEMMA_FILE)
+            val total = c.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+            c.contentResolver.openInputStream(uri)?.use { inp ->
+                target.outputStream().use { out ->
+                    val buf = ByteArray(1 shl 20); var done = 0L; var n = inp.read(buf)
+                    while (n > 0) { out.write(buf, 0, n); done += n; if (total > 0) onProgress(((done * 100) / total).toInt().coerceIn(0, 100)); n = inp.read(buf) }
+                }
+            } ?: error("cannot open $name")
+            onProgress(100)
+            ModelFileManager(c.applicationContext).saveModelFileName(ModelFileManager.ModelType.GEMMA_E2B, target.name)
+            Log.i(TAG, "AROGYA_SETUP installed gemma ${target.name} ${target.length()} bytes")
+            gemmaInstalled(c)
+        }.getOrElse { Log.w(TAG, "AROGYA_SETUP gemma failed ${it.message?.take(160)}"); false }
+    }
+
+    @Deprecated("Llama is retired; the offline engine is Gemma 3n.", ReplaceWith("gemmaInstalled(c)"))
     fun llamaInstalled(c: Context): Boolean {
         val meta = File(File(c.filesDir, "models"), "meta")
         if (meta.listFiles()?.any { it.isFile && it.name.endsWith(".gguf", true) && it.length() > 0 } == true) return true
@@ -48,7 +72,7 @@ object ArogyaSetup {
     }
 
     suspend fun scan(c: Context, guideReady: Boolean, guideV2: Boolean, sampleLoaded: Boolean): Scan = withContext(Dispatchers.IO) {
-        Scan(llamaInstalled(c), whisperInstalled(c), guideReady, guideV2, sampleLoaded, findInDownloads(c))
+        Scan(gemmaInstalled(c), whisperInstalled(c), guideReady, guideV2, sampleLoaded, findInDownloads(c))
     }
 
     /** Downloads files the wizard can install, by kind (same MediaStore pattern as the guide update). */
@@ -67,6 +91,7 @@ object ArogyaSetup {
         out
     }.getOrDefault(emptyMap())
 
+    @Deprecated("Llama is retired; the offline engine is Gemma 3n.", ReplaceWith("installGemma(c, uri, name, onProgress)"))
     suspend fun installLlama(c: Context, uri: Uri, name: String, onProgress: (Int) -> Unit): Boolean =
         ModelFileManager(c.applicationContext).installFromUri(uri, ModelFileManager.ModelType.LLAMA3B, name, onProgress)
 

@@ -8,7 +8,7 @@ import android.content.Context
  *  - UI: the phone's language by default (Hindi when the phone is Hindi), with the
  *    हिन्दी/English toggle; the toggle wins once used.
  *  - Voice: Hindi / English / Auto (Hinglish) for dictation, remembered per user
- *    (one ASHA profile per phone), passed to Whisper and Muse Voice Transcribe.
+ *    (one ASHA profile per phone), passed to Whisper (online voice retired).
  */
 object ArogyaLang {
     const val VOICE_AUTO = "auto"
@@ -58,7 +58,7 @@ object ArogyaLang {
         else -> "auto"
     }
 
-    /** Muse Voice Transcribe language bias (MetaModelApi.languages). */
+    /** Retired online-voice language bias (kept: the transcribe signature still takes it). */
     fun metaLanguages(voice: String): List<String> = when (voice) {
         VOICE_HINDI -> listOf("Hindi")
         VOICE_ENGLISH -> listOf("English")

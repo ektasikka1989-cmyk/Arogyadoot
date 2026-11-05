@@ -61,12 +61,12 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
     } else Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
             val villages = remember(data) { data.beneficiaries.map { it.village }.filter { it.isNotBlank() }.distinct() }
-            var dictateTarget by remember { mutableStateOf<((String) -> Unit)?>(null) }
+            // Dictation is inline in each MicField now (no popup).
             val context = LocalContext.current
-            if (dictateTarget != null) ArogyaDictationDialog(onDismiss = { dictateTarget = null },
+            if (false) ArogyaDictationDialog(onDismiss = { },
                 cloudVoice = { s, l -> ArogyaCloud.transcribe(context, s, l) },
                 cloudFirst = ArogyaCloud.cloudFirst(context), hindi = hindi,
-                onAccept = { dictateTarget?.invoke(it); dictateTarget = null })
+                onAccept = { })
             fun toReview(people: List<Beneficiary>, source: String, srcOf: (Int) -> String, note: String = "") {
                 review = people.mapIndexed { i, b -> ReviewPerson(b, srcOf(i), b.birthWeightKg?.toString().orEmpty()) }
                 reviewSource = source; reviewNote = note; step = "review"
@@ -82,7 +82,7 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
                     TextButton(onClick = onClose) { Text(tr("Close", "बंद करें")) }
                 }
                 when (step) {
-                    "manual" -> ManualPersonStep(hindi, villages, { dictateTarget = it }) { b -> toReview(listOf(b), "manual", { tr("typed in", "लिखा हुआ") }) }
+                    "manual" -> ManualPersonStep(hindi, villages) { b -> toReview(listOf(b), "manual", { tr("typed in", "लिखा हुआ") }) }
                     "photo" -> PhotoPersonStep(hindi, ai)
                         { toReview(it, "photo", { i -> tr("person ${i + 1} from photo", "फ़ोटो से व्यक्ति ${i + 1}") }) }
                     "csv" -> CsvPersonStep(hindi)
@@ -90,7 +90,7 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
                     "pdf" -> PdfPersonStep(hindi, ai,
                         { list -> toReview(list, "pdf", { i -> tr("PDF block ${i + 1}", "PDF हिस्सा ${i + 1}") }) })
                     else -> AddPersonReview(hindi, ai != null, review, { review = it }, reviewNote, reviewSource, data, visits, villages,
-                        { dictateTarget = it }, save, onClose)
+                        save, onClose)
                 }
             }
         }
@@ -99,12 +99,12 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
 
 /** Manual path: category first, then the shared fields. */
 @Composable
-private fun ManualPersonStep(hindi: Boolean, villages: List<String>, dictate: (((String) -> Unit)) -> Unit, onDone: (Beneficiary) -> Unit) {
+private fun ManualPersonStep(hindi: Boolean, villages: List<String>, onDone: (Beneficiary) -> Unit) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     var b by remember { mutableStateOf(Beneficiary(category = BenCategory.PREGNANT)) }
     var weight by remember { mutableStateOf("") }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, villages, dictate)
+        PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, villages)
         val ok = b.name.isNotBlank() && (b.category != BenCategory.CHILD || b.dob.isNotBlank()) && (b.category != BenCategory.PREGNANT || b.lmp.isNotBlank())
         Button(onClick = { onDone(b.copy(birthWeightKg = weight.toDoubleOrNull()?.takeIf { it in 0.3..8.0 })) }, enabled = ok, modifier = Modifier.fillMaxWidth()) {
             Text(tr("Continue to review", "जाँच के लिए आगे"))
@@ -140,18 +140,18 @@ private fun PhotoPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Be
                 val tableRows = ArogyaTableOcr.people(lines)
                 val layout = ArogyaTableOcr.rowText(lines).ifBlank { ocr }
                 Log.i("ArogyaDemo", "AROGYA_REGISTER_ROWS lines=${lines.size} people=${tableRows.size}")
-                // Online (Cloud first, or the phone's reading is incomplete): Muse Spark reads the photo like a person,
+                // Online (Cloud first, or the phone's reading is incomplete): Qwen reads the photo like a person,
                 // Aadhaar blacked out first. Every person it finds goes to the same review; the phone's Aadhaar fills in.
                 val phoneRules = ArogyaTableOcr.readPerson(lines)
                 val phoneGood = tableRows.size > 1 || ArogyaTableOcr.CORE.all { !phoneRules[it].isNullOrBlank() }
                 if (ArogyaPhotoVision.wanted(context, phoneGood)) {
-                    msg = tr("Muse Spark is reading the photo…", "Muse Spark फ़ोटो पढ़ रहा है…")
+                    msg = tr("Qwen3 is reading the photo…", "Qwen3 फ़ोटो पढ़ रहा है…")
                     val seen = ArogyaPhotoVision.transcribe(context, bmp, lines, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it) }.orEmpty()
                     Log.i("ArogyaDemo", "AROGYA_PERSON_READ vision_people=${seen.size} phone_rows=${tableRows.size}")
                     if (seen.isNotEmpty()) {
                         val withId = if (seen.size == 1) listOf(phoneRules.filterKeys { it == "aadhaar" } + seen[0]) else seen
-                        msg = tr("Photo read by Muse Spark online (Aadhaar blacked out on the phone before sending). Check each person.",
-                            "फ़ोटो Muse Spark ने ऑनलाइन पढ़ी (भेजने से पहले आधार काला किया)। हर व्यक्ति जाँचें।")
+                        msg = tr("Photo read by Qwen3 online (Aadhaar blacked out on the phone before sending). Check each person.",
+                            "फ़ोटो Qwen3 ने ऑनलाइन पढ़ी (भेजने से पहले आधार काला किया)। हर व्यक्ति जाँचें।")
                         onDone(withId.map { ArogyaPersonCsv.toBeneficiary(it) }); return@launch
                     }
                 }
@@ -177,7 +177,7 @@ private fun PhotoPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Be
                             "यह पंजीकरण पर्ची, रजिस्टर या कार्ड नहीं लगता: नाम, उम्र, मोबाइल, मकान या LMP नहीं मिला। कागज़ जाँचें और फिर फ़ोटो लें।")
                         else tr("The name could not be read on this photo (found: ", "इस फ़ोटो पर नाम नहीं पढ़ा जा सका (मिला: ") +
                             ArogyaTableOcr.CORE.filter { !fields[it].isNullOrBlank() }.joinToString(", ") { personFieldLabel(it, hindi) } +
-                            tr("). Turn on the internet to read it with Muse Spark, or add the person by typing.", ")। Muse Spark से पढ़ने के लिए इंटरनेट चालू करें, या टाइप करके जोड़ें।"))
+                            tr("). Turn on the internet to read it with Qwen3, or add the person by typing.", ")। Qwen3 से पढ़ने के लिए इंटरनेट चालू करें, या टाइप करके जोड़ें।"))
                     listOf(ArogyaPersonCsv.toBeneficiary(fields))
                 }
                 if (found.any { it.aadhaar.isNotBlank() }) msg = tr("Aadhaar number read — saved encrypted, shown masked (last 4 digits).", "आधार नंबर पढ़ा — सुरक्षित (एन्क्रिप्टेड) सेव, सिर्फ़ आखिरी 4 अंक दिखते हैं।")
@@ -393,7 +393,7 @@ private fun splitTableLines(lines: List<String>): Pair<Map<Int, String>, List<St
 @Composable
 private fun AddPersonReview(hindi: Boolean, aiReady: Boolean, people: List<ReviewPerson>, onPeople: (List<ReviewPerson>) -> Unit,
     note: String, source: String, data: RegistryData, visits: List<ArogyaVisit>, villages: List<String>,
-    dictate: (((String) -> Unit)) -> Unit, save: ((RegistryData) -> RegistryData) -> Boolean, onClose: () -> Unit) {
+    save: ((RegistryData) -> RegistryData) -> Boolean, onClose: () -> Unit) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     val context = LocalContext.current
     var consent by remember { mutableStateOf(false) }
@@ -412,7 +412,7 @@ private fun AddPersonReview(hindi: Boolean, aiReady: Boolean, people: List<Revie
                     }
                     if (!rp.skip) {
                         PatientFormFields(hindi, rp.b, rp.weight, { w -> onPeople(people.mapIndexed { j, p -> if (j == i) p.copy(weight = w) else p }) },
-                            { b -> onPeople(people.mapIndexed { j, p -> if (j == i) p.copy(b = b) else p }) }, villages, dictate)
+                            { b -> onPeople(people.mapIndexed { j, p -> if (j == i) p.copy(b = b) else p }) }, villages)
                         val dueLine = remember(rp.b) { runCatching {
                             val (sp, col) = ArogyaOfficialForms.formFor(rp.b, data.forms)
                             val due = ArogyaOfficialForms.nextDue(sp, rp.b, col, LocalDate.now())

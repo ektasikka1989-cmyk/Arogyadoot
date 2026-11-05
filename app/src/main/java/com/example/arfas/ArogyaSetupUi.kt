@@ -104,7 +104,7 @@ private fun VoiceCheckCard(hindi: Boolean) {
     val whisperMb = remember {
         runCatching { File(context.filesDir, "whisper").listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L }.getOrDefault(0L) / 1_000_000
     }
-    val onlineVoice = remember { runCatching { GroqKeyStore(context.applicationContext).metaKey().isNotBlank() }.getOrDefault(false) }
+    // Online voice (Muse Voice) retired: voice notes use on-phone Whisper (above).
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(tr("Mic and speaker check", "माइक और स्पीकर जाँच"), fontWeight = FontWeight.Bold)
@@ -116,8 +116,8 @@ private fun VoiceCheckCard(hindi: Boolean) {
             Text((if (whisperReady) "✓ " else "○ ") + tr("Offline voice typing (Whisper): ", "ऑफ़लाइन आवाज़ से लिखना (Whisper): ") +
                 (if (whisperReady) tr("ready", "तैयार") + (if (whisperMb > 0) " ($whisperMb MB)" else "") else tr("model files not found", "मॉडल फ़ाइलें नहीं मिलीं")),
                 style = MaterialTheme.typography.bodySmall)
-            Text((if (onlineVoice) "✓ " else "○ ") + tr("Online voice (Muse Voice): ", "ऑनलाइन आवाज़ (Muse Voice): ") +
-                (if (onlineVoice) tr("key saved — works when connected", "key सेव है — इंटरनेट पर चलेगी") else tr("needs the Meta key (step 3)", "Meta key चाहिए (कदम 3)")),
+            Text("○ " + tr("Online voice: ", "ऑनलाइन आवाज़: ") +
+                tr("not needed — voice notes run on Whisper (above)", "ज़रूरी नहीं — वॉइस नोट ऊपर Whisper से चलते हैं"),
                 style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
@@ -164,7 +164,7 @@ private val SetupGreen = Color(0xFF1B8E3E)
 
 /**
  * First-run setup wizard (and from the Home banner / More → Setup), in the style of mobile games' "download
- * resources" screens and phone setup: Welcome → 1 Offline AI models → 2 Health guide → 3 Meta key → All set.
+ * resources" screens and phone setup: Welcome → 1 Offline AI model → 2 Health guide → 3 Groq key → All set.
  * Every step can be skipped; the last screen says in plain words what works with what is installed.
  * [startAt] opens the wizard on a given step (the Home banner opens the first unfinished one).
  */
@@ -266,9 +266,9 @@ private fun WelcomePage(hindi: Boolean) {
             textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Spacer(Modifier.height(8.dp))
-    listOf(Triple("📦", tr("Offline AI models", "ऑफ़लाइन AI मॉडल"), tr("Meta Llama 3.2 and more · ${ArogyaSetupPlan.gb(ArogyaSetupPlan.MODELS_BYTES)} · AI on the phone, no internet needed", "Meta Llama 3.2 और अन्य · ${ArogyaSetupPlan.gb(ArogyaSetupPlan.MODELS_BYTES)} · बिना इंटरनेट फ़ोन पर AI")),
+    listOf(Triple("📦", tr("Offline AI model", "ऑफ़लाइन AI मॉडल"), tr("Gemma 3n E2B · ${ArogyaSetupPlan.gb(ArogyaSetupPlan.GEMMA_BYTES)} · AI on the phone, no internet needed", "Gemma 3n E2B · ${ArogyaSetupPlan.gb(ArogyaSetupPlan.GEMMA_BYTES)} · बिना इंटरनेट फ़ोन पर AI")),
         Triple("📚", tr("Health guide", "स्वास्थ्य गाइड"), tr("Official ASHA guides · comes with the app", "आधिकारिक आशा गाइड · ऐप के साथ आती है")),
-        Triple("🔑", tr("Meta AI key (optional)", "Meta AI key (वैकल्पिक)"), tr("Better answers online with Muse Spark", "Muse Spark से बेहतर ऑनलाइन जवाब")))
+        Triple("🔑", tr("Groq AI key (optional)", "Groq AI key (वैकल्पिक)"), tr("Better answers online with Qwen3", "Qwen3 से बेहतर ऑनलाइन जवाब")))
         .forEachIndexed { i, (e, t, d) ->
             Card(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -284,7 +284,7 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
     fun tr(en: String, hi: String) = if (hindi) hi else en
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val name = ArogyaSetupPlan.MODELS_FILE
+    val name = ArogyaSetupPlan.GEMMA_FILE
     var wifiOnly by remember { mutableStateOf(true) }
     var dl by remember { mutableStateOf(ArogyaSetupDownload.query(context, name)) }
     var speed by remember { mutableStateOf(0L) }
@@ -301,41 +301,59 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
     val free = remember { (context.getExternalFilesDir(null) ?: context.filesDir).usableSpace }
     fun install(uri: Uri, fromDownload: Boolean) {
         if (installing) return
-        installing = true; error = ""; installMsg = tr("Installing the models…", "मॉडल इंस्टॉल हो रहे हैं…")
+        installing = true; error = ""; installMsg = tr("Installing the Gemma model…", "Gemma मॉडल इंस्टॉल हो रहा है…")
         scope.launch {
             try {
                 if (fromDownload) {
                     val bytes = withContext(Dispatchers.IO) { ArogyaSetupDownload.file(context, name).length() }
                     Log.i("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD complete name=$name bytes=$bytes")
-                    if (!ArogyaSetupPlan.downloadComplete(bytes)) {
+                    if (!ArogyaSetupPlan.gemmaDownloadComplete(bytes)) {
                         error = tr("The download looks incomplete, so it was not installed. Start the download again.",
                             "डाउनलोड अधूरा लगता है, इसलिए इंस्टॉल नहीं किया। डाउनलोड फिर से शुरू करें।")
-                        Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD incomplete name=$name bytes=$bytes expected=${ArogyaSetupPlan.MODELS_BYTES}")
+                        Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD incomplete name=$name bytes=$bytes expected=${ArogyaSetupPlan.GEMMA_BYTES}")
                         return@launch
                     }
                 }
-                // Verify the archive before extraction: an HTML error page must never be treated as a zip.
+                // Verify the bundle before install: the exact Gemma file name and the full ~2 GB size.
+                val pickedName = if (fromDownload) name else withContext(Dispatchers.IO) {
+                    runCatching { context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cur -> if (cur.moveToFirst()) cur.getString(0) else null } }.getOrNull() ?: name
+                }
+                if (!ArogyaSetupPlan.gemmaFileNameOk(pickedName)) {
+                    Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD not_gemma name=$pickedName")
+                    if (fromDownload) { ArogyaSetupDownload.finish(context, name); dl = null }
+                    error = tr("This file is not the Gemma 3n bundle (gemma-3n-E2B-it-int4.litertlm), so it was not installed.", "यह फ़ाइल Gemma 3n बंडल नहीं है (gemma-3n-E2B-it-int4.litertlm), इसलिए इंस्टॉल नहीं की।")
+                    return@launch
+                }
+                if (!fromDownload) {
+                    val pickedBytes = withContext(Dispatchers.IO) { runCatching { context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } }.getOrNull() ?: -1L }
+                    if (!ArogyaSetupPlan.gemmaDownloadComplete(pickedBytes)) {
+                        Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD incomplete name=$pickedName bytes=$pickedBytes expected=${ArogyaSetupPlan.GEMMA_BYTES}")
+                        error = tr("This file looks incomplete (smaller than the 2 GB Gemma bundle), so it was not installed.", "यह फ़ाइल अधूरी लगती है (2 GB Gemma बंडल से छोटी), इसलिए इंस्टॉल नहीं की।")
+                        return@launch
+                    }
+                }
+                // An HTML error page must never be installed as the bundle.
                 val head: ByteArray? = withContext(Dispatchers.IO) {
                     runCatching {
                         if (fromDownload) ArogyaSetupDownload.file(context, name).inputStream().use { headBytes(it) }
                         else context.contentResolver.openInputStream(uri)?.use { headBytes(it) }
                     }.getOrNull()
                 }
-                if (head == null || !ArogyaSetupPlan.zipMagicOk(head)) {
+                if (head != null && ArogyaSetupPlan.looksLikeHtml(head)) {
                     val html = head != null && ArogyaSetupPlan.looksLikeHtml(head)
                     Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD not_a_zip name=$name html=$html")
                     if (fromDownload) { ArogyaSetupDownload.finish(context, name); dl = null }
-                    error = if (html) tr("The download was an error page, not the models zip. Start the download again.",
-                        "डाउनलोड मॉडल zip नहीं, एक error पेज था। डाउनलोड फिर से शुरू करें।")
-                    else tr("This file is not a valid models zip, so it was not installed.",
-                        "यह फ़ाइल सही मॉडल zip नहीं है, इसलिए इंस्टॉल नहीं की।")
+                    error = if (html) tr("The download was an error page, not the Gemma bundle. Start the download again.",
+                        "डाउनलोड Gemma बंडल नहीं, एक error पेज था। डाउनलोड फिर से शुरू करें।")
+                    else tr("This file is not the Gemma bundle, so it was not installed.",
+                        "यह फ़ाइल Gemma बंडल नहीं है, इसलिए इंस्टॉल नहीं की।")
                     return@launch
                 }
-                val report = ModelFileManager(context.applicationContext).installOneZipFromUri(uri) { msg, pct -> installMsg = msg; installPct = pct }
-                val ok = withContext(Dispatchers.IO) { ArogyaSetup.llamaInstalled(context) }
-                Log.i("ArogyaDemo", "AROGYA_SETUP models_install ok=$ok ready=${report.successCount}/${report.totalCount}")
+                installMsg = tr("Installing the Gemma model…", "Gemma मॉडल इंस्टॉल हो रहा है…"); ArogyaSetup.installGemma(context, uri, pickedName) { installPct = it }
+                val ok = withContext(Dispatchers.IO) { ArogyaSetup.gemmaInstalled(context) }
+                Log.i("ArogyaDemo", "AROGYA_SETUP models_install ok=$ok")
                 if (ok) { if (fromDownload) ArogyaSetupDownload.finish(context, name); dl = null }
-                else error = report.logs.firstOrNull { it.startsWith("✗") }?.removePrefix("✗ ") ?: tr("The Llama model was not found in this zip.", "इस zip में Llama मॉडल नहीं मिला।")
+                else error = tr("The Gemma model did not install. Check free space and try again.", "Gemma मॉडल इंस्टॉल नहीं हुआ। खाली जगह जाँचकर फिर कोशिश करें।")
             } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 error = tr("Install stopped: ", "इंस्टॉल रुका: ") + (e.message ?: "").take(160)
             } finally { installing = false; onChanged() }
@@ -354,12 +372,12 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
                 lastBytes = s.done; lastT = now
                 if (s.ok && !installingNow && !installedNow) {
                     // One auto-install per finished download (content link first, like the guide page):
-                    // without the id guard a failed install would re-stream the 3 GB zip every 800 ms.
+                    // without the id guard a failed install would re-copy the 2 GB bundle every 800 ms.
                     val id = ArogyaSetupDownload.savedId(context, name)
                     if (id != autoInstalledId) { autoInstalledId = id; install(ArogyaSetupDownload.contentUri(context, name) ?: Uri.fromFile(ArogyaSetupDownload.file(context, name)), true) }
                 }
                 if (s.failed && !installingNow && !installedNow) {
-                    if (ArogyaSetupDownload.source(context, name) == 0) {
+                    if (name == ArogyaSetupPlan.MODELS_FILE && ArogyaSetupDownload.source(context, name) == 0) { // Gemma has one source; the standby below serves only the retired zip
                         // Primary (Cloudflare) failed: try the Hugging Face standby automatically, once.
                         notice = tr("The main link failed — trying the standby link…", "मुख्य लिंक नहीं चला — दूसरा लिंक आज़मा रहे हैं…")
                         Log.i("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD primary failed (${s.reason}); trying fallback")
@@ -367,7 +385,7 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
                             .onFailure { error = tr("Standby download could not start: ", "दूसरा डाउनलोड शुरू नहीं हुआ: ") + (it.message ?: "") }
                     } else {
                         notice = ""
-                        error = tr("Both download links failed: ", "दोनों लिंक से डाउनलोड नहीं हुआ: ") + s.reason +
+                        error = tr("Download failed: ", "डाउनलोड नहीं हुआ: ") + s.reason +
                             tr(". Check the connection and try again, or choose the file below if you already have it.", "। कनेक्शन जाँचकर फिर कोशिश करें, या फ़ाइल पहले से हो तो नीचे से चुनें।")
                     }
                 }
@@ -379,9 +397,9 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
 
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StepIcon("📦")
-        Text(tr("Offline AI models", "ऑफ़लाइन AI मॉडल"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(tr("Meta Llama 3.2 3B and the other Meta models, so the phone can answer, read photos and fill forms with no internet.",
-            "Meta Llama 3.2 3B और दूसरे Meta मॉडल, ताकि फ़ोन बिना इंटरनेट जवाब दे, फ़ोटो पढ़े और फ़ॉर्म भरे।"), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
+        Text(tr("Offline AI model", "ऑफ़लाइन AI मॉडल"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(tr("Gemma 3n E2B on the phone, so it can answer, read photos and fill forms with no internet.",
+            "फ़ोन पर Gemma 3n E2B, ताकि यह बिना इंटरनेट जवाब दे, फ़ोटो पढ़े और फ़ॉर्म भरे।"), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
     }
     if (installed) {
         DoneBadge(tr("Done — offline AI models are installed", "हो गया — ऑफ़लाइन AI मॉडल इंस्टॉल हैं"))
@@ -390,12 +408,12 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
     }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row { Text(tr("Download size", "डाउनलोड"), Modifier.weight(1f)); Text(ArogyaSetupPlan.gb(ArogyaSetupPlan.MODELS_BYTES), fontWeight = FontWeight.Bold) }
-            val enough = free >= ArogyaSetupPlan.MODELS_FREE_NEEDED
+            Row { Text(tr("Download size", "डाउनलोड"), Modifier.weight(1f)); Text(ArogyaSetupPlan.gb(ArogyaSetupPlan.GEMMA_BYTES), fontWeight = FontWeight.Bold) }
+            val enough = free >= ArogyaSetupPlan.gemmaFreeNeeded()
             Row { Text(tr("Free space on phone", "फ़ोन में खाली जगह"), Modifier.weight(1f))
                 Text(ArogyaSetupPlan.gb(free) + if (enough) " ✓" else " ✗", fontWeight = FontWeight.Bold, color = if (enough) SetupGreen else MaterialTheme.colorScheme.error) }
-            if (!enough) Text(tr("Needs about ${ArogyaSetupPlan.gb(ArogyaSetupPlan.MODELS_FREE_NEEDED)} free while installing (the zip is deleted afterwards). Free some space, or skip this step.",
-                "इंस्टॉल के समय लगभग ${ArogyaSetupPlan.gb(ArogyaSetupPlan.MODELS_FREE_NEEDED)} खाली जगह चाहिए (बाद में zip हट जाती है)। जगह खाली करें या यह कदम छोड़ें।"),
+            if (!enough) Text(tr("Needs about ${ArogyaSetupPlan.gb(ArogyaSetupPlan.gemmaFreeNeeded())} free while installing (the download is deleted afterwards). Free some space, or skip this step.",
+                "इंस्टॉल के समय लगभग ${ArogyaSetupPlan.gb(ArogyaSetupPlan.gemmaFreeNeeded())} खाली जगह चाहिए (बाद में डाउनलोड हट जाता है)। जगह खाली करें या यह कदम छोड़ें।"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             val s = dl
             when {
@@ -405,14 +423,14 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
                     Text(tr("Keep the app open until this finishes.", "पूरा होने तक ऐप खुला रखें।"), style = MaterialTheme.typography.labelSmall)
                 }
                 s != null && s.running -> {
-                    val total = if (s.total > 0) s.total else ArogyaSetupPlan.MODELS_BYTES
+                    val total = if (s.total > 0) s.total else ArogyaSetupPlan.GEMMA_BYTES
                     LinearProgressIndicator(progress = { (s.done.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(8.dp))
                     Text("${(s.done * 100 / total).coerceIn(0, 100)}% · " + ArogyaSetupPlan.progressLine(s.done, total, speed, hindi), style = MaterialTheme.typography.bodySmall)
                     if (s.reason.isNotBlank()) Text(if (s.waitingForWifi) tr("Waiting for Wi-Fi — connect to Wi-Fi, or untick \"Wi-Fi only\" and start again.", "Wi-Fi का इंतज़ार — Wi-Fi जोड़ें, या \"सिर्फ़ Wi-Fi\" हटाकर फिर शुरू करें।") else s.reason,
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                     Text(tr("You can leave this screen — the download continues in the background and shows a notification.", "आप यह स्क्रीन छोड़ सकती हैं — डाउनलोड पीछे चलता रहेगा और सूचना दिखेगी।"),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedButton(onClick = { ArogyaSetupDownload.cancel(context, ArogyaSetupPlan.MODELS_FILE); dl = null; speed = 0 }) { Text(tr("Cancel download", "डाउनलोड रोकें")) }
+                    OutlinedButton(onClick = { ArogyaSetupDownload.cancel(context, name); dl = null; speed = 0 }) { Text(tr("Cancel download", "डाउनलोड रोकें")) }
                 }
                 else -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -420,7 +438,7 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
                     }
                     Button(onClick = {
                         error = ""
-                        runCatching { ArogyaSetupDownload.start(context, ArogyaSetupPlan.MODELS_URL_PRIMARY, ArogyaSetupPlan.MODELS_FILE, tr("ArogyaDoot — offline AI models", "ArogyaDoot — ऑफ़लाइन AI मॉडल"), wifiOnly) }
+                        runCatching { ArogyaSetupDownload.start(context, ArogyaSetupPlan.GEMMA_URL_PRIMARY, ArogyaSetupPlan.GEMMA_FILE, tr("ArogyaDoot — Gemma 3n model", "ArogyaDoot — Gemma 3n मॉडल"), wifiOnly) }
                             .onFailure { error = tr("Could not start the download: ", "डाउनलोड शुरू नहीं हुआ: ") + it.message }
                         speed = 0
                     }, enabled = enough, modifier = Modifier.fillMaxWidth()) { Text(tr("⬇ Download and install", "⬇ डाउनलोड और इंस्टॉल करें")) }
@@ -433,7 +451,7 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Already have the file?", "फ़ाइल पहले से है?"), fontWeight = FontWeight.Bold)
-            Text(tr("Choose ${ArogyaSetupPlan.MODELS_FILE} from the phone (for example copied from a laptop).", "फ़ोन से ${ArogyaSetupPlan.MODELS_FILE} चुनें (जैसे लैपटॉप से कॉपी की हुई)।"), style = MaterialTheme.typography.bodySmall)
+            Text(tr("Choose ${ArogyaSetupPlan.GEMMA_FILE} from the phone (for example copied from a laptop).", "फ़ोन से ${ArogyaSetupPlan.GEMMA_FILE} चुनें (जैसे लैपटॉप से कॉपी की हुई)।"), style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = { runCatching { pick.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) } }, enabled = !installing) { Text(tr("📂 Choose file", "📂 फ़ाइल चुनें")) }
         }
     }
@@ -539,25 +557,27 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
     var result by remember { mutableStateOf("") }
     var ok by remember { mutableStateOf(false) }
     var offerSaveAnyway by remember { mutableStateOf(false) }
-    fun save(k: String) {
-        FixSightRuntimeGraph.get(context).updateGroqKey(k)   // encrypted Meta key + the answer engine updated at once
-        onChanged()
+    fun save(k: String): Boolean {
+        FixSightRuntimeGraph.get(context).updateGroqKey(k)   // encrypted Groq key + the answer engine updated at once
+        val savedNow = runCatching { GroqKeyStore(context.applicationContext).groqKey().isNotBlank() }.getOrDefault(false)
+        if (savedNow) onChanged()
+        return savedNow
     }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StepIcon("🔑")
-        Text(tr("Meta AI key (optional)", "Meta AI key (वैकल्पिक)"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(tr("With a key, ArogyaDoot gives better answers online with Meta Muse Spark, plus online voice (Muse Voice) and drug-kit counting (SAM 3.1). Without it, everything runs on the phone.",
-            "Key से ArogyaDoot ऑनलाइन Meta Muse Spark से बेहतर जवाब देता है, साथ में ऑनलाइन आवाज़ (Muse Voice) और दवा किट गिनती (SAM 3.1)। इसके बिना सब फ़ोन पर चलता है।"),
+        Text(tr("Groq AI key (optional)", "Groq AI key (वैकल्पिक)"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(tr("With a key, ArogyaDoot gives better answers online with Qwen3 on Groq, plus photo reading. Without it, everything runs on the phone.",
+            "Key से ArogyaDoot ऑनलाइन Groq पर Qwen3 से बेहतर जवाब देता है, साथ में फ़ोटो पढ़ना। इसके बिना सब फ़ोन पर चलता है।"),
             textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
     }
-    if (saved && result.isBlank()) DoneBadge(tr("Done — a Meta key is saved", "हो गया — Meta key सेव है"))
+    if (saved && result.isBlank()) DoneBadge(tr("Done — a Groq key is saved", "हो गया — Groq key सेव है"))
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("1. No key yet? Create one free on Meta's site, then copy it.", "1. Key नहीं है? Meta की साइट पर मुफ़्त बनाएँ, फिर कॉपी करें।"), fontWeight = FontWeight.Bold)
+            Text(tr("1. No key yet? Create one free on Groq's site, then copy it.", "1. Key नहीं है? Groq की साइट पर मुफ़्त बनाएँ, फिर कॉपी करें।"), fontWeight = FontWeight.Bold)
             OutlinedButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ArogyaSetupPlan.KEY_PAGE)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } },
-                modifier = Modifier.fillMaxWidth()) { Text(tr("🔗 Create a free key at dev.meta.ai", "🔗 dev.meta.ai पर मुफ़्त key बनाएँ")) }
+                modifier = Modifier.fillMaxWidth()) { Text(tr("🔗 Create a free key at console.groq.com", "🔗 console.groq.com पर मुफ़्त key बनाएँ")) }
             Text(tr("2. Paste the key here and test it.", "2. Key यहाँ चिपकाएँ और जाँचें।"), fontWeight = FontWeight.Bold)
-            OutlinedTextField(key, { key = it.trim(); result = ""; ok = false; offerSaveAnyway = false }, label = { Text(if (saved) tr("Replace saved key", "सेव key बदलें") else tr("Meta API key", "Meta API key")) },
+            OutlinedTextField(key, { key = it.trim(); result = ""; ok = false; offerSaveAnyway = false }, label = { Text(if (saved) tr("Replace saved key", "सेव key बदलें") else tr("Groq API key", "Groq API key")) },
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                 visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -571,26 +591,26 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
                     val outcome: Pair<Boolean, String> = withContext(Dispatchers.IO) {
                         if (!MetaOnline.hasInternet(context)) return@withContext false to "offline"
                         try {
-                            val api = MetaModelApi(apiKey = { k }, gate = PrivacyGate(File(context.filesDir, "meta_egress.log")))
-                            val reply = withTimeoutOrNull(25_000) { api.spark("arogya_setup_key_test", "Reply with one word.", "Say OK.") }
-                            if (reply == null) false to "timeout" else true to reply.take(20)
-                        } catch (e: CancellationException) { throw e } catch (e: MetaModelApi.ApiException) {
+                            val groqEp = ArogyaModelEndpoints.byId("groq") ?: error("no Groq endpoint"); val client = OpenAiCompatibleClient(groqEp, { k }, 25_000)
+                            val reply = withTimeoutOrNull(25_000) { client.completeStream("Reply with one word.", "Say OK.", 10) {} }
+                            if (reply == null) false to "timeout" else if (reply.isBlank()) false to "empty reply" else true to reply.take(20)
+                        } catch (e: CancellationException) { throw e } catch (e: OpenAiCompatibleClient.HttpError) {
                             false to (if (e.code == 401 || e.code == 403) "rejected" else "http ${e.code}")
                         } catch (e: Exception) { false to "error ${e.message?.take(80)}" }
                     }
                     testing = false
                     when {
-                        outcome.first -> { save(k); ok = true; key = ""; result = tr("✓ The key works — Meta Muse Spark answered. Saved.", "✓ Key चल रही है — Meta Muse Spark ने जवाब दिया। सेव हो गई।") }
+                        outcome.first -> { if (save(k)) { ok = true; key = ""; result = tr("✓ The key works — Qwen3 answered. Saved.", "✓ Key चल रही है — Qwen3 ने जवाब दिया। सेव हो गई।") } else result = tr("The key works but could not be saved on this phone (keystore error).", "Key चली, पर इस फ़ोन में सेव नहीं हुई (keystore error)।") }
                         outcome.second == "offline" -> { result = tr("No internet right now, so the key cannot be tested.", "अभी इंटरनेट नहीं, इसलिए key जाँची नहीं जा सकती।"); offerSaveAnyway = true }
-                        outcome.second == "rejected" -> result = tr("Meta rejected this key. Copy it again from dev.meta.ai and paste.", "Meta ने यह key नहीं मानी। dev.meta.ai से फिर कॉपी करके चिपकाएँ।")
-                        outcome.second == "timeout" -> { result = tr("Meta did not reply in 25 s (weak signal?).", "Meta ने 25 सेकंड में जवाब नहीं दिया (कमज़ोर सिग्नल?)।"); offerSaveAnyway = true }
+                        outcome.second == "rejected" -> result = tr("Groq rejected this key. Copy it again from console.groq.com and paste.", "Groq ने यह key नहीं मानी। console.groq.com से फिर कॉपी करके चिपकाएँ।")
+                        outcome.second == "timeout" -> { result = tr("Groq did not reply in 25 s (weak signal?).", "Groq ने 25 सेकंड में जवाब नहीं दिया (कमज़ोर सिग्नल?)।"); offerSaveAnyway = true }
                         else -> { result = tr("The test did not work: ", "जाँच नहीं हुई: ") + outcome.second; offerSaveAnyway = true }
                     }
                     Log.i("ArogyaDemo", "AROGYA_SETUP key_test ok=${outcome.first} why=${if (outcome.first) "ok" else outcome.second.take(30)}")
                 }
             }, enabled = !testing && key.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (testing) tr("Testing…", "जाँच रहे हैं…") else tr("Test and save key", "जाँचें और सेव करें")) }
             if (result.isNotBlank()) Text(result, color = if (ok) SetupGreen else MaterialTheme.colorScheme.error, fontWeight = if (ok) FontWeight.Bold else FontWeight.Normal)
-            if (offerSaveAnyway) OutlinedButton(onClick = { save(key); key = ""; offerSaveAnyway = false; ok = true; result = tr("Saved. It will be used when there is internet.", "सेव हो गई। इंटरनेट होने पर इस्तेमाल होगी।") }) {
+            if (offerSaveAnyway) OutlinedButton(onClick = { if (save(key)) { key = ""; offerSaveAnyway = false; ok = true; result = tr("Saved. It will be used when there is internet.", "सेव हो गई। इंटरनेट होने पर इस्तेमाल होगी।") } else { offerSaveAnyway = false; ok = false; result = tr("Could not save on this phone (keystore error).", "इस फ़ोन में सेव नहीं हुई (keystore error)।") } }) {
                 Text(tr("Save without testing", "बिना जाँचे सेव करें")) }
             Text(tr("🔒 Stored encrypted on this phone only. Names, phone numbers and Aadhaar are removed before anything is sent online.",
                 "🔒 सिर्फ़ इसी फ़ोन पर सुरक्षित (एन्क्रिप्टेड)। ऑनलाइन भेजने से पहले नाम, फ़ोन नंबर और आधार हटाए जाते हैं।"),
@@ -612,9 +632,9 @@ private fun DonePage(hindi: Boolean, s: ArogyaSetupPlan.Status) {
     }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(s.models to tr("Offline AI models (Meta Llama 3.2 and more)", "ऑफ़लाइन AI मॉडल (Meta Llama 3.2 और अन्य)"),
+            listOf(s.models to tr("Offline AI model (Gemma 3n E2B)", "ऑफ़लाइन AI मॉडल (Gemma 3n E2B)"),
                 s.guide to tr("ASHA Health Guide", "आशा स्वास्थ्य गाइड"),
-                s.key to tr("Meta AI key (Muse Spark, Muse Voice, SAM 3.1)", "Meta AI key (Muse Spark, Muse Voice, SAM 3.1)")).forEach { (done, label) ->
+                s.key to tr("Groq AI key (Qwen3)", "Groq AI key (Qwen3)")).forEach { (done, label) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(24.dp).background(if (done) SetupGreen else MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) {
                         Text(if (done) "✓" else "–", color = if (done) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold) }

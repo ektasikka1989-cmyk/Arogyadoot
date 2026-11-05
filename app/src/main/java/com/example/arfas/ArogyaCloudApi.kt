@@ -5,8 +5,8 @@ package com.example.arfas
  * Meta cloud models, used only when there is signal and a key is saved. Everything has an offline fallback on the phone.
  * Endpoints and model ids are from Meta's Model API docs (dev.meta.ai/docs/models, /speech-to-text, /media-segmentation,
  * /muse-glimmer/deploy), read 31 Oct 2026. Not yet called live from this app (no key yet).
- *  - Muse Spark 1.3     → POST https://api.meta.ai/v1/chat/completions      (OpenAiCompatibleClient)
- *  - Muse Voice Transcribe and SAM 3.1 → ArogyaDoot's existing MetaModelApi (via MetaOnline), which masks names and logs egress.
+ *  - Muse Spark 1.3 (RETIRED) → was POST https://api.meta.ai/v1/chat/completions (OpenAiCompatibleClient)
+ *  - Muse Voice Transcribe and SAM 3.1 (RETIRED) → was MetaModelApi (via MetaOnline).
  *  - Muse Glimmer 30B   → POST https://api.together.xyz/v1/chat/completions model "meta-models/Muse-Glimmer-30B" (Together AI key)
  */
 object MetaCloud {
@@ -17,6 +17,12 @@ object MetaCloud {
 
 }
 
+/** Groq cloud (OpenAI-compatible): Qwen text model, used when a Groq key is saved. Model id pending Stage E verification. */
+object GroqCloud {
+    const val BASE = "https://api.groq.com/openai/v1"
+    const val QWEN = "qwen/qwen3.8-27b"
+}
+
 /** Home mode-switch status line: text + ok (true = green, false = amber). Pure, host-tested. */
 object ArogyaModeStatus {
     fun line(cloudFirst: Boolean, online: Boolean, hasKey: Boolean, hindi: Boolean): Pair<String, Boolean> {
@@ -24,13 +30,13 @@ object ArogyaModeStatus {
         return when {
             !cloudFirst -> tr("Offline · everything runs on this phone", "ऑफ़लाइन · सब कुछ इसी फ़ोन पर चलता है") to true
             !online -> tr("Online selected · no internet — using phone", "ऑनलाइन चुना · इंटरनेट नहीं — फ़ोन इस्तेमाल होगा") to false
-            !hasKey -> tr("Online needs a Meta key — tap to add", "ऑनलाइन को Meta key चाहिए — जोड़ने के लिए दबाएँ") to false
-            else -> tr("Online · Meta key ✓ · internet ✓", "ऑनलाइन · Meta key ✓ · इंटरनेट ✓") to true
+            !hasKey -> tr("Online needs a Groq key — tap to add", "ऑनलाइन को Groq key चाहिए — जोड़ने के लिए दबाएँ") to false
+            else -> tr("Online · Groq key ✓ · internet ✓", "ऑनलाइन · Groq key ✓ · इंटरनेट ✓") to true
         }
     }
 }
 
-/** Items counted from ArogyaDoot's SAM 3.1 boxes: confident matches only (when confidence is returned). */
+/** Items counted from the photo counter's boxes: confident matches only (when confidence is returned). */
 object ArogyaSamCount {
     fun count(confidences: List<Float?>, minConf: Float = 0.5f) = confidences.count { (it ?: 1f) >= minConf }
 }

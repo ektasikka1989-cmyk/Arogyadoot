@@ -16,8 +16,8 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 
 /**
- * Small tag beside an AI result: "✨ Muse Spark 1.3 ☁". Tap it → a small box names every step that made this
- * answer (e.g. "Phone: ML Kit + rules → incomplete; Meta Muse Spark 1.3, online"). Tapping anywhere else closes it.
+ * Small tag beside an AI result: "✨ Qwen3.8 27B ☁". Tap it → a small box names every step that made this
+ * answer (e.g. "Phone: ML Kit + rules → incomplete; Qwen3.8 27B, online"). Tapping anywhere else closes it.
  * Shows only what actually ran for this answer (the engine text recorded by the feature), never a guess.
  */
 @Composable
@@ -62,7 +62,7 @@ fun AiStepsPopup(engine: String, hindi: Boolean, ms: Long, onlineHint: Boolean?,
 
 /**
  * Shown when the phone's offline reading of a photo is incomplete: what was captured, what was not, and a button
- * to read the same photo again online with Muse Spark (Meta). Nothing is sent until the ASHA presses it.
+ * to read the same photo again online with Qwen (Groq). Nothing is sent until the ASHA presses it.
  */
 @Composable
 fun ReadOnlineOffer(captured: List<String>, missing: List<String>, hindi: Boolean, busy: Boolean, note: String, onReadOnline: () -> Unit) {
@@ -75,7 +75,7 @@ fun ReadOnlineOffer(captured: List<String>, missing: List<String>, hindi: Boolea
             Text(tr("Not captured: ", "नहीं पढ़ा गया: ") + missing.joinToString(", "), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
             Text(tr("For a better reading, read this photo online.", "बेहतर पढ़ाई के लिए यह फ़ोटो ऑनलाइन पढ़ें।"), fontSize = 12.sp)
             Button(onClick = onReadOnline, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                Text(if (busy) tr("Muse Spark is reading…", "Muse Spark पढ़ रहा है…") else tr("☁ Read online with Muse Spark (Meta)", "☁ Muse Spark (Meta) से ऑनलाइन पढ़ें"))
+                Text(if (busy) tr("Qwen3 is reading…", "Qwen3 पढ़ रहा है…") else tr("☁ Read online with Qwen3 (Groq)", "☁ Qwen3 (Groq) से ऑनलाइन पढ़ें"))
             }
             Text(tr("Aadhaar is blacked out on the phone before the photo is sent.", "भेजने से पहले आधार फ़ोन पर काला किया जाता है।"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (note.isNotBlank()) Text(note, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)

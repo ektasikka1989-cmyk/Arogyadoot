@@ -2,10 +2,12 @@ package com.example.arfas
 
 /**
  * The first-run setup wizard's plan and words (pure Kotlin, host-tested):
- *  1. Offline AI models — the Meta models zip (Cloudflare first, Hugging Face standby, or a zip the ASHA already has),
+ *  1. Offline AI model — the Gemma 3n E2B bundle (owner host, or a file the ASHA already has),
  *  2. Health guides — the guide bundled in the APK; downloaded only if that install fails,
- *  3. Meta API key — optional; "Create a free key" opens Meta's developer page.
+ *  3. Groq API key — optional; "Create a free key" opens Groq's console page.
  * Every step can be skipped; [summary] says honestly what works with what is installed.
+ * The retired Meta models zip (MODELS_URL_*) is no longer downloaded; step 1 installs the
+ * Gemma bundle above.
  */
 object ArogyaSetupPlan {
     const val MODELS_URL_PRIMARY = "https://pub-c8d63c87f3ff45c6919a4bdeb91cb247.r2.dev/Pramaan_Meta_Models.zip"
@@ -17,7 +19,30 @@ object ArogyaSetupPlan {
     const val GUIDE_URL = "https://huggingface.co/datasets/EktaSikka/Pramaan_Knowledge_Base/resolve/main/ASHA_Health_Guide_v2.db"
     const val GUIDE_FILE = "ASHA_Health_Guide_v2.db"
     const val GUIDE_BYTES = 24_500_000L
-    const val KEY_PAGE = "https://dev.meta.ai/"
+    const val KEY_PAGE = "https://console.groq.com/keys"
+
+    // ── Gemma 3n E2B (future offline engine; Stage C: download + install + verify only) ──
+    /** Exact official bundle name. The -Web and .mediatek. variants are different builds: rejected. */
+    const val GEMMA_FILE = "gemma-3n-E2B-it-int4.litertlm"
+    /** Primary: owner-hosted ungated copy (same pattern as the Meta pack). */
+    const val GEMMA_URL_PRIMARY = "https://huggingface.co/datasets/EktaSikka/Gemma/resolve/main/gemma-3n-E2B-it-int4.litertlm?download=true"
+    /** Fallback: official source (Hugging Face, Gemma terms gated: needs a user token, never anonymous). */
+    const val GEMMA_HF_URL = "https://huggingface.co/google/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4.litertlm"
+    /** Page where the user accepts the Gemma terms and creates a free token. */
+    const val GEMMA_LICENSE_URL = "https://huggingface.co/google/gemma-3n-E2B-it-litert-lm"
+    /** Back-compat alias: the primary (owner-hosted) link. */
+    const val GEMMA_URL = GEMMA_URL_PRIMARY
+    /** Floor for the ~2.1 GB bundle; completion also requires container validation, not just size. */
+    const val GEMMA_BYTES = 2_000_000_000L
+
+    fun gemmaNeedsToken(url: String): Boolean = url == GEMMA_HF_URL
+    /** Free space needed while the Gemma bundle downloads and installs. */
+    fun gemmaFreeNeeded(): Long = GEMMA_BYTES * 2 + 300_000_000L
+    fun gemmaDownloadComplete(size: Long): Boolean = size >= GEMMA_BYTES
+
+    /** Exact bundle name (case-insensitive); renamed .task files and other variants are rejected here,
+     *  and the container header + model type are verified again after download. Pure, host-tested. */
+    fun gemmaFileNameOk(name: String): Boolean = name.trim().equals(GEMMA_FILE, ignoreCase = true)
 
     /** Free space needed before the models download: the zip, the installed models, and a margin. */
     const val MODELS_FREE_NEEDED = MODELS_BYTES * 2 + 300_000_000L
@@ -79,23 +104,23 @@ object ArogyaSetupPlan {
         return parts.joinToString(" · ")
     }
 
-    /** A key that cannot be a Meta Model API key is refused before any test call. */
+    /** A key that cannot be a Groq API key is refused before any test call. */
     fun keyProblem(key: String, hindi: Boolean): String? {
         val k = key.trim()
         return when {
             k.isEmpty() -> if (hindi) "पहले key चिपकाएँ।" else "Paste the key first."
-            k.startsWith("gsk_") -> if (hindi) "यह Groq key है। ArogyaDoot सिर्फ़ Meta key से चलता है।" else "This is a Groq key. ArogyaDoot uses a Meta key only."
+            k.startsWith("LLM|") -> if (hindi) "यह Meta key है। ArogyaDoot अब Groq key से चलता है।" else "This is a Meta key. ArogyaDoot now uses a Groq key."
             k.length < 20 || k.any { it.isWhitespace() } -> if (hindi) "यह पूरी key नहीं लगती। फिर से कॉपी करके चिपकाएँ।" else "This does not look like a complete key. Copy it again and paste."
             else -> null
         }
     }
 
-    /** Home banner text while setup is not complete, e.g. "Setup 2 of 3 done · Meta key not added". */
+    /** Home banner text while setup is not complete, e.g. "Setup 2 of 3 done · Groq key not added". */
     fun bannerLine(s: Status, hindi: Boolean): String {
         val missing = listOfNotNull(
             (if (hindi) "ऑफ़लाइन AI मॉडल नहीं" else "offline AI models not installed").takeIf { !s.models },
             (if (hindi) "गाइड नहीं" else "health guide not installed").takeIf { !s.guide },
-            (if (hindi) "Meta key नहीं" else "Meta key not added").takeIf { !s.key })
+            (if (hindi) "Groq key नहीं" else "Groq key not added").takeIf { !s.key })
         return (if (hindi) "सेटअप ${s.doneCount} / 3 पूरा" else "Setup ${s.doneCount} of 3 done") + " · " + missing.joinToString(", ")
     }
 
@@ -111,8 +136,8 @@ object ArogyaSetupPlan {
             else -> t("Ready for registers and visits", "रजिस्टर और विज़िट के लिए तैयार")
         }
         val offline = when {
-            s.models && s.guide -> t("📴 Offline: answers from the official guide by Llama 3.2 on this phone, voice notes (Whisper), visit forms, photo reading, registers, danger checks.",
-                "📴 ऑफ़लाइन: इसी फ़ोन पर Llama 3.2 से आधिकारिक गाइड के जवाब, वॉइस नोट (Whisper), विज़िट फ़ॉर्म, फ़ोटो पढ़ना, रजिस्टर, खतरे की जाँच।")
+            s.models && s.guide -> t("📴 Offline: answers from the official guide by Gemma 3n on this phone, voice notes (Whisper), visit forms, photo reading, registers, danger checks.",
+                "📴 ऑफ़लाइन: इसी फ़ोन पर Gemma 3n से आधिकारिक गाइड के जवाब, वॉइस नोट (Whisper), विज़िट फ़ॉर्म, फ़ोटो पढ़ना, रजिस्टर, खतरे की जाँच।")
             s.models -> t("📴 Offline: voice notes, visit forms, photo reading, registers and danger checks. Guide answers need the health guide (step 2).",
                 "📴 ऑफ़लाइन: वॉइस नोट, विज़िट फ़ॉर्म, फ़ोटो पढ़ना, रजिस्टर और खतरे की जाँच। गाइड के जवाब के लिए गाइड चाहिए (कदम 2)।")
             s.guide -> t("📴 Offline: the guide's own text, voice notes (Whisper), registers, schedules and danger checks. AI answers offline need the models (step 1).",
@@ -120,10 +145,10 @@ object ArogyaSetupPlan {
             else -> t("📴 Offline: registers, visit forms, schedules and danger checks (fixed government rules). AI needs step 1 or step 3.",
                 "📴 ऑफ़लाइन: रजिस्टर, विज़िट फ़ॉर्म, शेड्यूल और खतरे की जाँच (सरकारी नियम)। AI के लिए कदम 1 या 3 चाहिए।")
         }
-        val online = if (s.key) t("☁ Online: better answers from Meta Muse Spark, online voice (Muse Voice), drug-kit counting (SAM 3.1) and photo reading. With no signal the phone takes over automatically.",
-            "☁ ऑनलाइन: Meta Muse Spark से बेहतर जवाब, ऑनलाइन आवाज़ (Muse Voice), दवा किट गिनती (SAM 3.1) और फ़ोटो पढ़ना। सिग्नल न हो तो फ़ोन अपने आप काम संभालता है।")
-            else t("☁ No Meta key: answers come from the phone (Llama 3.2 and the guide). Add a key any time for better online answers, online voice and drug-kit counting.",
-                "☁ Meta key नहीं: जवाब फ़ोन से (Llama 3.2 और गाइड)। बेहतर ऑनलाइन जवाब, ऑनलाइन आवाज़ और दवा किट गिनती के लिए कभी भी key जोड़ें।")
+        val online = if (s.key) t("☁ Online: better answers from Qwen3 on Groq, plus photo reading. With no signal the phone takes over automatically.",
+            "☁ ऑनलाइन: Groq पर Qwen3 से बेहतर जवाब और फ़ोटो पढ़ना। सिग्नल न हो तो फ़ोन अपने आप काम संभालता है।")
+            else t("☁ No Groq key: answers come from the phone (Gemma 3n and the guide). Add a key any time for better online answers.",
+                "☁ Groq key नहीं: जवाब फ़ोन से (Gemma 3n और गाइड)। बेहतर ऑनलाइन जवाब के लिए कभी भी key जोड़ें।")
         val tip = if (s.complete) "" else t("You can finish the remaining steps any time from the yellow strip on Home or More → Setup.",
             "बाकी कदम कभी भी होम की पीली पट्टी या More → Setup से पूरे करें।")
         return Summary(headline, offline, online, tip)

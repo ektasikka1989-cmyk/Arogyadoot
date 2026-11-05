@@ -937,7 +937,7 @@ class MainActivity : ComponentActivity() {
         val mfm = androRuntime.modelFileManager
         val installedFile = mfm.preferredTextModelFile()
         if (installedFile == null) {
-            modelStatusText = "Not loaded — tap ⚙ and install the Meta models zip"
+            modelStatusText = "Not loaded — tap ⚙ and install the Gemma 3n model"
             return
         }
         if (!installedFile.exists() || installedFile.length() <= 0L) {
@@ -1512,7 +1512,7 @@ class MainActivity : ComponentActivity() {
         if (clean.isBlank()) return
         runtimeGraph.updateGroqKey(clean)
         refreshOnlineKeys()
-        groqStatusText = "Saved — not tested"
+        groqStatusText = if (groqKeySaved) "Saved — not tested" else "Save failed (keystore error)"
         testGroqConnection()
     }
 

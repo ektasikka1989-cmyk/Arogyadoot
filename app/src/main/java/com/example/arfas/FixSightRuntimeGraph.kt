@@ -138,8 +138,8 @@ class FixSightRuntimeGraph private constructor(context: Context) {
     suspend fun ensureLocalModelReady(onProgress: ((String) -> Unit)? = null): Boolean =
         modelLoadMutex.withLock {
             val lm = runtime.localModelManager ?: return@withLock false
-            // Meta Stack: Llama 3.2 GGUF (llama.cpp) is preferred whenever it is installed; a
-            // .litertlm bundle is used only when forced or when no Llama model is present.
+            // ArogyaDoot: Gemma 3n (.litertlm) is preferred whenever it is installed; a
+            // Llama GGUF (retired) loads only when forced; AUTO without Gemma means no phone model.
             val preferred: File? = runtime.modelFileManager.preferredTextModelFile()
             if (lm.isReady && lm.isTextWarm && !lm.permanentlyDisabled &&
                 (preferred == null || lm.loadedModelFileName == preferred.name)
@@ -158,7 +158,7 @@ class FixSightRuntimeGraph private constructor(context: Context) {
                         .count { it.endsWith(".litertlm", ignoreCase = true) }
                     onProgress?.invoke(
                         if (installed > 1) "Multiple local models installed — choose one in Settings"
-                        else "Not loaded — install Llama 3.2 (Meta models zip) in Settings"
+                        else "Not loaded — install the Gemma 3n model in Setup"
                     )
                     return@withLock false
                 }
@@ -180,13 +180,13 @@ class FixSightRuntimeGraph private constructor(context: Context) {
                 }
                 Log.i(TAG, "RUNTIME_GRAPH_MODEL_LOAD_END ok=$ok warm=${lm.isTextWarm}")
                 if (ok && lm.isTextWarm) return@withLock true
-                // Stand-by: Meta Llama could not be loaded (file damaged, out of memory): the phone's
-                // Gemma model, when installed, answers instead of leaving the user with no offline AI.
+                // Stand-by: the preferred model could not be loaded (file damaged, out of memory): the
+                // other installed model answers instead of leaving the user with no offline AI.
                 if (runtime.modelFileManager.getForceModelMode() == ForceModelMode.LLAMA_ONLY) return@withLock false
                 val standby = runtime.modelFileManager.gemmaModelFile()?.takeIf { it.name != file.name }
                     ?: return@withLock false
                 Log.w(TAG, "RUNTIME_GRAPH_STANDBY_GEMMA from=${file.name} to=${standby.name}")
-                onProgress?.invoke("Meta Llama did not load — starting Gemma instead")
+                onProgress?.invoke("Preferred model did not load — starting the standby instead")
                 runCatching { lm.unload() }
                 if (lm.permanentlyDisabled && (!lm.engineNeedsReload || !lm.prepareControlledReloadAfterQuarantine())) return@withLock false
                 val standbyOk = lm.loadModel(standby.absolutePath) { progress -> onProgress?.invoke(progress) }
@@ -198,14 +198,14 @@ class FixSightRuntimeGraph private constructor(context: Context) {
         }
 
     /**
-     * ArogyaDoot: the key for Ask SOP's cloud turn. The engine chosen in Settings first; when that engine has no key
-     * saved, the other saved key, so "Cloud first" never silently stays on the phone because of the engine switch.
+     * ArogyaDoot: the key for Ask SOP's cloud turn (Groq only, Meta retired). The chosen engine's key;
+     * when it has no key saved, the Groq key, so "Cloud first" never silently stays on the phone.
      */
-    private fun cloudKey(): String = groqKeyStore.getKey().ifBlank { groqKeyStore.metaKey().ifBlank { groqKeyStore.groqKey() } }
+    private fun cloudKey(): String = groqKeyStore.getKey().ifBlank { groqKeyStore.groqKey() }
 
     fun updateGroqKey(key: String) {
         val clean = key.trim()
-        if (clean.isBlank()) groqKeyStore.clearKey() else groqKeyStore.saveKey(clean)
+        try { if (clean.isBlank()) groqKeyStore.clearKey() else groqKeyStore.saveKey(clean) } catch (t: Throwable) { Log.w(TAG, "groq keystore failed: ${t.message}") }
         runtime.updateGroqApiKey(cloudKey())
     }
 

@@ -17,7 +17,10 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.BaselineShift
@@ -556,13 +559,32 @@ fun SopComposer(
     attachEnabled: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onMic: () -> Unit,
+    // (mic dictation is inline now; no onMic callback)
     onPhoto: () -> Unit,
     onFile: () -> Unit
 ) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     var menu by remember { mutableStateOf(false) }
-    Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val controller = rememberInlineDictationController()
+    var tfv by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    LaunchedEffect(value) { if (value != tfv.text && !controller.isActive) tfv = TextFieldValue(value, TextRange(value.length)) }
+    var base by remember { mutableStateOf<TextFieldValue?>(null) }
+    fun applyDictation(dictated: String) {
+        val b = base ?: return
+        val e = ArogyaDictationText.insertAtCursor(b.text, b.selection.start, b.selection.end, dictated)
+        tfv = TextFieldValue(e.text, TextRange(e.selStart))
+        onValueChange(e.text)
+    }
+    fun startDictation() {
+        base = tfv
+        controller.toggle(scope, ArogyaLang.voiceLang(context), hindi,
+            onPartial = { applyDictation(it) },
+            onFinal = { applyDictation(it); base = null },
+            onError = { base = null })
+    }
+    Column { Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.Bottom) {
             Box {
@@ -576,7 +598,7 @@ fun SopComposer(
                 }
             }
             TextField(
-                value = value, onValueChange = onValueChange, enabled = !busy,
+                value = tfv, onValueChange = { if (controller.isActive) { controller.cancel(); base = null }; tfv = it; onValueChange(it.text) }, enabled = !busy,
                 placeholder = { Text(if (busy) tr("Writing the answer…", "उत्तर लिखा जा रहा है…") else tr("Ask the ASHA guide", "ASHA गाइड से पूछें")) },
                 modifier = Modifier.weight(1f), minLines = 1, maxLines = 5,
                 colors = TextFieldDefaults.colors(
@@ -587,8 +609,8 @@ fun SopComposer(
                     unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                     disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent)
             )
-            if (!busy && value.isBlank()) TextButton(onClick = onMic, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp)) {
-                Text("🎤", fontSize = 20.sp)
+            if (!busy) { DictationMicButton(controller, hindi, modifier = Modifier.size(48.dp)) { startDictation() }
+                // (mic shows whenever the composer is idle, even with text)
             }
             val sendColor = if (busy || canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
             Surface(onClick = { if (busy) onStop() else if (canSend) onSend() }, enabled = busy || canSend,
@@ -599,5 +621,10 @@ fun SopComposer(
                 }
             }
         }
+    }
+    if (controller.isActive) Text(if (controller.state == InlineDictationController.State.WORKING) tr("Transcribing…", "लिख रहे हैं…") else tr("● Listening… tap ■ to stop", "● सुन रहे हैं… रोकने के लिए ■ दबाएँ"),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp))
+    if (controller.state == InlineDictationController.State.ERROR && controller.errorText.isNotBlank()) Text(controller.errorText,
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(start = 16.dp))
     }
 }

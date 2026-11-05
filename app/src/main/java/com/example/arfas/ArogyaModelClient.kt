@@ -12,17 +12,19 @@ import kotlin.coroutines.coroutineContext
 /**
  * A hosted model reached through an OpenAI-compatible chat-completions endpoint.
  * From Meta's Model API docs (dev.meta.ai/docs/models and /muse-glimmer/deploy), read 31 Oct 2026:
- *  - Muse Spark 1.3 on the Meta Model API: base https://api.meta.ai/v1, model "muse-spark-1.3" (Meta key).
+ *  - Muse Spark 1.3 (RETIRED) was on the Meta Model API: base https://api.meta.ai/v1, model "muse-spark-1.3".
  *  - Muse Glimmer 30B (Meta open weights) hosted by Together AI: base https://api.together.xyz/v1,
  *    model "meta-models/Muse-Glimmer-30B" (Together key). Glimmer is not on the Meta Model API itself.
+ *  - Qwen3.8 27B hosted by Groq: base https://api.groq.com/openai/v1, model "qwen/qwen3.8-27b" (Groq key).
  * Not yet called live from this project (no keys yet).
  */
 data class ArogyaModelEndpoint(val id: String, val label: String, val baseUrl: String, val model: String, val metaModel: Boolean, val keyFor: String = "meta")
 
 object ArogyaModelEndpoints {
-    /** Not a hosted endpoint: the phone's installed model (Llama 3.2 3B). */
+    /** Not a hosted endpoint: the phone's installed model (Gemma 3n E2B). */
     const val ON_PHONE = "on_phone"
     val all: List<ArogyaModelEndpoint> = listOf(
+        ArogyaModelEndpoint("groq", "Qwen3.8 27B — Groq", GroqCloud.BASE, GroqCloud.QWEN, false, "groq"),
         ArogyaModelEndpoint("meta", "Muse Spark 1.3 — Meta Model API", MetaCloud.BASE, MetaCloud.SPARK, true, "meta"),
         ArogyaModelEndpoint("together_glimmer", "Muse Glimmer 30B — Together AI", MetaCloud.TOGETHER_BASE, MetaCloud.GLIMMER, true, "together")
     )
@@ -33,12 +35,15 @@ object ArogyaModelEndpoints {
 class OpenAiCompatibleClient(private val endpoint: ArogyaModelEndpoint, private val key: () -> String, private val timeoutMs: Int = 60_000) {
     class HttpError(val code: Int, msg: String) : Exception(msg)
 
-    fun requestBody(system: String, user: String, maxTokens: Int): String {
+    fun requestBody(system: String, user: String, maxTokens: Int, images: List<String> = emptyList()): String {
+        val userContent: Any = if (images.isEmpty()) user else JSONArray()
+            .put(JSONObject().put("type", "text").put("text", user))
+            .also { parts -> images.forEach { parts.put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", it))) } }
         val b = JSONObject()
             .put("model", endpoint.model)
             .put("messages", JSONArray()
                 .put(JSONObject().put("role", "system").put("content", system))
-                .put(JSONObject().put("role", "user").put("content", user)))
+                .put(JSONObject().put("role", "user").put("content", userContent)))
             .put("max_tokens", maxTokens)
             .put("temperature", 0)
         // Muse Spark reasons by default; visit AI needs the fastest answer (V1 proved minimal works).
@@ -86,7 +91,7 @@ class OpenAiCompatibleClient(private val endpoint: ArogyaModelEndpoint, private 
         } finally { conn.disconnect() }
     }
 
-    fun complete(system: String, user: String, maxTokens: Int = 600): String {
+    fun complete(system: String, user: String, maxTokens: Int = 600, images: List<String> = emptyList()): String {
         val k = key().trim()
         if (k.isBlank()) throw HttpError(0, "No API key saved for ${endpoint.label}.")
         val conn = URL(endpoint.baseUrl.trimEnd('/') + "/chat/completions").openConnection() as HttpURLConnection
@@ -97,7 +102,7 @@ class OpenAiCompatibleClient(private val endpoint: ArogyaModelEndpoint, private 
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Authorization", "Bearer $k")
-            conn.outputStream.use { it.write(requestBody(system, user, maxTokens).toByteArray()) }
+            conn.outputStream.use { it.write(requestBody(system, user, maxTokens, images).toByteArray()) }
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.use { it.readBytes().decodeToString() }.orEmpty()
             if (code !in 200..299) throw HttpError(code, "HTTP $code from ${endpoint.label}: ${body.take(200)}")

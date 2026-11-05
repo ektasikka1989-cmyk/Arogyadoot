@@ -177,8 +177,8 @@ object ArogyaDemoScript {
             listOf("ऐप देखता है कि किट की कौन सी दवाइयाँ ख़त्म या कम हैं।", "वह सही बचे हुए नंबरों के साथ तय प्रारूप में रिफिल अनुरोध लिखता है।", "सुनीता एक टैप में इसे WhatsApp पर ANM को भेजती हैं।"),
             "Drug kit · Refill", "दवा किट · रिफिल", "Ask for a refill before the kit runs dry.", "किट ख़ाली होने से पहले रिफिल माँगना।"),
         sc("medscan", "New stock: scan and count", "नया स्टॉक: स्कैन और गिनती",
-            listOf("The refill arrives at the sub-centre.", "Sunita photographs the new strip; the phone reads name, batch and expiry, and it goes into stock.", "Online, Meta SAM 3.1 helps count sachets; offline she counts by hand."),
-            listOf("रिफिल उप-केंद्र पर पहुँचता है।", "सुनीता नई पट्टी की फ़ोटो लेती हैं; फ़ोन नाम, बैच और एक्सपायरी पढ़ता है, और वह स्टॉक में जुड़ती है।", "ऑनलाइन, Meta SAM 3.1 पैकेट गिनने में मदद करता है; ऑफ़लाइन वे हाथ से गिनती हैं।"),
+            listOf("The refill arrives at the sub-centre.", "Sunita photographs the new strip; the phone reads name, batch and expiry, and it goes into stock.", "She counts the sachets by hand and taps each one in the photo."),
+            listOf("रिफिल उप-केंद्र पर पहुँचता है।", "सुनीता नई पट्टी की फ़ोटो लेती हैं; फ़ोन नाम, बैच और एक्सपायरी पढ़ता है, और वह स्टॉक में जुड़ती है।", "वे पैकेट हाथ से गिनती हैं और फ़ोटो में हर एक को दबाती हैं।"),
             "Drug kit · Receive", "दवा किट · प्राप्ति", "Add new stock from a photo, with batch and expiry.", "फ़ोटो से नया स्टॉक जोड़ना, बैच और एक्सपायरी के साथ।"),
         practice, summary))
 
@@ -299,7 +299,7 @@ object ArogyaDemoTicks {
 
     /**
      * One app feature with the tool that runs it on the phone (offline) and in the cloud (online).
-     * [metaOffline]/[metaOnline]: the tool is Meta's. [keys]: the tick features that prove it ran today.
+     * [metaOffline]/[metaOnline]: legacy highlight flags, all false since the Meta retirement. [keys]: the tick features that prove it ran today.
      * [rule]: fixed government rules, never AI. [phoneOnly]: kept on the phone on purpose (privacy).
      */
     data class Tool(
@@ -310,35 +310,35 @@ object ArogyaDemoTicks {
     )
     data class ToolRow(val tool: Tool, val ranMs: Long, val ranCloud: Boolean?, val ran: Boolean)
 
-    private const val LLAMA = "Llama 3.2 3B (Meta)"
-    private const val SPARK = "Muse Spark 1.3 (Meta)"
+    private const val GEMMA = "Gemma 3n E2B (Google)"
+    private const val QWEN = "Qwen3.8 27B (Groq)"
     private const val OCR = "ML Kit text (Google)"
 
     /** Every AI feature in the app, with its real tools (as wired in ArogyaVisitAi / MetaModelApi). */
     val tools = listOf(
         Tool("Speech to text", "बोलकर लिखना", "Whisper (OpenAI)", "Whisper (OpenAI)", false,
-            "Muse Voice Transcribe (Meta)", "Muse Voice Transcribe (Meta)", true, listOf("speech-to-text")),
-        Tool("Form filled from the voice note", "वॉइस नोट से फ़ॉर्म भरना", LLAMA, LLAMA, true, SPARK, SPARK, true,
+            "—", "—", false, listOf("speech-to-text")),
+        Tool("Form filled from the voice note", "वॉइस नोट से फ़ॉर्म भरना", GEMMA, GEMMA, false, QWEN, QWEN, false,
             listOf("form filling + evidence check")),
         Tool("Danger signs", "खतरे के लक्षण", "Fixed government rules", "तय सरकारी नियम", false,
             "Fixed government rules", "तय सरकारी नियम", false, emptyList(), rule = true),
-        Tool("ANM message draft", "ANM संदेश ड्राफ़्ट", LLAMA, LLAMA, true, SPARK, SPARK, true, listOf("ANM message")),
-        Tool("Family explanation in Hindi", "परिवार को हिंदी में समझाना", LLAMA, LLAMA, true, SPARK, SPARK, true,
+        Tool("ANM message draft", "ANM संदेश ड्राफ़्ट", GEMMA, GEMMA, false, QWEN, QWEN, false, listOf("ANM message")),
+        Tool("Family explanation in Hindi", "परिवार को हिंदी में समझाना", GEMMA, GEMMA, false, QWEN, QWEN, false,
             listOf("family explanation")),
         Tool("Guide search + cited answer", "गाइड खोज + हवाले वाला उत्तर",
-            "E5 search + reranker + $LLAMA", "E5 खोज + रीरैंकर + $LLAMA", true, SPARK, SPARK, true,
+            "E5 search + reranker + $GEMMA", "E5 खोज + रीरैंकर + $GEMMA", false, QWEN, QWEN, false,
             listOf("guide search + grounded answer", "guide follow-up", "online check")),
-        Tool("Add person from a photo", "फ़ोटो से नया व्यक्ति", "$OCR + $LLAMA", "$OCR + $LLAMA", true,
+        Tool("Add person from a photo", "फ़ोटो से नया व्यक्ति", "$OCR + $GEMMA", "$OCR + $GEMMA", false,
             "Stays on the phone (names never leave)", "फ़ोन पर ही (नाम बाहर नहीं जाते)", false,
             listOf("add person from photo"), phoneOnly = true),
-        Tool("MCP card reading", "MCP कार्ड पढ़ना", "$OCR + $LLAMA", "$OCR + $LLAMA", true,
+        Tool("MCP card reading", "MCP कार्ड पढ़ना", "$OCR + $GEMMA", "$OCR + $GEMMA", false,
             "Stays on the phone (names never leave)", "फ़ोन पर ही (नाम बाहर नहीं जाते)", false,
             listOf("card text reading + extraction"), phoneOnly = true),
-        Tool("Medicine scan", "दवा स्कैन", "$OCR + rules, then $LLAMA", "$OCR + नियम, फिर $LLAMA", true,
-            "$SPARK (names removed)", "$SPARK (नाम हटाकर)", true, listOf("medicine scan")),
+        Tool("Medicine scan", "दवा स्कैन", "$OCR + rules, then $GEMMA", "$OCR + नियम, फिर $GEMMA", false,
+            "$QWEN (names removed)", "$QWEN (नाम हटाकर)", false, listOf("medicine scan")),
         Tool("Drug-kit count", "दवा किट गिनती", "Counted by hand", "हाथ से गिनती", false,
-            "SAM 3.1 (Meta)", "SAM 3.1 (Meta)", true, listOf("SAM 3.1 count")),
-        Tool("Daily practice questions", "रोज़ अभ्यास के सवाल", LLAMA, LLAMA, true, SPARK, SPARK, true, listOf("daily practice")),
+            "—", "—", false, listOf("SAM 3.1 count")),
+        Tool("Daily practice questions", "रोज़ अभ्यास के सवाल", GEMMA, GEMMA, false, QWEN, QWEN, false, listOf("daily practice")),
         Tool("Read aloud", "पढ़कर सुनाना", "Android voice (offline)", "Android आवाज़ (ऑफ़लाइन)", false,
             "Android voice", "Android आवाज़", false, listOf("reading aloud"))
     )
@@ -353,7 +353,7 @@ object ArogyaDemoTicks {
         }
     }
 
-    /** How many catalogue tools are Meta's (offline, online). */
+    /** Legacy Meta-tool counts (0, 0 since the retirement). */
     fun metaCounts(): Pair<Int, Int> = tools.count { it.metaOffline } to tools.count { it.metaOnline }
 
     /**
@@ -427,7 +427,7 @@ object ArogyaDemoTicks {
 /**
  * Minimal WAV reader for the demo voice notes: RIFF/WAVE with 16-bit PCM or float32
  * samples, any channel count (mixed to mono) and any rate (linearly resampled to 16 kHz
- * for Whisper / Muse Voice Transcribe). Returns null when the bytes are not a WAV.
+ * for Whisper). Returns null when the bytes are not a WAV.
  */
 object ArogyaWav {
     const val TARGET_RATE = 16000

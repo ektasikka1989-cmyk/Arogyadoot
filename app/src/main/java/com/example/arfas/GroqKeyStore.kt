@@ -21,8 +21,8 @@ class GroqKeyStore(context: Context) {
     private val metaStore = MetaKeyStore(context)
     private val prefs = context.getSharedPreferences("fixsight_cloud_settings", Context.MODE_PRIVATE)
 
-    /** ArogyaDoot: Groq is disabled; only Meta's models are used online. A saved Groq key is ignored, never sent. */
-    fun groqKey(): String = ""
+    /** ArogyaDoot: Groq (Qwen) is the online engine; a saved Groq key answers cloud turns. */
+    fun groqKey(): String = legacyGroqKey()
 
     @Suppress("unused")
     private fun legacyGroqKey(): String {
@@ -38,12 +38,12 @@ class GroqKeyStore(context: Context) {
     /** The Meta Model API key, or "". */
     fun metaKey(): String = metaStore.getKey().takeIf { it.isNotBlank() && !isGroqKey(it) }.orEmpty()
 
-    /** The engine chosen in Settings; without a choice, the one that has a key (Groq first). */
+    /** Groq always (Meta retired); a stale saved Meta choice falls through to Groq. */
     fun engine(): Engine {
         if (GROQ_DISABLED) return Engine.META
         val chosen = Engine.values().firstOrNull { it.id == prefs.getString(KEY_ENGINE, null) }
-        if (chosen != null) return chosen
-        return if (groqKey().isBlank() && metaKey().isNotBlank()) Engine.META else Engine.GROQ
+        if (chosen != null && chosen != Engine.META) return chosen
+        return Engine.GROQ
     }
 
     fun setEngine(engine: Engine) { prefs.edit().putString(KEY_ENGINE, (if (GROQ_DISABLED) Engine.META else engine).id).apply() }
@@ -57,7 +57,7 @@ class GroqKeyStore(context: Context) {
     fun saveKey(value: String) {
         val clean = value.trim()
         if (clean.isBlank()) return
-        if (GROQ_DISABLED && isGroqKey(clean)) return   // ArogyaDoot: Groq keys are not accepted
+        if (GROQ_DISABLED && isGroqKey(clean)) return   // Re-enable gate; Groq keys are accepted
         if (isGroqKey(clean)) {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
@@ -116,8 +116,8 @@ class GroqKeyStore(context: Context) {
     }
 
     companion object {
-        /** ArogyaDoot: Groq is switched off everywhere; Meta Muse Spark is the only online model. */
-        const val GROQ_DISABLED = true
+        /** ArogyaDoot: Groq (Qwen) is the online engine. Meta Muse Spark was the previous engine. */
+        const val GROQ_DISABLED = false
         private const val KEY_ALIAS = "fixsight_groq_aes_v1"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val KEY_GROQ_CIPHER = "groq_api_ciphertext"

@@ -35,7 +35,7 @@ data class ArogyaAiRequest(val task:ArogyaAiTask,val visit:ArogyaVisit,val quest
     val afterSafetyPrompt:Boolean=false,
     /** Live progress: stage and the answer text as it is being written (a draft until checked). */
     val onProgress:((ArogyaProgress)->Unit)? = null)
-data class ArogyaExtraction(val fields:List<ExtractedField>,val modelLabel:String,val metaModel:Boolean,val ms:Long,val note:String)
+data class ArogyaExtraction(val fields:List<ExtractedField>,val modelLabel:String,val cloudUsed:Boolean,val ms:Long,val note:String)
 data class ArogyaAiResult(val text:String,val provider:String,val elapsedMs:Long,val sources:List<ArogyaSource> = emptyList(),val canCopyToNotes:Boolean=false,val online:Boolean=false,val checkedAt:String="",val sourceOnly:Boolean=false,val captureItems:List<ArogyaCaptureItem> = emptyList(),val timingsMs:Map<String,Long> = emptyMap(),val safetyPrompt:Boolean=false,
     /** "The guide says": ArogyaDoot's own chosen source sentence for this answer, with its source label. */
     val quote:String="",val quoteSource:String="",
@@ -88,7 +88,8 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             appContext == null -> "cloud not set up"
             !MetaOnline.hasInternet(appContext) -> "no internet"
             ArogyaCloud.textEndpoint(appContext)?.keyFor == "together" -> "no Together AI key saved for Muse Glimmer"
-            else -> "no Meta key saved"
+            ArogyaCloud.textEndpoint(appContext)?.keyFor == "meta" -> "no Meta key saved"
+            else -> "no Groq key saved"
         }
         Log.i(TAG, "AROGYA_ROUTE_DECISION feature=$feature cloudFirst=${c?.cloudFirst == true} cloudUsable=${ep != null && key.isNotBlank()} why=\"$cloudWhy\"")
         suspend fun cloud(): Pair<T?, String>? {
@@ -121,7 +122,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             (if (engine == "cloud") cloud() else phone())?.let { r ->
                 // Cloud first, but the phone answered: the label says which cloud model was tried and why it was not used.
                 if (engine == "phone" && c?.cloudFirst == true && cloud && cloudWhy.isNotBlank()) {
-                    val name = (ep ?: appContext?.let { ArogyaCloud.textEndpoint(it) })?.label?.substringBefore(" —") ?: "Muse Spark 1.3"
+                    val name = (ep ?: appContext?.let { ArogyaCloud.textEndpoint(it) })?.label?.substringBefore(" —") ?: "Qwen3.8 27B"
                     return r.first to "$name • online — not used: $cloudWhy · ${r.second}"
                 }
                 return r
@@ -705,7 +706,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
                     Log.i(TAG, "AROGYA_EXTRACT_SPLIT feature=card_read parts=2 fields=${fields.size}")
                 }
             }
-            // Local first: the phone found nothing on the card → Muse Spark reads the photo (when online), same checks.
+            // Local first: the phone found nothing on the card → the cloud model reads the photo (when online), same checks.
             if (fields.isEmpty() && seen == null && appContext != null && photo != null && ArogyaPhotoVision.wanted(appContext, false)) {
                 vision()?.let { v ->
                     val (o2, by2) = route("card_read", ArogyaAiExtras.cardPrompt(v), 900, cloud = false, cloudTokens = 1500, lang = ArogyaBudget.langOf(v)) { out ->
@@ -927,14 +928,14 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         check(text.isNotBlank()) { "Speak or type what you saw first." }
         check(text.length <= 6000) { "This note is too long. Shorten it first." }
         val t = System.currentTimeMillis()
-        var label = ""; var meta = false; var msg = ""
+        var label = ""; var wasCloud = false; var msg = ""
         val cloudReady = endpoint != null && key.isNotBlank()
         suspend fun cloud(): Map<String, FilledValue>? = try {
             val raw = ArogyaCloud.withDeadline(CLOUD_DEADLINE_MS, "fill_form") {
                 OpenAiCompatibleClient(endpoint!!, { key }, CLOUD_DEADLINE_MS.toInt()).complete("You fill official health forms from notes. Reply with JSON only.",
                     ArogyaOfficialForms.prompt(spec, column, ArogyaOfficialForms.scrub(b, text)), 900)
             } ?: error("no reply within ${CLOUD_DEADLINE_MS / 1000} s")
-            label = endpoint!!.label; meta = endpoint.metaModel
+            label = endpoint!!.label; wasCloud = true
             ArogyaOfficialForms.parse(raw, spec, column, text)
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { msg = (msg + " Online model not used: ${e.message?.take(120)}").trim(); Log.w(TAG, "AROGYA_FORM_ONLINE_FAILED ${endpoint?.id} ${e.message?.take(200)}"); null }
@@ -942,7 +943,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             val model = readyModel()
             // Allow long ANC forms to return complete grounded JSON objects.
             val raw = generate(ArogyaOfficialForms.prompt(spec, column, text), model, 2000)
-            label = "On-phone model (offline): " + (model.loadedModelFileName?.substringBeforeLast('.') ?: "local"); meta = false
+            label = "On-phone model (offline): " + (model.loadedModelFileName?.substringBeforeLast('.') ?: "local")
             val parsed = ArogyaOfficialForms.parse(raw.orEmpty(), spec, column, text)
             Log.i(TAG, "AROGYA_FORM_LOCAL_RESULT rawChars=${raw?.length ?: 0} aiRows=${parsed.count { it.value.source == "ai" }} ruleRows=${parsed.count { it.value.source != "ai" }}")
             parsed
@@ -962,18 +963,18 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         if (cloudFirst && (endpoint == null || label != endpoint.label)) {
             val why = when {
                 !cloudReady && appContext != null && !MetaOnline.hasInternet(appContext) -> "no internet"
-                !cloudReady -> "no Meta key saved"
+                !cloudReady -> "no " + (if (endpoint?.keyFor == "together") "Together AI" else if (endpoint?.keyFor == "meta") "Meta" else "Groq") + " key saved"
                 else -> msg.substringAfter("Online model not used:", "the call failed").trim().substringBefore(" On-phone").ifBlank { "the call failed" }
             }
-            label = "Muse Spark 1.3 • online — not used: $why · $label"
+            label = "${endpoint?.label?.substringBefore(" —") ?: "Qwen3.8 27B"} • online — not used: $why · $label"
         }
         val ms = System.currentTimeMillis() - t
         // Never silent: say how many rows came from the model and how many from the fixed rules.
         val aiN = values!!.count { it.value.source == "ai" }; val ruleN = values!!.size - aiN
         if (aiN == 0) msg = (msg + " The AI model gave no usable rows; $ruleN read from the note by fixed rules.").trim()
         Log.i(TAG, "AROGYA_FORM_FILL_SPLIT form=${spec.id} ai=$aiN rules=$ruleN prompt_rows=${ArogyaOfficialForms.relevantFields(spec, column, text).size}")
-        Log.i(TAG, "AROGYA_FORM_FILL form=${spec.id} col=$column policy=${if (cloudFirst) "cloud_first" else "local_first"} model=\"$label\" meta=$meta ms=$ms filled=${values!!.size}/${ArogyaOfficialForms.fieldsFor(spec, column).size}")
-        values!! to ArogyaExtraction(emptyList(), label, meta, ms, msg)
+        Log.i(TAG, "AROGYA_FORM_FILL form=${spec.id} col=$column policy=${if (cloudFirst) "cloud_first" else "local_first"} model=\"$label\" cloud=$wasCloud ms=$ms filled=${values!!.size}/${ArogyaOfficialForms.fieldsFor(spec, column).size}")
+        values!! to ArogyaExtraction(emptyList(), label, wasCloud, ms, msg)
     }
 
     companion object { private const val TAG = "ArogyaDemo"; const val CLOUD_DEADLINE_MS = 25_000L; const val ASK_TIMEOUT_MS = 300_000L }

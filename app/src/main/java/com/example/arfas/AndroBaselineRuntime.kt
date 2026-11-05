@@ -183,9 +183,9 @@ class AndroBaselineRuntime(
             (isMetaStackActive && metaVision.isAvailable && localModelManager?.isReady == true)
 
     /**
-     * Meta Stack: Meta Llama 3.2 (GGUF, llama.cpp) answers, and the camera goes through the Meta
-     * vision models (DETR, CLIP, DINOv2, SAM) instead of a vision-language model. Active whenever
-     * the Llama model is installed, unless the user forced Gemma or disconnected Llama.
+     * Phone vision stack: the camera goes through the on-phone vision models (DETR, CLIP,
+     * DINOv2, SAM) instead of a vision-language model. Active whenever the stack models are
+     * installed and enabled (see below); text answers come from Gemma 3n.
      */
     val isMetaStackActive: Boolean
         get() {
@@ -331,7 +331,7 @@ class AndroBaselineRuntime(
         get() = ((effectiveContextWindowTokens - RESERVED_OUTPUT_TOKENS - SYSTEM_PROMPT_TOKEN_ESTIMATE)
             * HISTORY_BUDGET_FRACTION).toInt().coerceAtLeast(512)
 
-    /** ArogyaDoot: the cloud model the current key reaches ("Meta · Muse Spark" / "Groq · Qwen3.8 27B"), for honest answer labels. */
+    /** ArogyaDoot: the cloud model the current key reaches ("Groq · Qwen3.8 27B"), for honest answer labels. */
     fun cloudEngineLabel(): String = groqProvider.engineLabel
 
     fun updateGroqApiKey(newKey: String) {
@@ -361,7 +361,7 @@ class AndroBaselineRuntime(
 
     fun groqProviderStatus(): GroqProviderStatus = groqProvider.status()
     fun isGroqKeyConfigured(): Boolean = groqProvider.hasApiKey()
-    /** "Groq · Qwen3.8 27B", "Meta · Muse Spark" or "none". */
+    /** "Groq · Qwen3.8 27B" or "none" (Meta retired). */
     fun onlineEngineLabel(): String = groqProvider.engineLabel
 
 
@@ -788,7 +788,7 @@ class AndroBaselineRuntime(
         }
 
         pocketRagSessions.clearAllExcept(selection.sessionKey)
-        // "Check online" with internet: search again with an online-sized budget, so Muse Spark
+        // "Check online" with internet: search again with an online-sized budget, so Qwen
         // checks the phone's answer against more of the knowledge base's related passages.
         val onlineAttachment = if (checkOnline && selection.kind == "generic" && canAttemptCloud()) runCatching {
             val history = pocketRagSessions.context(selection.sessionKey).flatMapIndexed { i, t ->
@@ -4747,7 +4747,7 @@ class AndroBaselineRuntime(
      */
     /**
      * "Find / highlight X" that the phone's DETR, DINOv2 and CLIP could not locate: Meta SAM 3.1
-     * (online, Meta key + internet only) segments X from the phrase. Null otherwise.
+     * (online SAM, retired — always null) would segment X from the phrase. Null otherwise.
      */
     private suspend fun samOnlineLocalization(query: String, bitmap: Bitmap): Pair<ARIntent, DetectedObject>? {
         if (!MetaOnline.ready(context)) return null
@@ -5180,7 +5180,7 @@ class AndroBaselineRuntime(
                     return Pair(parsed.first, parsed.second)
                 }
                 Log.i(TAG, "AR_DEDICATED_LOCALIZATION_META_STACK_NOT_FOUND line=${metaLine.take(160)}")
-                // Not found on the phone: Meta SAM 3.1 online finds it from the words themselves.
+                // Not found on the phone: online SAM is retired, so this returns null (caught below).
                 samOnlineLocalization(query, bitmap)?.let { return it }
             } catch (ce: CancellationException) {
                 throw ce

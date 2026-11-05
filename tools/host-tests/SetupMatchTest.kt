@@ -4,6 +4,9 @@ fun t(c: Boolean, m: String) { if (c) { tp++; println("PASS $m") } else { tf++; 
 fun main() {
     t(ArogyaSetupMatch.classify("Llama-3.2-3B-Instruct-Q4_K_M.gguf") == ArogyaSetupMatch.Kind.LLAMA, "llama gguf recognised")
     t(ArogyaSetupMatch.classify("llama.GGUF") == ArogyaSetupMatch.Kind.LLAMA, "extension match is case-insensitive")
+    t(ArogyaSetupMatch.classify("gemma-3n-E2B-it-int4.litertlm") == ArogyaSetupMatch.Kind.GEMMA, "gemma bundle recognised")
+    t(ArogyaSetupMatch.classify("GEMMA-3N-E2B-IT-INT4.LITERTLM") == ArogyaSetupMatch.Kind.GEMMA, "gemma match is case-insensitive")
+    t(ArogyaSetupMatch.missingFix(ArogyaSetupMatch.Kind.GEMMA).contains("Downloads"), "gemma fix names Downloads")
     t(ArogyaSetupMatch.classify("ggml-small.bin") == ArogyaSetupMatch.Kind.WHISPER, "whisper ggml recognised")
     t(ArogyaSetupMatch.classify("whisper-small.en.onnx") == ArogyaSetupMatch.Kind.WHISPER, "whisper onnx recognised")
     t(ArogyaSetupMatch.classify("ASHA_Health_Guide_v2.db") == ArogyaSetupMatch.Kind.GUIDE_V2, "guide v2 recognised")

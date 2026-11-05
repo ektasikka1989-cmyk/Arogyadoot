@@ -36,9 +36,9 @@ class AnswerPolicyStore(context: Context) {
     }
 
     /**
-     * Meta online voice: with a Meta key and internet, spoken questions are transcribed by Meta Muse
-     * Voice Transcribe (Hindi/English code-switching); Whisper on the phone otherwise. Off by
-     * default: the recording leaves the phone only when the user turns this on.
+     * Online voice (retired): Whisper on the phone always transcribes now; nothing is sent online.
+     * Kept for prefs compatibility.
+     *
      */
     fun onlineVoice(): Boolean = get() == AnswerPolicy.CLOUD_FIRST   // ArogyaDoot: one Cloud first / Local first setting for everything
 

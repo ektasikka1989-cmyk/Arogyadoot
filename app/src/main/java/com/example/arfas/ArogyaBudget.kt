@@ -5,7 +5,7 @@ import android.util.Log
 /**
  * Part B2: one token budget for every ArogyaDoot generation.
  *
- * Each feature has a phone base and a cloud (Muse Spark) base. The output
+ * Each feature has a phone base and a cloud (Qwen) base. The output
  * language scales the base: Hindi/Devanagari x2.5, Hinglish x1.3, English x1.
  * The result is capped by the context window minus the prompt tokens, and every
  * call logs AROGYA_BUDGET so the manual checklist can read the real numbers.
