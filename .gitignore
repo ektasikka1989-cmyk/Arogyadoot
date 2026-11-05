@@ -1,0 +1,95 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+/whisper/build
+.kotlin
+*.logcat
+*.zip
+# local build helper output (scripts are kept; databases, logs and pulls are not)
+/_work/run/*.txt
+/_work/run/*.png
+/_work/run/*.xml
+/_work/tmp/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.apk
+*.aab
+*.log
+docs/benchmark/device/
+# models and keys are never committed (demo recordings + parity file are kept)
+app/src/main/assets/**
+!app/src/main/assets/demo/
+!app/src/main/assets/demo/**
+!app/src/main/assets/doc_templates/
+!app/src/main/assets/doc_templates/**
+!app/src/main/assets/kb_parity.json
+!app/src/main/assets/verified_answers.json
+!app/src/main/assets/guide/
+!app/src/main/assets/guide/**
+!app/src/main/assets/growth/
+!app/src/main/assets/growth/**
+*.gguf
+*.bin
+*.onnx
+*.tflite
+*.litertlm
+*.pt
+*.safetensors
+*.jks
+*.keystore
+google-services.json
+
+# host-test compiler output (rebuilt by every run)
+tools/host-tests/out/
+
+
+# host-test build output
+tools/host-tests/out-some/
+demo_photos/
+*.patch
+
+# internal working notes stay on the developer's PC (never published)
+/CLAUDE.md
+/docs/CLAUDE_CODE_HANDOFF.md
+/docs/MUSE_CODE_PROMPT_*.md
+/docs/MUSE_META_FIRST_CUT.md
+/_work/github/
+/_work/sources/
+
+# Stage-2 pre-edit safety backup of the Pramaan working tree (local only, never commit)
+_stage2_backup_*/
+
+# archived Pramaan .git (move outside the tree; never commit)
+/pramaan-git-backup-*.zip*
+
+# local diagnostic dumps at repo root (regenerable, never commit)
+Pramaan_AI_Diagnostics.txt
+Pramaan_Failure_Log.txt
+*_AI_Diagnostics.txt
+*_Failure_Log.txt
+/dir
+
+# superseded README snapshots (the maintained README.md stays tracked)
+README_before_screenshots_backup.md
+README_with_screenshots.md
+
+# manual device-test artifacts in _work/run (helper scripts stay tracked)
+_work/run/*.jpg
+_work/run/*.jpeg
+_work/run/*.json
+_work/run/photo_host.ps1

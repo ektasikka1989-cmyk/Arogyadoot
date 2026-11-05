@@ -1,0 +1,603 @@
+package com.example.arfas
+
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+/** One Ask SOP exchange in the chat thread. The full result (sources, quote) is kept for re-open. */
+data class SopChatMsg(
+    val id: Long,
+    val question: String,
+    val result: ArogyaAiResult? = null,
+    /** The exact query the runtime answered (thread [question] may carry a 📎 suffix). */
+    val asked: String = ""
+)
+
+/**
+ * An answer rendered in sections: each Answer:/What to do:/When to tell the ANM: label
+ * (English or Hindi) becomes a small heading; unlabelled text renders as one block.
+ * Raw Markdown is stripped: the card never shows ## or **.
+ * Each sentence carries inline superscript citations (tappable, opens the source).
+ * [news] sentences are highlighted (the Online
+ * tab marks what the offline answer lacked).
+ */
+@Composable
+fun SopAnswerText(
+    text: String,
+    segments: List<ArogyaOfficialAnswer.CitedSegment>,
+    news: Set<String>,
+    onCite: (String) -> Unit
+) {
+    val sections = remember(text) { ArogyaAnswerFormat.sections(text) }
+    val segByText = remember(segments) { segments.associate { it.text to it.sourceIds } }
+    fun norm(t: String) = t.lowercase(java.util.Locale.ROOT).replace(Regex("\\s+"), " ").trim()
+    fun idsFor(sentence: String): List<String> {
+        segByText[sentence]?.let { return it }
+        val n = norm(sentence)
+        return segByText.entries.firstOrNull { norm(it.key) == n }?.value.orEmpty()
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        sections.forEach { s ->
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (s.heading.isNotEmpty()) Text(s.heading, style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                if (s.body.isNotEmpty()) SopSectionBody(s.body, news, ::idsFor, onCite)
+            }
+        }
+    }
+}
+
+/**
+ * Part B7: one section as a flowing paragraph (17 sp, 1.45 line height): plain
+ * sentences run together, numbered steps and bullets keep their own lines, and
+ * each sentence carries inline superscript citations (tappable, opens the source).
+ */
+@Composable
+private fun SopSectionBody(
+    body: String,
+    news: Set<String>,
+    idsFor: (String) -> List<String>,
+    onCite: (String) -> Unit
+) {
+    val sentences = remember(body) { ArogyaOfficialAnswer.splitSentences(body) }
+    if (sentences.isEmpty()) {
+        Text(body, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp, lineHeight = 25.sp))
+        return
+    }
+    val primary = MaterialTheme.colorScheme.primary
+    val newsBg = MaterialTheme.colorScheme.secondaryContainer
+    val ann = remember(body, news) {
+        // UI6: one superscript per run of sentences from the same source(s), ids joined "¹,³".
+        val ids = sentences.map { idsFor(it) }
+        val show = ArogyaAnswerFormat.citeAt(ids)
+        val supStyle = SpanStyle(color = primary, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+            baselineShift = BaselineShift.Superscript)
+        buildAnnotatedString {
+            sentences.forEachIndexed { i, sentence ->
+                if (i > 0) append(if (ArogyaAnswerFormat.needsNewLine(sentence)) "\n" else " ")
+                val start = length
+                append(sentence)
+                if (sentence in news) addStyle(SpanStyle(background = newsBg), start, length)
+                if (show[i]) {
+                    append(" ")
+                    ids[i].forEachIndexed { k, id ->
+                        if (k > 0) { val sep = length; append(","); addStyle(supStyle, sep, length) }
+                        val c0 = length
+                        append(ArogyaAnswerFormat.supDigits(id))
+                        addStyle(supStyle, c0, length)
+                        addStringAnnotation("cite", id, c0, length)
+                    }
+                }
+            }
+        }
+    }
+    ClickableText(ann, style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp, lineHeight = 25.sp)) { offset ->
+        ann.getStringAnnotations("cite", offset, offset).firstOrNull()?.let { onCite(it.item) }
+    }
+}
+
+/**
+ * An earlier answer in the thread: question + answer + sources, collapsible.
+ * Tap expands the same full card the latest answer shows (buttons included).
+ */
+@Composable
+fun SopChatHistoryCard(
+    msg: SopChatMsg,
+    hindi: Boolean,
+    warning: String?,
+    inVisit: Boolean,
+    ai: ArogyaVisitAi?,
+    busy: Boolean,
+    pending: Int,
+    onOpenUrl: (String) -> Unit,
+    onSpeak: (String) -> Unit,
+    onStopSpeak: () -> Unit,
+    onFamily: (Boolean) -> Unit,
+    onCheckOnline: () -> Unit,
+    onMoreDetail: () -> Unit,
+    onSaveForLater: () -> Unit,
+    onEscalate: (String) -> Unit,
+    context: Context
+) {
+    fun tr(en: String, hi: String) = if (hindi) hi else en
+    val result = msg.result
+    // UI4: chat layout. The question as a bubble, the whole answer below it (no collapsed card).
+    // The family explanation it triggers reads back in the latest answer (one family block per window).
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SopUserBubble(msg.question)
+        SopAssistantHeader(hindi)
+        if (result == null) Text(tr("No answer recorded.", "कोई उत्तर दर्ज नहीं।"), style = MaterialTheme.typography.bodySmall)
+        else SopAnswerCard(result, msg.question, msg.asked.ifBlank { msg.question }, warning, inVisit,
+            ai, busy, pending, false, onOpenUrl, onSpeak, onStopSpeak, "", false, "", 0L,
+            onFamily, onCheckOnline, onMoreDetail, onSaveForLater, onEscalate, context, hindi)
+    }
+}
+
+/** Progress card while the answer is being written (shared by the chat thread and the draft flow). */
+@Composable
+fun SopBusyCard(
+    hindi: Boolean,
+    online: Boolean,
+    checking: Boolean,
+    taskExplain: Boolean,
+    draft: String,
+    secs: Long,
+    stalled: Boolean,
+    onCancel: () -> Unit
+) {
+    fun tr(en: String, hi: String) = if (hindi) hi else en
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LinearProgressIndicator(Modifier.fillMaxWidth())
+        val stage = when {
+            online -> tr("Checking online…", "ऑनलाइन जाँच हो रही है…")
+            checking -> tr("Checking against the guide…", "गाइड से मिलाया जा रहा है…")
+            !taskExplain -> tr("Organising your notes on this phone…", "फ़ोन पर नोट्स व्यवस्थित हो रहे हैं…")
+            stalled -> tr("Step 3 of 3 · Checking every statement against the guide…", "चरण 3/3 · हर बात गाइड से मिलाई जा रही है…")
+            draft.isNotBlank() || secs >= 20 -> tr("Step 2 of 3 · Writing the answer…", "चरण 2/3 · उत्तर लिखा जा रहा है…")
+            else -> tr("Step 1 of 3 · Searching the ASHA guide…", "चरण 1/3 · ASHA गाइड में खोज…")
+        }
+        Text("$stage  ${secs}s", fontWeight = FontWeight.Medium)
+        if (draft.isNotBlank()) Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(10.dp)) {
+                Text(tr("Draft — checked against the guide before it is shown as the answer", "ड्राफ़्ट — उत्तर बनने से पहले गाइड से जाँचा जाएगा"), style = MaterialTheme.typography.labelSmall)
+                Text(draft, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        TextButton(onClick = onCancel) { Text(tr("Cancel", "रद्द करें")) }
+    }
+}
+
+/**
+ * Part B8: the answer streaming into the real card, word by word. Sections render as
+ * they arrive; citations appear when the checked answer lands. While the checker runs,
+ * the rejected draft shows struck through with "Rewriting from the guide…".
+ */
+@Composable
+fun SopStreamingCard(
+    question: String,
+    draft: String,
+    checking: Boolean,
+    secs: Long,
+    hindi: Boolean,
+    onSpeakSoFar: (String) -> Unit,
+    onCancel: () -> Unit
+) {
+    fun tr(en: String, hi: String) = if (hindi) hi else en
+    // UI4: the question bubble and the ■ stop button live in the chat screen.
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            if (checking) tr("Rewriting from the guide…", "गाइड से फिर लिखा जा रहा है…")
+            else tr("✍️ Writing… · checking against the guide", "✍️ लिखा जा रहा है… · गाइड से मिलाया जा रहा है"),
+            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary
+        )
+        if (draft.isNotBlank()) {
+            if (checking) Text(ArogyaMarkdown.strip(draft),
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp, lineHeight = 25.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
+            else SopAnswerText(ArogyaAnswerFormat.stripCitationMarkers(draft), emptyList(), emptySet()) {}
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (draft.isNotBlank() && !checking) TextButton(onClick = { onSpeakSoFar(draft) }) {
+                Text(tr("🔊 Read so far", "🔊 अब तक सुनें"))
+            }
+            Text("${secs}s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * Item 4 + 5 answer layout (latest card and expanded history alike): the model chip, the
+ * "guide says" quote only when it adds to the answer (>= 70% overlap hides it), the
+ * answer first in cited sections, one compact source line that expands to the highlighted
+ * passages with "Open official document", then one buttons row: read aloud, explain,
+ * check online, more detail, share. A checked answer shows Offline | Online tabs (both
+ * kept); the Online tab highlights sentences the offline answer lacked.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun SopAnswerCard(
+    result: ArogyaAiResult,
+    question: String,
+    /** The exact query the runtime answered (for Check online / More detail). */
+    asked: String,
+    warning: String?,
+    inVisit: Boolean,
+    ai: ArogyaVisitAi?,
+    busy: Boolean,
+    pending: Int,
+    /** History cards trigger the family explanation; its text reads in the latest card. */
+    showFamily: Boolean,
+    onOpenUrl: (String) -> Unit,
+    onSpeak: (String) -> Unit,
+    onStopSpeak: () -> Unit,
+    familyText: String,
+    familyBusy: Boolean,
+    familyModel: String,
+    familyMs: Long,
+    onFamily: (Boolean) -> Unit,
+    onCheckOnline: () -> Unit,
+    onMoreDetail: () -> Unit,
+    onSaveForLater: () -> Unit,
+    onEscalate: (String) -> Unit,
+    context: Context,
+    hindi: Boolean
+) {
+    fun tr(en: String, hi: String) = if (hindi) hi else en
+    val hasOnline = result.onlineText.isNotBlank()
+    var tab by remember(result) { mutableStateOf(0) }
+    val news = remember(result) { if (hasOnline) ArogyaOfficialAnswer.newSentences(result.text, result.onlineText) else emptySet() }
+    val tabText = if (tab == 1) result.onlineText else result.text
+    val tabSources = if (tab == 1) result.onlineSources else result.sources
+    val tabSegments = if (tab == 1) result.onlineSegments else result.segments
+    val tabTier = if (tab == 1) result.onlineTier else result.tier
+    val grounded = tabSources.isNotEmpty() && !result.sourceOnly && !result.r8Blocked
+    val showQuote = tab == 0 && result.quote.isNotBlank() && !ArogyaAnswerFormat.isDuplicate(result.text, result.quote)
+    var srcOpen by remember(result) { mutableStateOf(false) }
+    var hl by remember(result) { mutableStateOf("") }
+    fun cite(id: String) { srcOpen = true; hl = id }
+    var shareOpen by remember(result) { mutableStateOf(false) }
+    var ansDoc by remember(result) { mutableStateOf<ArogyaDocRender.FilledDoc?>(null) }
+    var ansBusy by remember(result) { mutableStateOf(false) }
+    val ansScope = rememberCoroutineScope()
+    // The share sheet covers the visible tab (offline or online).
+    val shareText = if (tab == 1) result.onlineText else result.text
+    val shareSegments = if (tab == 1) result.onlineSegments else result.segments
+    val shareSources = if (tab == 1) result.onlineSources else result.sources
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (tab == 1) AiResultChip(result.onlineProvider.ifBlank { "ArogyaDoot • online" }, true, result.onlineMs, hindi)
+        else AiResultChip(result.provider, result.online, result.elapsedMs, hindi)
+        if (hasOnline) TabRow(selectedTabIndex = tab) {
+            Tab(selected = tab == 0, onClick = { tab = 0; hl = "" }, text = { Text(tr("📱 Offline", "📱 ऑफ़लाइन")) })
+            Tab(selected = tab == 1, onClick = { tab = 1; hl = "" }, text = { Text(tr("☁ Online", "☁ ऑनलाइन")) })
+        }
+        if (tabTier == 2) Text(tr("🌐 From an official website (not in your guides)", "🌐 आधिकारिक वेबसाइट से (आपकी गाइड में नहीं है)"),
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        else if (grounded) Text(tr("📚 From official guides", "📚 आधिकारिक गाइड से"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        if (showQuote) Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            Column(Modifier.padding(12.dp)) {
+                Text(tr("The guide says", "गाइड में लिखा है"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("“${result.quote}”")
+                if (result.quoteSource.isNotBlank()) Text("— " + result.quoteSource, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        SopAnswerText(tabText, tabSegments, if (tab == 1) news else emptySet(), ::cite)
+        if (ArogyaFlags.r7SourceLine && tabSources.isNotEmpty()) {
+            val s0 = tabSources.first()
+            val anyWeb = tabSources.any { it.kind == "web" }
+            // UI5: the source line expands the passages; "📄 Open PDF" opens the first source's
+            // official document at the cited page in one tap.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { srcOpen = !srcOpen }, modifier = Modifier.weight(1f)) {
+                    Text((if (anyWeb) tr("🌐 Sources: ", "🌐 स्रोत: ") else tr("📚 From the guide: ", "📚 गाइड से: ")) + s0.title +
+                        (if (s0.locator.isNotBlank()) ", ${s0.locator}" else "") +
+                        (if (s0.kind == "web" && s0.date.isNotBlank()) " (${s0.date})" else "") +
+                        (if (tabSources.size > 1) tr(" +${tabSources.size - 1} more", " +${tabSources.size - 1} और") else "") +
+                        (if (srcOpen) " ▴" else " ▾"),
+                        fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodySmall)
+                }
+                val firstLink = tabSources.firstOrNull { it.url.startsWith("http") }
+                if (firstLink != null) FilledTonalButton(onClick = { onOpenUrl(ArogyaGuideLibrary.pageUrl(firstLink.url, firstLink.locator)) },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) {
+                    Text(if (firstLink.kind == "web") tr("🌐 Open", "🌐 खोलें") else tr("📄 Open PDF", "📄 PDF खोलें"),
+                        style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            if (srcOpen) tabSources.forEach { s ->
+                key(s.id, tab) {
+                    val bring = remember { BringIntoViewRequester() }
+                    LaunchedEffect(hl) { if (hl == s.id) runCatching { bring.bringIntoView() } }
+                    Card(Modifier.fillMaxWidth().bringIntoViewRequester(bring),
+                        colors = if (hl == s.id) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        else CardDefaults.cardColors()) {
+                        Column(Modifier.padding(12.dp)) {
+                            if (s.kind == "web") {
+                                Text("🌐 [${s.id}] ${s.title}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                Text(listOf(s.domain, s.locator, s.date).filter { it.isNotBlank() }.joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Text(tr("From an official website (not in your guides). Open the link to read the original.",
+                                    "आधिकारिक वेबसाइट से (आपकी गाइड में नहीं है)। मूल पढ़ने के लिए लिंक खोलें।"),
+                                    style = MaterialTheme.typography.bodySmall)
+                            } else {
+                                Text("[${s.id}] ${s.title}" + (if (s.locator.isNotBlank()) " · ${s.locator}" else ""),
+                                    fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                            }
+                            ArogyaPassageText(s)
+                            if (s.url.startsWith("http")) TextButton(onClick = { onOpenUrl(ArogyaGuideLibrary.pageUrl(s.url, s.locator)) }) {
+                                Text(if (s.kind == "web") tr("Open link", "लिंक खोलें") else tr("Open official document", "आधिकारिक दस्तावेज़ खोलें"))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (tab == 0 && result.r8Blocked) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    // In a visit the ANM dialog carries the pre-filled message; standalone SOP shares it.
+                    if (inVisit) onEscalate(question)
+                    else {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, tr("Please advise: ", "कृपया बताएँ: ") + question.trim())
+                        }
+                        runCatching { context.startActivity(Intent.createChooser(send, tr("Ask ANM", "ANM से पूछें"))) }
+                    }
+                }, modifier = Modifier.weight(1f)) { Text(tr("Ask ANM", "ANM से पूछें")) }
+                OutlinedButton(onClick = onSaveForLater, modifier = Modifier.weight(1f)) { Text(tr("💾 Save to check later", "💾 बाद में जाँचें")) }
+            }
+        }
+        // UI4: compact action row under the answer, like a chat app's icon row (every action kept).
+        val small = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { onSpeak(tabText) }, contentPadding = small) { Text(tr("🔊 Listen", "🔊 सुनें")) }
+            TextButton(onClick = onStopSpeak, contentPadding = small) { Text(tr("⏹ Stop", "⏹ रोकें")) }
+            if (ai != null && !result.sourceOnly && !result.storedCopy) {
+                TextButton(onClick = { onFamily(true) }, enabled = !familyBusy && !busy, contentPadding = small) {
+                    Text(if (familyBusy) tr("Writing…", "लिखा जा रहा है…") else tr("👪 Family (हिंदी)", "👪 परिवार को समझाएँ"))
+                }
+                TextButton(onClick = { onFamily(false) }, enabled = !familyBusy && !busy, contentPadding = small) { Text(tr("👪 English", "👪 English")) }
+                AiBadge("Explain to family")
+            }
+            if (!hasOnline && !result.online && !ArogyaOnlinePolicy.localOnly(question))
+                TextButton(onClick = onCheckOnline, enabled = !busy && pending == 0 && asked.isNotBlank(), contentPadding = small) { Text(tr("☁ Check online", "☁ ऑनलाइन जाँचें")) }
+            if (!result.sourceOnly && !result.storedCopy)
+                TextButton(onClick = onMoreDetail, enabled = !busy && pending == 0 && asked.isNotBlank(), contentPadding = small) { Text(tr("➕ More detail", "➕ और विस्तार")) }
+            TextButton(onClick = { shareOpen = true }, contentPadding = small) { Text(tr("↗ Share", "↗ भेजें")) }
+        }
+        if (warning != null && inVisit) Button(onClick = { onEscalate(question) }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth()) { Text(tr("Escalate to ANM", "ANM को सूचित करें")) }
+        if (showFamily && ai != null && !result.sourceOnly && !result.storedCopy && familyText.isNotBlank()) Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(tr("For the family", "परिवार के लिए"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                if (familyModel.isNotBlank()) AiResultChip(familyModel, ArogyaAiUsed.online(familyModel), familyMs, hindi)
+                if (familyBusy) Text(tr("✍️ Writing…", "✍️ लिखा जा रहा है…"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                Text(familyText, style = MaterialTheme.typography.bodyLarge, fontSize = 20.sp, lineHeight = 29.sp)
+                Button(onClick = { onSpeak(familyText) }, modifier = Modifier.fillMaxWidth()) { Text(tr("🔊 Read to the family", "🔊 परिवार को सुनाएँ")) }
+                OutlinedButton(onClick = { ArogyaShare.shareText(context, tr("For the family", "परिवार के लिए"), familyText) }, modifier = Modifier.fillMaxWidth()) { Text(tr("Share with family (WhatsApp)", "परिवार को भेजें (WhatsApp)")) }
+                Text(tr("AI rewrite of the guide answer in simple words. No new advice or numbers are added — check before reading out.", "गाइड के उत्तर का सरल रूप। कोई नई सलाह या संख्या नहीं जोड़ी गई — सुनाने से पहले देख लें।"), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Text((if (tab == 1 || result.online) tr("Online", "ऑनलाइन") else tr("Offline on this phone", "इस फ़ोन पर ऑफ़लाइन")) +
+            " · ${(if (tab == 1) result.onlineMs else result.elapsedMs) / 1000}s · " +
+            tr("Not a diagnosis — ask your ANM if unsure.", "यह निदान नहीं है — शंका हो तो ANM से पूछें।"), style = MaterialTheme.typography.bodySmall)
+        if (shareOpen) {
+            val store = remember { ArogyaRegistryStore.get(context) }
+            fun toast(m: String) = Toast.makeText(context, m, Toast.LENGTH_LONG).show()
+            AlertDialog(onDismissRequest = { if (!ansBusy) shareOpen = false },
+                title = { Text(tr("Share answer", "उत्तर भेजें")) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            val entry = ArogyaGuideEntry(System.currentTimeMillis(), question, shareText, result.quote,
+                                result.quoteSource, shareSources, result.provider, result.elapsedMs, "", result.tier)
+                            ArogyaShare.shareText(context, "Guide answer", ArogyaShare.guideEntryText(entry))
+                            shareOpen = false
+                        }, modifier = Modifier.fillMaxWidth()) { Text(tr("Share as text", "टेक्स्ट भेजें")) }
+                        OutlinedButton(onClick = {
+                            ansDoc = store.answerDoc(question, shareSegments, shareText, shareSources)
+                            shareOpen = false
+                        }, modifier = Modifier.fillMaxWidth()) { Text(tr("View printable", "छपने वाला देखें")) }
+                        Button(onClick = {
+                            ansBusy = true
+                            ansScope.launch {
+                                try {
+                                    if (!store.shareAnswerPdf(question, shareSegments, shareText, shareSources)) toast(tr("Could not create the PDF", "PDF नहीं बना"))
+                                    else shareOpen = false
+                                } finally {
+                                    ansBusy = false
+                                }
+                            }
+                        }, enabled = !ansBusy, modifier = Modifier.fillMaxWidth()) { Text(if (ansBusy) tr("Making PDF…", "PDF बन रही है…") else tr("Share PDF", "PDF भेजें")) }
+                        OutlinedButton(onClick = {
+                            ansBusy = true
+                            ansScope.launch {
+                                try {
+                                    val bytes = store.renderDoc(store.answerDoc(question, shareSegments, shareText, shareSources))
+                                    if (bytes == null || !ArogyaPrint.printPdf(context, "SOP answer", bytes)) toast(tr("Print failed", "छपाई नहीं हुई"))
+                                    else shareOpen = false
+                                } finally {
+                                    ansBusy = false
+                                }
+                            }
+                        }, enabled = !ansBusy, modifier = Modifier.fillMaxWidth()) { Text(tr("Print", "छापें")) }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { if (!ansBusy) shareOpen = false }) { Text(tr("Close", "बंद")) } })
+        }
+        ansDoc?.let { d ->
+            var viewBusy by remember { mutableStateOf(false) }
+            val store = remember { ArogyaRegistryStore.get(context) }
+            fun toast(m: String) = Toast.makeText(context, m, Toast.LENGTH_LONG).show()
+            ArogyaDocPdf.Viewer(d, tr("Answer — printable", "उत्तर — छपने वाला"), viewBusy, hindi, { ansDoc = null },
+                onSharePdf = {
+                    viewBusy = true
+                    ansScope.launch {
+                        try {
+                            if (!store.shareAnswerPdf(question, shareSegments, shareText, shareSources)) toast(tr("Could not create the PDF", "PDF नहीं बना"))
+                        } finally {
+                            viewBusy = false
+                        }
+                    }
+                },
+                onPrint = {
+                    viewBusy = true
+                    ansScope.launch {
+                        try {
+                            val bytes = store.renderDoc(d)
+                            if (bytes == null || !ArogyaPrint.printPdf(context, "SOP answer", bytes)) toast(tr("Print failed", "छपाई नहीं हुई"))
+                        } finally {
+                            viewBusy = false
+                        }
+                    }
+                })
+        }
+    }
+}
+
+// ── UI4: chat-style Ask screen (layout like a modern AI chat app, the app's own colours) ──
+
+/** The worker's question as a right-aligned bubble. */
+@Composable
+fun SopUserBubble(text: String) {
+    if (text.isBlank()) return
+    Row(Modifier.fillMaxWidth().padding(start = 48.dp), horizontalArrangement = Arrangement.End) {
+        Surface(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) {
+            Text(text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 22.sp))
+        }
+    }
+}
+
+/** Small "guide" avatar row above an answer, like the assistant marker in a chat app. */
+@Composable
+fun SopAssistantHeader(hindi: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(26.dp)) {
+            Box(contentAlignment = Alignment.Center) { Text("📚", fontSize = 13.sp) }
+        }
+        Text(if (hindi) "ASHA गाइड" else "ASHA guide", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** Empty chat: a greeting and tappable example questions (the guide's own suggestions when known). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SopEmptyState(hindi: Boolean, suggestTitle: String, suggestions: List<String>, onPick: (String) -> Unit) {
+    fun tr(en: String, hi: String) = if (hindi) hi else en
+    val examples = suggestions.take(4).ifEmpty {
+        listOf(
+            tr("What should be applied on the baby's cord stump?", "बच्चे की नाल पर क्या लगाना चाहिए?"),
+            tr("Should colostrum be given to the newborn?", "क्या नवजात को पहला गाढ़ा दूध देना चाहिए?"),
+            tr("How do I make ORS at home?", "घर पर ओआरएस कैसे बनाएँ?"),
+            tr("What are the danger signs in a newborn?", "नवजात में खतरे के लक्षण क्या हैं?"))
+    }
+    Column(Modifier.fillMaxWidth().padding(top = 48.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(52.dp)) {
+            Box(contentAlignment = Alignment.Center) { Text("📚", fontSize = 24.sp) }
+        }
+        Text(tr("What would you like to ask?", "आप क्या पूछना चाहती हैं?"), style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold)
+        Text(tr("Answers come from the official ASHA guides, with the page they are from.",
+            "उत्तर आधिकारिक ASHA गाइड से आते हैं, पेज के हवाले के साथ।"),
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (suggestions.isNotEmpty() && suggestTitle.isNotBlank())
+            Text(tr("Ask about ", "पूछें ") + suggestTitle.take(60), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary)
+        examples.forEach { q ->
+            OutlinedCard(onClick = { onPick(q.take(200)) }, modifier = Modifier.fillMaxWidth(),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+                Text(q, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+/**
+ * Bottom composer: rounded bar with ＋ (photo / file), the question, 🎤 and a round send button
+ * that turns into ■ stop while an answer is being written.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SopComposer(
+    value: String,
+    onValueChange: (String) -> Unit,
+    hindi: Boolean,
+    busy: Boolean,
+    canSend: Boolean,
+    attachEnabled: Boolean,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    onMic: () -> Unit,
+    onPhoto: () -> Unit,
+    onFile: () -> Unit
+) {
+    fun tr(en: String, hi: String) = if (hindi) hi else en
+    var menu by remember { mutableStateOf(false) }
+    Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.Bottom) {
+            Box {
+                TextButton(onClick = { menu = true }, enabled = attachEnabled && !busy,
+                    contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp)) {
+                    Text("＋", style = MaterialTheme.typography.titleLarge)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text(tr("📷 Take photo", "📷 फ़ोटो लें")) }, onClick = { menu = false; onPhoto() })
+                    DropdownMenuItem(text = { Text(tr("📎 Photo / PDF", "📎 फ़ोटो / PDF")) }, onClick = { menu = false; onFile() })
+                }
+            }
+            TextField(
+                value = value, onValueChange = onValueChange, enabled = !busy,
+                placeholder = { Text(if (busy) tr("Writing the answer…", "उत्तर लिखा जा रहा है…") else tr("Ask the ASHA guide", "ASHA गाइड से पूछें")) },
+                modifier = Modifier.weight(1f), minLines = 1, maxLines = 5,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent)
+            )
+            if (!busy && value.isBlank()) TextButton(onClick = onMic, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp)) {
+                Text("🎤", fontSize = 20.sp)
+            }
+            val sendColor = if (busy || canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+            Surface(onClick = { if (busy) onStop() else if (canSend) onSend() }, enabled = busy || canSend,
+                shape = androidx.compose.foundation.shape.CircleShape, color = sendColor,
+                contentColor = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(4.dp).size(40.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(if (busy) "■" else "↑", fontSize = if (busy) 16.sp else 20.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
