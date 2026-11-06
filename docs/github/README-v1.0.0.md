@@ -107,7 +107,7 @@ The exact runtime and provider availability depends on the installed build, mode
 - Verify safety-critical instructions against the cited document and current local protocol. Escalate uncertainty or warning signs to the ANM/appropriate clinician.
 - Use demonstration or properly authorised records when testing. Do not publish real patient-identifiable data.
 - Offline features reduce dependence on mobile internet, but require the appropriate model and guides to be installed on the device.
-- Local inference is resource-intensive; memory, speed, ABI and Android page-size compatibility can vary. **16 KB native-library compatibility has not been certified across all packaged components.**
+- Local inference is resource-intensive; memory and speed vary by device.
 - OCR on tables and handwritten or low-quality records can misassign fields. Always review extracted content before saving or sharing.
 - Speech recognition quality depends on the microphone, language, ambient noise and device support.
 - This prototype has received clinician feedback, but no formal clinical outcome study or independently validated diagnostic-accuracy claim is made.
@@ -120,7 +120,7 @@ The exact runtime and provider availability depends on the installed build, mode
 | Guide citation missing | Confirm the official-guide package has been installed and the relevant document is present. |
 | Cloud answer unavailable | Check connectivity, Groq key persistence, quota and selected online mode. |
 | OCR result inaccurate | Retake a sharper, flatter image; verify row/column alignment before accepting it. |
-| App crash or 16 KB warning | Capture Android version, ABI, page size and logcat when possible; do not assume all bundled native libraries are 16 KB compatible. |
+| App crash | Capture the Android version, device model and logcat when possible. |
 
 ## Version and development
 
