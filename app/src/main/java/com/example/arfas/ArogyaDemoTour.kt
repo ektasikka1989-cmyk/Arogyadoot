@@ -487,7 +487,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                     ticks += ArogyaAiTick("guide follow-up", "दोबारा सवाल", f.provider, f.elapsedMs, f.online)
                     // Item 8: one Check online moment (skipped honestly when offline).
                     status = tr("Checking the answer online…", "उत्तर ऑनलाइन जाँच रहे हैं…")
-                    if (MetaOnline.ready(context)) {
+                    if (MetaOnline.hasInternet(context) && ArogyaCloud.groqKey(context).isNotBlank()) {
                         val o = engine.run(ArogyaAiRequest(ArogyaAiTask.EXPLAIN,
                             ArogyaVisit(id = SOP_VISIT_ID, personId = SOP_VISIT_ID, name = "", kind = ArogyaKind.FOLLOW_UP),
                             question = ArogyaDemoScript.question(wf, demoHindi),
@@ -605,6 +605,30 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
         scope.launch {
             onlineBusy = true; onlineNote = ""
             try {
+                val t0 = System.currentTimeMillis()
+                if (kind == "person" || kind == "card") {
+                    // Person and card photos never go online: Gemma reads them again on the phone.
+                    val lm = ai?.localModel()
+                    if (!ArogyaLocalVision.ready(lm)) { onlineNote = tr("Gemma's vision is not ready on this phone. Type the missing details.", "इस फ़ोन पर Gemma की दृष्टि तैयार नहीं। बाकी जानकारी टाइप करें।"); return@launch }
+                    if (kind == "person") {
+                        val (bmp, _) = personPhoto ?: return@launch
+                        val seen = ArogyaLocalVision.readPhoto(lm, bmp, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it).firstOrNull() }
+                        if (seen == null) { onlineNote = tr("Gemma found no person's details on this photo. Check the document, or type the details.", "Gemma को इस फ़ोटो पर व्यक्ति की जानकारी नहीं मिली। दस्तावेज़ जाँचें, या जानकारी टाइप करें।"); return@launch }
+                        personFields = personFields + seen
+                        personPreview = ArogyaPersonCsv.toBeneficiary(personFields)
+                        personEngine = listOf(personEngine, ArogyaLocalVision.LABEL).filter { it.isNotBlank() }.joinToString(" · ")
+                        personAgreed = false
+                        personMsg = tr("Read again by Gemma on this phone — an AI reading. Check every value.", "Gemma ने फ़ोन पर दोबारा पढ़ा — AI पाठ। हर मान जाँचें।")
+                        ticks += ArogyaAiTick("add person from photo", "फ़ोटो से नया व्यक्ति", ArogyaLocalVision.LABEL, System.currentTimeMillis() - t0, false)
+                    } else {
+                        val got = (ai ?: error("AI is not ready")).readCardOnPhone()
+                        if (got == null) { onlineNote = tr("Gemma could not read more from this card.", "Gemma इस कार्ड से और नहीं पढ़ पाया।"); return@launch }
+                        card = got.first; cardModel = listOf(cardModel, got.second).filter { it.isNotBlank() }.joinToString(" · ")
+                        cardChecked = got.first.fields.indices.filter { !got.first.fields[it].value.contains("not readable") }.toSet(); cardApplied = false
+                        ticks += ArogyaAiTick("card text reading + extraction", "कार्ड पढ़ना", ArogyaLocalVision.LABEL, System.currentTimeMillis() - t0, false)
+                    }
+                    return@launch
+                }
                 val (net, key) = withContext(Dispatchers.IO) { MetaOnline.hasInternet(context) to runCatching { ArogyaCloud.textChoice(context).let { it.first != null && it.second.isNotBlank() } }.getOrDefault(false) }
                 if (!net || !key) { onlineNote = if (!net) tr("No internet on the phone. Connect to Wi-Fi or mobile data, then press again.", "फ़ोन पर इंटरनेट नहीं। Wi-Fi या मोबाइल डेटा जोड़कर फिर दबाएँ।")
                     else tr("No Groq key saved. Add it in ✨ AI → Cloud settings (a Groq key, starting gsk_), then press again.", "Groq key सेव नहीं। ✨ AI → Cloud सेटिंग में Groq key डालें (gsk_ से शुरू), फिर दबाएँ।"); return@launch }
@@ -702,8 +726,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         val missing = ArogyaTableOcr.CORE.filter { rules[it].isNullOrBlank() }
                         // Online (Cloud first, or the phone's reading is incomplete): Qwen reads the photo like a
                         // person, Aadhaar blacked out first. Its values win; the phone's fill gaps (e.g. the Aadhaar).
-                        val seen = if (ArogyaPhotoVision.wanted(context, missing.isEmpty())) { status = tr("Qwen3 is reading the photo…", "Qwen3 फ़ोटो पढ़ रहा है…")
-                            ArogyaPhotoVision.transcribe(context, bmp, lines, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it).firstOrNull() } } else null
+                        val seen: Map<String, String>? = null   // person photos never go online (privacy); Gemma re-reads on request
                         val (fields, eng) = if (seen != null) (rules + seen) to ArogyaPhotoVision.LABEL
                             else if (missing.isEmpty()) rules to tr("On-phone rules (offline): every column read", "फ़ोन पर नियम (ऑफ़लाइन): हर कॉलम पढ़ा")
                             else { // The phone model may be slow, not loaded or find nothing: the review still opens.
@@ -720,7 +743,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         val coreFound = ArogyaTableOcr.CORE.count { !fields[it].isNullOrBlank() }
                         personMsg = if (coreFound == 0) tr("⚠ This does not look like a registration slip, register page or card: no name, age, mobile, house, village or LMP was found. Check that it is the right document, then take the photo again.",
                             "⚠ यह पंजीकरण पर्ची, रजिस्टर या कार्ड नहीं लगता: नाम, उम्र, मोबाइल, मकान, गाँव या LMP नहीं मिला। सही कागज़ है, जाँचें और फिर से फ़ोटो लें।")
-                            else if (fields["name"].isNullOrBlank()) tr("The phone could not read the name on this photo. Press \"Read online\" below, or type the details.",
+                            else if (fields["name"].isNullOrBlank()) tr("The phone could not read the name on this photo. Press \"Read again with Gemma\" below, or type the details.",
                             "फ़ोन इस फ़ोटो पर नाम नहीं पढ़ पाया। नीचे \"ऑनलाइन पढ़ें\" दबाएँ, या जानकारी लिखें।") else listOfNotNull(
                             tr("Photo read by Qwen3 online. Aadhaar was blacked out on the phone before sending.", "फ़ोटो Qwen3 ने ऑनलाइन पढ़ी। भेजने से पहले आधार फ़ोन पर ही काला किया गया।").takeIf { seen != null },
                             tr("Aadhaar number read on the phone — saved encrypted, shown masked.", "आधार नंबर फ़ोन पर पढ़ा — सुरक्षित सेव, छिपाकर दिखाया।").takeIf { !fields["aadhaar"].isNullOrBlank() }).joinToString(" ")
@@ -737,9 +760,17 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         val bmp = decodePhoto(uri, 1280)
                         val jpeg = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
                         samBitmap = bmp
-                        if (true) { // Online counting (SAM 3.1) retired in ArogyaDoot; the shelf is counted by hand.
-                            samMsg = tr("Online counting is not available — count by hand.",
-                                "ऑनलाइन गिनती नहीं है — हाथ से गिनें।")
+                        if (true) { // SAM 3.1 (online) retired: Gemma estimates on the phone; Sunita's taps are the count.
+                            val lm = ai?.localModel()
+                            if (ArogyaLocalVision.ready(lm)) {
+                                status = tr("Gemma is looking at the shelf…", "Gemma शेल्फ़ देख रहा है…")
+                                val t = System.currentTimeMillis()
+                                val est = ArogyaLocalVision.estimateCount(lm, bmp, ArogyaKitPhrases.phrase("ORS"))
+                                samMsg = if (est != null) tr("Gemma estimates about $est ORS sachets. Sunita taps each one — her taps are the count.",
+                                    "Gemma का अनुमान लगभग $est ORS पैकेट। सुनीता हर एक दबाती हैं — उनकी गिनती ही मानी जाती है।")
+                                    else tr("Gemma could not estimate — count by tapping.", "Gemma अनुमान नहीं लगा पाया — दबाकर गिनें।")
+                                ticks += ArogyaAiTick("kit count estimate", "किट गिनती अनुमान", ArogyaLocalVision.LABEL, System.currentTimeMillis() - t, false)
+                            } else samMsg = tr("Count by tapping each sachet in the photo.", "फ़ोटो में हर पैकेट दबाकर गिनें।")
                         } else {
                             status = tr("SAM 3.1 is counting…", "SAM 3.1 गिन रहा है…")
                             val t = System.currentTimeMillis()
@@ -1307,7 +1338,7 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                         val got = ArogyaTableOcr.CORE.filter { !personFields[it].isNullOrBlank() && it !in unclear }
                         ReadOnlineOffer(got.map { personFieldLabel(it, hindi) },
                             (ArogyaTableOcr.CORE - got.toSet()).map { personFieldLabel(it, hindi) + if (it in unclear) tr(" (unclear)", " (साफ़ नहीं)") else "" },
-                            hindi, onlineBusy, onlineNote) { onReadOnline("person") }
+                            hindi, onlineBusy, onlineNote, onPhone = true) { onReadOnline("person") }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(personAgreed, onAgreePerson, enabled = !personSaved)
@@ -1468,7 +1499,7 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                     if (!cardApplied && !cardModel.contains("online")) {
                         val bad = r.fields.filter { it.value.contains("not readable") }
                         ReadOnlineOffer(r.fields.filter { it !in bad }.map { it.label }, bad.map { it.label + tr(" (date)", " (तारीख)") }.ifEmpty { if (r.fields.isEmpty()) listOf(tr("vaccines and dates", "टीके और तारीखें")) else emptyList() },
-                            hindi, onlineBusy, onlineNote) { onReadOnline("card") }
+                            hindi, onlineBusy, onlineNote, onPhone = true) { onReadOnline("card") }
                     }
                 } }
             }

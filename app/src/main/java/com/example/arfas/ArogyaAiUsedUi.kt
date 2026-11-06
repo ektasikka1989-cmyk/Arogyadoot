@@ -65,7 +65,8 @@ fun AiStepsPopup(engine: String, hindi: Boolean, ms: Long, onlineHint: Boolean?,
  * to read the same photo again online with Qwen (Groq). Nothing is sent until the ASHA presses it.
  */
 @Composable
-fun ReadOnlineOffer(captured: List<String>, missing: List<String>, hindi: Boolean, busy: Boolean, note: String, onReadOnline: () -> Unit) {
+fun ReadOnlineOffer(captured: List<String>, missing: List<String>, hindi: Boolean, busy: Boolean, note: String,
+    onPhone: Boolean = false, onReadOnline: () -> Unit) {
     if (missing.isEmpty()) return
     fun tr(en: String, hi: String) = if (hindi) hi else en
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), modifier = Modifier.fillMaxWidth()) {
@@ -73,11 +74,18 @@ fun ReadOnlineOffer(captured: List<String>, missing: List<String>, hindi: Boolea
             Text(tr("📴 Read on the phone (offline)", "📴 फ़ोन पर पढ़ा (ऑफ़लाइन)"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
             if (captured.isNotEmpty()) Text(tr("Captured: ", "पढ़ा गया: ") + captured.joinToString(", "), fontSize = 12.sp)
             Text(tr("Not captured: ", "नहीं पढ़ा गया: ") + missing.joinToString(", "), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-            Text(tr("For a better reading, read this photo online.", "बेहतर पढ़ाई के लिए यह फ़ोटो ऑनलाइन पढ़ें।"), fontSize = 12.sp)
+            // Person and card photos never leave the phone (privacy): Gemma reads them again on the phone instead.
+            Text(if (onPhone) tr("For a better reading, let Gemma read the photo on this phone (good for handwriting).", "बेहतर पढ़ाई के लिए Gemma से फ़ोन पर फ़ोटो पढ़वाएँ (लिखावट के लिए अच्छा)।")
+                else tr("For a better reading, read this photo online.", "बेहतर पढ़ाई के लिए यह फ़ोटो ऑनलाइन पढ़ें।"), fontSize = 12.sp)
             Button(onClick = onReadOnline, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                Text(if (busy) tr("Qwen3 is reading…", "Qwen3 पढ़ रहा है…") else tr("☁ Read online with Qwen3 (Groq)", "☁ Qwen3 (Groq) से ऑनलाइन पढ़ें"))
+                Text(when {
+                    busy && onPhone -> tr("Gemma is reading…", "Gemma पढ़ रहा है…")
+                    busy -> tr("Qwen3 is reading…", "Qwen3 पढ़ रहा है…")
+                    onPhone -> tr("📱 Read again with Gemma (on this phone)", "📱 Gemma से दोबारा पढ़ें (फ़ोन पर)")
+                    else -> tr("☁ Read online with Qwen3 (Groq)", "☁ Qwen3 (Groq) से ऑनलाइन पढ़ें")
+                })
             }
-            Text(tr("Aadhaar is blacked out on the phone before the photo is sent.", "भेजने से पहले आधार फ़ोन पर काला किया जाता है।"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (onPhone) tr("The photo stays on this phone.", "फ़ोटो इसी फ़ोन पर रहती है।") else tr("Medicine labels carry no personal details; nothing else is sent.", "दवा के लेबल पर निजी जानकारी नहीं होती; और कुछ नहीं भेजा जाता।"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (note.isNotBlank()) Text(note, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
         }
     }

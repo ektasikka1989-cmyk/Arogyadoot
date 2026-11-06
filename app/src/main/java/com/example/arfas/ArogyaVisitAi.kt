@@ -764,6 +764,16 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
      * "Read online with Muse Spark" on a card the phone read incompletely: the same photo (Aadhaar blacked out)
      * read by Muse Spark, then the same card reader and checks. Null when offline, no key, or nothing read.
      */
+    /** The last card photo read again by Gemma on the phone (card photos never go online). Null when unavailable. */
+    suspend fun readCardOnPhone(): Pair<ArogyaCardReading, String>? = mutex.withLock {
+        val (bmp, _) = lastCardPhoto ?: return@withLock null
+        val v = ArogyaLocalVision.readPhoto(runtime.localModelManager, bmp, ArogyaPhotoText.Kind.CARD)?.let { ArogyaPhotoText.cardText(it) }?.takeIf { it.length >= 15 } ?: return@withLock null
+        val (o, by) = route("card_read", ArogyaAiExtras.cardPrompt(v), 900, cloud = false, cloudTokens = 1500, lang = ArogyaBudget.langOf(v)) { out ->
+            ArogyaAiExtras.parseCard(out, v).takeIf { it.isNotEmpty() } }
+        Log.i(TAG, "AROGYA_CARD_TEXT using=gemma_on_request fields=${o?.size ?: 0}")
+        if (o.isNullOrEmpty()) null else ArogyaCardReading(v, o) to (ArogyaLocalVision.LABEL + " · " + by)
+    }
+
     suspend fun readCardOnline(): Pair<ArogyaCardReading, String>? = mutex.withLock {
         val ctx = appContext ?: return@withLock null
         val (bmp, ls) = lastCardPhoto ?: return@withLock null

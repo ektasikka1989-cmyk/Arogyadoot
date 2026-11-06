@@ -120,8 +120,8 @@ object ArogyaDemoScript {
         "Learn · Daily practice", "सीखें · रोज़ अभ्यास", "Keep the ASHA's knowledge fresh, from official guides.", "आशा का ज्ञान ताज़ा रखना, सरकारी गाइड से।")
 
     private val summary = sc("summary", "AI behind the visit, and time saved", "विज़िट के पीछे AI, और बचा समय",
-        listOf("Each feature has a tool on the phone and a tool in the cloud; Meta's models are marked in blue.", "Danger signs, schedules and stock stay fixed rules.", "The time table shows what AI did today; by-hand times are estimates."),
-        listOf("हर सुविधा का एक टूल फ़ोन पर और एक क्लाउड में है; Meta के मॉडल नीले रंग में हैं।", "खतरे के लक्षण, शेड्यूल और स्टॉक तय नियम ही रहते हैं।", "समय तालिका बताती है कि आज AI ने क्या किया; हाथ वाले समय अनुमान हैं।"),
+        listOf("Each feature has a tool on the phone and, where allowed, one in the cloud; patient photos never leave the phone.", "Danger signs, schedules and stock stay fixed rules.", "The time table shows what AI did today; by-hand times are estimates."),
+        listOf("हर सुविधा का एक टूल फ़ोन पर और, जहाँ अनुमति हो, एक क्लाउड में है; मरीज़ की फ़ोटो फ़ोन से बाहर नहीं जाती।", "खतरे के लक्षण, शेड्यूल और स्टॉक तय नियम ही रहते हैं।", "समय तालिका बताती है कि आज AI ने क्या किया; हाथ वाले समय अनुमान हैं।"),
         "AI summary · Impact", "AI सारांश · असर", "Show which AI did what, and the time it saved.", "दिखाना कि किस AI ने क्या किया, और कितना समय बचा।")
 
     val workflow1 = Workflow(1, "New pregnancy: register and first ANC visit", "नई गर्भावस्था: पंजीकरण और पहली ANC विज़िट",
@@ -336,8 +336,8 @@ object ArogyaDemoTicks {
             listOf("card text reading + extraction"), phoneOnly = true),
         Tool("Medicine scan", "दवा स्कैन", "$OCR + rules, then $GEMMA", "$OCR + नियम, फिर $GEMMA", false,
             "$QWEN (names removed)", "$QWEN (नाम हटाकर)", false, listOf("medicine scan")),
-        Tool("Drug-kit count", "दवा किट गिनती", "Counted by hand", "हाथ से गिनती", false,
-            "—", "—", false, listOf("SAM 3.1 count")),
+        Tool("Drug-kit count", "दवा किट गिनती", "$GEMMA estimate, confirmed by taps", "$GEMMA अनुमान, दबाकर पक्का", false,
+            "—", "—", false, listOf("SAM 3.1 count", "kit count estimate")),
         Tool("Daily practice questions", "रोज़ अभ्यास के सवाल", GEMMA, GEMMA, false, QWEN, QWEN, false, listOf("daily practice")),
         Tool("Read aloud", "पढ़कर सुनाना", "Android voice (offline)", "Android आवाज़ (ऑफ़लाइन)", false,
             "Android voice", "Android आवाज़", false, listOf("reading aloud"))
