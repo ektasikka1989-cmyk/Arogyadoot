@@ -557,11 +557,9 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
     var result by remember { mutableStateOf("") }
     var ok by remember { mutableStateOf(false) }
     var offerSaveAnyway by remember { mutableStateOf(false) }
-    fun save(k: String): Boolean {
+    fun save(k: String) {
         FixSightRuntimeGraph.get(context).updateGroqKey(k)   // encrypted Groq key + the answer engine updated at once
-        val savedNow = runCatching { GroqKeyStore(context.applicationContext).groqKey().isNotBlank() }.getOrDefault(false)
-        if (savedNow) onChanged()
-        return savedNow
+        onChanged()
     }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StepIcon("🔑")
@@ -600,7 +598,7 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
                     }
                     testing = false
                     when {
-                        outcome.first -> { if (save(k)) { ok = true; key = ""; result = tr("✓ The key works — Qwen3 answered. Saved.", "✓ Key चल रही है — Qwen3 ने जवाब दिया। सेव हो गई।") } else result = tr("The key works but could not be saved on this phone (keystore error).", "Key चली, पर इस फ़ोन में सेव नहीं हुई (keystore error)।") }
+                        outcome.first -> { save(k); ok = true; key = ""; result = tr("✓ The key works — Qwen3 answered. Saved.", "✓ Key चल रही है — Qwen3 ने जवाब दिया। सेव हो गई।") }
                         outcome.second == "offline" -> { result = tr("No internet right now, so the key cannot be tested.", "अभी इंटरनेट नहीं, इसलिए key जाँची नहीं जा सकती।"); offerSaveAnyway = true }
                         outcome.second == "rejected" -> result = tr("Groq rejected this key. Copy it again from console.groq.com and paste.", "Groq ने यह key नहीं मानी। console.groq.com से फिर कॉपी करके चिपकाएँ।")
                         outcome.second == "timeout" -> { result = tr("Groq did not reply in 25 s (weak signal?).", "Groq ने 25 सेकंड में जवाब नहीं दिया (कमज़ोर सिग्नल?)।"); offerSaveAnyway = true }
@@ -610,7 +608,7 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
                 }
             }, enabled = !testing && key.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (testing) tr("Testing…", "जाँच रहे हैं…") else tr("Test and save key", "जाँचें और सेव करें")) }
             if (result.isNotBlank()) Text(result, color = if (ok) SetupGreen else MaterialTheme.colorScheme.error, fontWeight = if (ok) FontWeight.Bold else FontWeight.Normal)
-            if (offerSaveAnyway) OutlinedButton(onClick = { if (save(key)) { key = ""; offerSaveAnyway = false; ok = true; result = tr("Saved. It will be used when there is internet.", "सेव हो गई। इंटरनेट होने पर इस्तेमाल होगी।") } else { offerSaveAnyway = false; ok = false; result = tr("Could not save on this phone (keystore error).", "इस फ़ोन में सेव नहीं हुई (keystore error)।") } }) {
+            if (offerSaveAnyway) OutlinedButton(onClick = { save(key); key = ""; offerSaveAnyway = false; ok = true; result = tr("Saved. It will be used when there is internet.", "सेव हो गई। इंटरनेट होने पर इस्तेमाल होगी।") }) {
                 Text(tr("Save without testing", "बिना जाँचे सेव करें")) }
             Text(tr("🔒 Stored encrypted on this phone only. Names, phone numbers and Aadhaar are removed before anything is sent online.",
                 "🔒 सिर्फ़ इसी फ़ोन पर सुरक्षित (एन्क्रिप्टेड)। ऑनलाइन भेजने से पहले नाम, फ़ोन नंबर और आधार हटाए जाते हैं।"),

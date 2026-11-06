@@ -1512,7 +1512,7 @@ class MainActivity : ComponentActivity() {
         if (clean.isBlank()) return
         runtimeGraph.updateGroqKey(clean)
         refreshOnlineKeys()
-        groqStatusText = if (groqKeySaved) "Saved — not tested" else "Save failed (keystore error)"
+        groqStatusText = "Saved — not tested"
         testGroqConnection()
     }
 

@@ -225,8 +225,7 @@ fun VoiceStockDialog(hindi: Boolean, ai: ArogyaVisitAi?, items: List<StockItem>,
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val catalog = remember(items) { items.map { it.name } }
-    val inlineDictation = rememberInlineDictationController()
-    var dictateBase by remember { mutableStateOf("") }
+    var dictating by remember { mutableStateOf(true) }
     var transcript by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var lines by remember { mutableStateOf<List<VoiceStockLine>>(emptyList()) }
@@ -249,30 +248,18 @@ fun VoiceStockDialog(hindi: Boolean, ai: ArogyaVisitAi?, items: List<StockItem>,
             } finally { busy = false }
         }
     }
-    // Nested dictation popup retired: the transcript below is dictated inline.
-    // (was: nested ArogyaDictationDialog)
-    // (transcript field + mic button are inline now)
-    // (final transcript still calls parse; see onFinal below)
+    if (dictating) ArogyaDictationDialog(onDismiss = { dictating = false },
+        cloudVoice = { s, l -> ArogyaCloud.transcribe(context, s, l) },
+        cloudFirst = ArogyaCloud.cloudFirst(context), hindi = hindi,
+        onAccept = { dictating = false; transcript = it; parse(it) })
     val ops = listOf(ArogyaVoiceStock.RECEIVE, ArogyaVoiceStock.WRITEOFF, ArogyaVoiceStock.CORRECTION)
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(tr("🎤 Speak stock change", "🎤 स्टॉक बोलकर लिखें")) }, text = {
         Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Say what changed, e.g. “received 100 ORS and 60 zinc”, “10 ORS damaged”, “counted 45 IFA”.",
                 "बदलाव बोलें, जैसे “100 ORS और 60 ज़िंक मिला”, “10 ORS ख़राब”, “45 IFA गिना”।"), style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                DictationMicButton(inlineDictation, hindi, enabled = !busy) {
-                    dictateBase = transcript
-                    inlineDictation.toggle(scope, ArogyaLang.voiceLang(context), hindi,
-                        onPartial = { transcript = (if (dictateBase.isBlank()) "" else dictateBase + " ") + it },
-                        onFinal = { val full = (if (dictateBase.isBlank()) "" else dictateBase + " ") + it; transcript = full; parse(full) })
-                }
-                Text(if (inlineDictation.isActive) tr("■ Tap to stop", "■ रोकने के लिए दबाएँ") else if (transcript.isBlank()) tr("🎤 Speak", "🎤 बोलें") else tr("🎤 Speak again", "🎤 फिर बोलें"))
-            }
-            if (inlineDictation.state == InlineDictationController.State.ERROR && inlineDictation.errorText.isNotBlank())
-                Text(inlineDictation.errorText, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            if (transcript.isNotBlank() || inlineDictation.isActive) OutlinedTextField(transcript, { transcript = it },
-                label = { Text(tr("Heard (edit if needed)", "सुना (बदलें अगर चाहिए)")) },
-                minLines = 2, modifier = Modifier.fillMaxWidth())
+            OutlinedButton(onClick = { dictating = true }, enabled = !busy) { Text(if (transcript.isBlank()) tr("🎤 Speak", "🎤 बोलें") else tr("🎤 Speak again", "🎤 फिर बोलें")) }
+            if (transcript.isNotBlank()) Text(tr("Heard: ", "सुना: ") + transcript, style = MaterialTheme.typography.bodySmall)
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (err.isNotBlank()) Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             if (notUnderstood.isNotEmpty()) Text(tr("Not understood — not saved: ", "समझ नहीं आया — सेव नहीं होगा: ") + notUnderstood.joinToString(" · ") { "“$it”" } +

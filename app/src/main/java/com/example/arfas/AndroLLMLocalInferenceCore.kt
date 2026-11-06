@@ -1199,7 +1199,11 @@ internal class AndroLLMLocalInferenceCore(
         } finally {
             watchdog?.cancel()
             if (activeEphemeralConversation === conv) activeEphemeralConversation = null
-            withContext(NonCancellable + Dispatchers.Default) {
+            // Release the slot before the blocking close: a cancelled decode can keep
+            // the native Conversation from ever ending, which wedged every later
+            // generation behind the 120 s drain (GENERATION_ALREADY_IN_PROGRESS).
+            generationActive.set(false)
+            withContext(NonCancellable + Dispatchers.IO) {
                 val c = conv
                 if (c != null) {
                     // A stopped generation (loop guard, watchdog, cancellation) may still be unwinding
@@ -1216,7 +1220,6 @@ internal class AndroLLMLocalInferenceCore(
                     runCatching { c.close() }
                 }
             }
-            generationActive.set(false)
         }
     }
 
@@ -1303,8 +1306,9 @@ internal class AndroLLMLocalInferenceCore(
             )
         } finally {
             if (activeEphemeralConversation === conv) activeEphemeralConversation = null
-            try { conv?.close() } catch (_: Throwable) {}
+            // Release before the blocking close (same reason as generateEphemeral).
             generationActive.set(false)
+            try { conv?.close() } catch (_: Throwable) {}
         }
     }
 

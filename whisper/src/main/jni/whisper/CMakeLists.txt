@@ -1,10 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(whisper.cpp)
 
-# 16 KB page-size compat (Android 15+): align ELF LOAD segments to 16 KB.
-# Harmless on older devices; NDK r26 lld supports -z max-page-size.
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
-
 set(CMAKE_CXX_STANDARD 17)
 
 # Repo-relative path to the vendored whisper.cpp + bundled ggml.

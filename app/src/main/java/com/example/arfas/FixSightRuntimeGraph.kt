@@ -158,7 +158,7 @@ class FixSightRuntimeGraph private constructor(context: Context) {
                         .count { it.endsWith(".litertlm", ignoreCase = true) }
                     onProgress?.invoke(
                         if (installed > 1) "Multiple local models installed — choose one in Settings"
-                        else "Not loaded — install the Gemma 3n model in Setup"
+                        else "Not loaded — install Llama 3.2 (Meta models zip) in Settings"
                     )
                     return@withLock false
                 }
@@ -180,13 +180,13 @@ class FixSightRuntimeGraph private constructor(context: Context) {
                 }
                 Log.i(TAG, "RUNTIME_GRAPH_MODEL_LOAD_END ok=$ok warm=${lm.isTextWarm}")
                 if (ok && lm.isTextWarm) return@withLock true
-                // Stand-by: the preferred model could not be loaded (file damaged, out of memory): the
-                // other installed model answers instead of leaving the user with no offline AI.
+                // Stand-by: Meta Llama could not be loaded (file damaged, out of memory): the phone's
+                // Gemma model, when installed, answers instead of leaving the user with no offline AI.
                 if (runtime.modelFileManager.getForceModelMode() == ForceModelMode.LLAMA_ONLY) return@withLock false
                 val standby = runtime.modelFileManager.gemmaModelFile()?.takeIf { it.name != file.name }
                     ?: return@withLock false
                 Log.w(TAG, "RUNTIME_GRAPH_STANDBY_GEMMA from=${file.name} to=${standby.name}")
-                onProgress?.invoke("Preferred model did not load — starting the standby instead")
+                onProgress?.invoke("Meta Llama did not load — starting Gemma instead")
                 runCatching { lm.unload() }
                 if (lm.permanentlyDisabled && (!lm.engineNeedsReload || !lm.prepareControlledReloadAfterQuarantine())) return@withLock false
                 val standbyOk = lm.loadModel(standby.absolutePath) { progress -> onProgress?.invoke(progress) }
@@ -205,7 +205,7 @@ class FixSightRuntimeGraph private constructor(context: Context) {
 
     fun updateGroqKey(key: String) {
         val clean = key.trim()
-        try { if (clean.isBlank()) groqKeyStore.clearKey() else groqKeyStore.saveKey(clean) } catch (t: Throwable) { Log.w(TAG, "groq keystore failed: ${t.message}") }
+        if (clean.isBlank()) groqKeyStore.clearKey() else groqKeyStore.saveKey(clean)
         runtime.updateGroqApiKey(cloudKey())
     }
 

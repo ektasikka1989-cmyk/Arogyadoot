@@ -116,7 +116,7 @@ fun ArogyaVisitScreen(
     // UI6: every Ask/More-detail run gets a number; Stop bumps it so the old job, which may still be
     // finishing a blocking step (re-ranker batch, model call), can no longer touch the screen.
     var aiRunId by remember { mutableStateOf(0) }
-    // (composer dictation is inline now; the voice popup serves guided speak + visit notes only)
+    var questionDictation by remember { mutableStateOf(false) }
     var aiCopy by remember { mutableStateOf("") }
     var aiCapture by remember { mutableStateOf<List<ArogyaCaptureItem>>(emptyList()) }
     var autoRunDraft by remember { mutableStateOf(false) }
@@ -638,7 +638,7 @@ fun ArogyaVisitScreen(
                     }
                     2 -> {
                         ArogyaSection(tr("VOICE TO VISIT RECORD","आवाज़ से विज़िट रिकॉर्ड"),tr("Tell me about the visit","विज़िट के बारे में बताइए"),tr("Ask permission before recording. Say what the family told you, what you observed and what you did.","रिकॉर्ड करने से पहले अनुमति लें। परिवार ने क्या बताया, आपने क्या देखा और क्या किया—बोलकर दर्ज करें।"))
-                        Button(onClick={autoOrganise=true;if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO)},enabled=editable && !locked,modifier=Modifier.fillMaxWidth().heightIn(min=64.dp)) {Text(tr("●  Speak about this visit","●  विज़िट के बारे में बोलें"),fontWeight=FontWeight.Bold)}
+                        Button(onClick={questionDictation=false;autoOrganise=true;if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO)},enabled=editable && !locked,modifier=Modifier.fillMaxWidth().heightIn(min=64.dp)) {Text(tr("●  Speak about this visit","●  विज़िट के बारे में बोलें"),fontWeight=FontWeight.Bold)}
                         ArogyaField("Observed facts, measurements with units, concerns and action taken",visit.notes,editable,5) { edit(visit.id) {row->row.copy(notes=it.take(20000))} }
                         TextButton(onClick={showCards=!showCards}) {Text(tr(if(showCards) "Hide cards and photos" else "Add a card or photo",if(showCards) "कार्ड और फ़ोटो छिपाएँ" else "कार्ड या फ़ोटो जोड़ें"))}
                         // Read an MCP card with AI: the photo is kept with the visit; values are shown for the ASHA to tick.
@@ -770,10 +770,10 @@ fun ArogyaVisitScreen(
     if(voice) ArogyaDictationDialog(onDismiss={voice=false;autoOrganise=false;guidedSpeak=null},cloudVoice={ samples,langs -> ArogyaCloud.transcribe(context,samples,langs) },cloudFirst=ArogyaCloud.cloudFirst(context),hindi=hindi,onAccept={text ->
         val cb=guidedSpeak
         if(cb!=null) { guidedSpeak=null; voice=false; cb(text) }
-        // (composer dictation is inline now; removed questionDictation branch)
-            // (was: aiQuestion=text when short)
-            // (was: toast when over 700 chars)
-        else if(appendNotes(selectedId,text)) {
+        else if(questionDictation) {
+            if(text.length<=700) {aiQuestion=text;voice=false}
+            else Toast.makeText(context,"Shorten the question to 700 characters; it was not cut or submitted.",Toast.LENGTH_LONG).show()
+        } else if(appendNotes(selectedId,text)) {
             voice=false
             if(autoOrganise) {autoOrganise=false;openAi(ArogyaAiTask.ORGANISE_NOTES);autoRunDraft=true}
         }
@@ -1050,7 +1050,7 @@ fun ArogyaVisitScreen(
                         attachEnabled=!qFileBusy && ai!=null && qFiles.size<3,
                         onSend={ askedQuestionForWarning=aiQuestion;runVisitAi(false,afterSafety=ArogyaUrgentTriage.assess(aiQuestion,gv)!=null);aiQuestion="" },
                         onStop={ stopAi() },
-                        // (composer mic dictation is inline now)
+                        onMic={ questionDictation=true;if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO) },
                         onPhoto={ startPhoto("question") },
                         onFile={ ArogyaPhotoGuard.hold(context); questionFilePicker.launch(arrayOf("image/*","application/pdf")) })
                     Text(tr("Answers come from official guides. Not a diagnosis — check with your ANM.","उत्तर आधिकारिक गाइड से। यह निदान नहीं — ANM से पूछें।"),
@@ -1310,7 +1310,7 @@ fun ArogyaVisitScreen(
     if(pickerOpen) ArogyaPersonPicker(hindi,reg.beneficiaries,dueNow,onPick={ b -> pickerOpen=false; guidedFor=b },onAdd={ pickerOpen=false; hubOpen="patients" },onDismiss={ pickerOpen=false })
     guidedFor?.let { b -> ArogyaGuidedVisit(b,hindi,visits,queue,ai,onClose={ guidedFor=null; guidedForm=null },formId=guidedForm,
         onAskSop={ q -> if(knowledgeReady) { openAi(ArogyaAiTask.EXPLAIN,"",sop=true); aiQuestion=q } else Toast.makeText(context,"Install the ASHA guide first.",Toast.LENGTH_LONG).show() },
-        onSpeak={ cb -> guidedSpeak=cb; if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO) },
+        onSpeak={ cb -> guidedSpeak=cb; questionDictation=false; if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO) },
         speak={ t -> speak(t) },
         ) }
     if(visitsOpen) {
@@ -1438,7 +1438,7 @@ internal fun ArogyaDictationDialog(onDismiss:()->Unit,cloudVoice:(suspend (Float
     LaunchedEffect(Unit) {
         val recognizer=AndroWhisperRecognizer(context.applicationContext)
         try {
-            // Online voice retired: Whisper on the phone transcribes; the cloud lambda always returns null.
+            // One setting: Cloud first tries Muse Voice Transcribe, then Whisper; Local first is Whisper only.
             val whisperOk=withContext(Dispatchers.IO) {recognizer.ensureInitialized()}
             // The cloud lambda is always passed, so "no speech engine at all" must test real availability
             // (Cloud first + saved key + signal), never cloudVoice==null (dead check: otherwise a phone
@@ -1458,9 +1458,9 @@ internal fun ArogyaDictationDialog(onDismiss:()->Unit,cloudVoice:(suspend (Float
             val choiceAtStop=voiceChoice
             suspend fun cloud():String? {
                 if(cloudVoice==null || heard.isEmpty()) return null
-                status=tr("Transcribing on this phone…","इसी फ़ोन पर लिख रहे हैं…")
+                status=tr("Transcribing with Muse Voice Transcribe (Meta, online)…","Muse Voice Transcribe (Meta, ऑनलाइन) से लिख रहे हैं…")
                 val all=FloatArray(heard.sumOf {it.size}); var o=0; heard.forEach { c -> c.copyInto(all,o); o+=c.size }
-                return cloudVoice(all,ArogyaLang.metaLanguages(choiceAtStop))?.takeIf { it.isNotBlank() }?.also { engine=tr("Online voice (retired)","ऑनलाइन आवाज़ (बंद)") }
+                return cloudVoice(all,ArogyaLang.metaLanguages(choiceAtStop))?.takeIf { it.isNotBlank() }?.also { engine=tr("Muse Voice Transcribe (Meta, online)","Muse Voice Transcribe (Meta, ऑनलाइन)") }
             }
             suspend fun phone():String? {
                 if(session==null) return null
