@@ -5,7 +5,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $sourceReadme = Join-Path $repoRoot 'docs\github\README-v1.0.0.md'
 $targetReadme = Join-Path $repoRoot 'README.md'
 if (-not (Test-Path $sourceReadme)) { throw "Missing staged README: $sourceReadme" }
-if (-not (Test-Path (Join-Path $repoRoot 'docs\screenshots\01-dashboard-followups.jpg'))) {
+if (-not (Test-Path (Join-Path $repoRoot 'docs\readme-v1\265409.jpg'))) {
     throw 'Screenshots were not applied. Stop and apply the Git patch first.'
 }
 $backupFolder = Join-Path $env:TEMP ('ArogyaDoot-README-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))

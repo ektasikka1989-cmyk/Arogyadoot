@@ -12,20 +12,20 @@
 
 <table>
 <tr>
-<td width="50%" align="center"><img src="docs/screenshots/01-dashboard-followups.jpg" alt="ASHA dashboard showing visits due and overdue follow-ups" width="300"><br><b>Prioritised field work</b></td>
-<td width="50%" align="center"><img src="docs/screenshots/02-dashboard-actions.jpg" alt="ArogyaDoot dashboard with visits, people, Ask SOP and registers" width="300"><br><b>One field dashboard</b></td>
+<td width="50%" align="center"><img src="docs/readme-v1/265409.jpg" alt="ASHA dashboard showing visits due and overdue follow-ups" width="300"><br><b>Prioritised field work</b></td>
+<td width="50%" align="center"><img src="docs/readme-v1/265407.jpg" alt="ArogyaDoot dashboard with visits, people, Ask SOP and registers" width="300"><br><b>One field dashboard</b></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/screenshots/03-ask-sop-answer.jpg" alt="Ask SOP answer from on-device Gemma 3n E2B" width="300"><br><b>Offline Ask SOP</b></td>
-<td align="center"><img src="docs/screenshots/04-source-citation.jpg" alt="Highlighted excerpt with guide title, page citation and Open PDF" width="300"><br><b>Page-level source verification</b></td>
+<td align="center"><img src="docs/readme-v1/265405.jpg" alt="Ask SOP answer from on-device Gemma 3n E2B" width="300"><br><b>Offline Ask SOP</b></td>
+<td align="center"><img src="docs/readme-v1/265403.jpg" alt="Highlighted excerpt with guide title, page citation and Open PDF" width="300"><br><b>Page-level source verification</b></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/screenshots/05-hindi-guidance.jpg" alt="Hindi guidance shown in the ASHA assistant" width="300"><br><b>Field-friendly language</b></td>
-<td align="center"><img src="docs/screenshots/06-official-guides.jpg" alt="Offline official guide library showing document and passage counts" width="300"><br><b>Local document library</b></td>
+<td align="center"><img src="docs/readme-v1/265401.jpg" alt="Hindi guidance shown in the ASHA assistant" width="300"><br><b>Field-friendly language</b></td>
+<td align="center"><img src="docs/readme-v1/265399.jpg" alt="Offline official guide library showing document and passage counts" width="300"><br><b>Local document library</b></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/screenshots/07-registers.jpg" alt="Registers, monthly reports, drug kit and activity diary" width="300"><br><b>Registers and monthly reporting</b></td>
-<td align="center"><img src="docs/screenshots/08-mcp-pdf.jpg" alt="Offline MCP antenatal card preview and PDF sharing controls" width="300"><br><b>Shareable offline documents</b></td>
+<td align="center"><img src="docs/readme-v1/265397.jpg" alt="Registers, monthly reports, drug kit and activity diary" width="300"><br><b>Registers and monthly reporting</b></td>
+<td align="center"><img src="docs/readme-v1/265395.jpg" alt="Offline MCP antenatal card preview and PDF sharing controls" width="300"><br><b>Shareable offline documents</b></td>
 </tr>
 </table>
 

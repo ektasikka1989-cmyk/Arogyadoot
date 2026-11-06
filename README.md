@@ -120,7 +120,7 @@ The Registers screen groups **official forms**, **monthly reports and claims**, 
 5. Allow the device sufficient free storage and memory for the model, guide data and other required resources.
 6. Use **Offline** mode for local guidance; configure an optional Groq key only when online features are needed.
 
-**Android 16 KB compatibility:** Some native dependencies in v1.0.0 may trigger a 16 KB page-size warning on supported Android environments. Compatibility must be validated for the particular build and device; a successful APK build alone is not proof.
+**Android 16 KB compatibility:** From the 6 Nov 2026 build, all 20 native libraries in the APK are 16 KB page-aligned (checked in the APK; the llama.cpp library was removed, and Whisper and libc++ are built with NDK r27 for flexible page sizes). This has not yet been confirmed on a 16 KB-page device or emulator; a successful APK build alone is not proof.
 
 ### Build from source
 
@@ -161,7 +161,7 @@ Typical debug APK location: `app/build/outputs/apk/debug/app-debug.apk`. Debug b
 | SOP answer lacks a source | Verify guide installation and retrieval; do not treat an uncited response as verified guidance. |
 | Groq errors | Internet connectivity, API key validity, rate limits and model availability. |
 | OCR or voice inaccurate | Lighting, image quality, table layout, language settings and microphone permissions. |
-| 16 KB compatibility warning | The APK's native library alignment; see Android native page-size compatibility guidance. |
+| 16 KB compatibility warning | Use a build from 6 Nov 2026 or later (all native libraries 16 KB aligned). If a warning still appears, note the library it names and see Android's native page-size compatibility guidance. |
 | Unexpected crash | Record device/API level, reproduction steps and a redacted crash log when reporting an issue. |
 
 ## Repository and support
