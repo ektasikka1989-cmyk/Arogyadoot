@@ -11,7 +11,7 @@
 | B2 | Calls to the retired Meta API (`MetaOnline.api`: SAM, Muse voice) | grep → 5 hits | All unreachable (`if (true)` / `cloud = false`) or guarded with a fallback |
 | B3 | Person/card photos expected to be read online (blocked by the privacy change) | grep `ArogyaPhotoVision.transcribe` | **Fixed:** add person, PDF import, MCP card, demo person/card → Gemma on the phone |
 | B4 | Features asking for retired models (DINOv2, SAM, DETR, Llama) | grep `metaVision.has`, `DINOV2`, `LLAMA3B`, `metaStatus` | **Fixed:** kit count, AI table, "✨ AI" chip, self-test, "remember this item". The rest are unreachable helpers |
-| B5 | User-visible "Meta" / "Muse Spark" / "Llama" text | grep of quoted strings | **Fixed** everywhere a user can see it, except the **"Built with Muse Code" credit** (4 places), left for your decision |
+| B5 | User-visible "Meta" / "Muse Spark" / "Llama" text | grep of quoted strings | **Fixed** everywhere a user can see it, including the "Built with Muse Code" credit (removed) |
 | B6 | Modal mic popups | grep `ArogyaDictationDialog` | Removed; all mics inline |
 | B7 | Camera photos in the public Gallery / Android 7–9 camera | grep `EXTERNAL_CONTENT_URI` | Fixed (private FileProvider) |
 
