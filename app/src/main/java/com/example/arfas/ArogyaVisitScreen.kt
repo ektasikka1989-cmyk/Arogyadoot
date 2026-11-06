@@ -362,8 +362,9 @@ fun ArogyaVisitScreen(
             try {
                 // The card photo itself is kept with the visit (encrypted on this phone).
                 val v=queue.state.value.visits.firstOrNull {it.id==vid}
+                if(v!=null && !v.completed && v.attachments.size>=8) toast(tr("The card is read, but its photo is not kept: this visit already has 8 attachments.","कार्ड पढ़ा गया, पर फ़ोटो नहीं रखी: इस विज़िट में पहले से 8 अटैचमेंट हैं।"))
                 if(v!=null && !v.completed && v.attachments.size<8) runCatching {
-                    val a=ArogyaVisitMedia.import(context,uri,repo)
+                    val a=ArogyaVisitMedia.import(context,uri,repo,ocr=false)
                     if(!edit(vid) {row->row.copy(attachments=row.attachments+a)}) withContext(Dispatchers.IO) { repo.deleteAttachment(a.id) }
                 }
                 val r=ai.readCard(uri)
@@ -379,7 +380,7 @@ fun ArogyaVisitScreen(
         qFileJob=scope.launch {
             try {
                 val name=ai.attach(uri)
-                if(name==null) toast(tr("Could not read this file. Use a photo or PDF.","यह फ़ाइल पढ़ी नहीं जा सकी। फ़ोटो या PDF चुनें।"))
+                if(name==null) toast(ai.lastAttachProblem().ifBlank { tr("Could not read this file. Use a photo or PDF.","यह फ़ाइल पढ़ी नहीं जा सकी। फ़ोटो या PDF चुनें।") })
                 qFiles=ai.attachedNames()
             } catch(e:CancellationException) { throw e }
             catch(e:Exception) { toast(e.message ?: "Could not attach.") }

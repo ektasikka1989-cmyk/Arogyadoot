@@ -108,11 +108,7 @@ object ArogyaShare {
     /** Saves the visit report as a PDF in Downloads/ArogyaDoot and opens the share sheet for it. */
     suspend fun shareVisitPdf(context: Context, v: ArogyaVisit): Boolean = runCatching {
         val name = "ArogyaDoot-${v.name.ifBlank { "visit" }.replace(Regex("[^A-Za-z0-9]+"), "_").take(30)}-${v.date}-${System.currentTimeMillis() % 100000}.pdf"
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name); put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/ArogyaDoot")
-        }
-        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("no destination")
+        val uri = ArogyaDownloads.create(context, name, "application/pdf", "ArogyaDoot")
         ArogyaVisitMedia.exportPdf(context, uri, ArogyaWorkflow.report(v))
         val send = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         context.startActivity(Intent.createChooser(send, "Share visit PDF").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true
@@ -121,11 +117,7 @@ object ArogyaShare {
     /** Saves the AI table as a monospace-table PDF in Downloads/ArogyaDoot and opens the share sheet for it. */
     suspend fun shareAiTablePdf(context: Context, table: String): Boolean = runCatching {
         val name = "ArogyaDoot-AI-table-${System.currentTimeMillis() % 100000}.pdf"
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name); put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/ArogyaDoot")
-        }
-        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("no destination")
+        val uri = ArogyaDownloads.create(context, name, "application/pdf", "ArogyaDoot")
         ArogyaVisitMedia.exportPdf(context, uri, table, mono = true)
         val send = Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         context.startActivity(Intent.createChooser(send, "Share AI table PDF").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true

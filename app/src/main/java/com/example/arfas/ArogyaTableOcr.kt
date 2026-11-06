@@ -49,6 +49,22 @@ object ArogyaTableOcr {
     }
 
     /** The page as text, one table row per line ("Birth  OPV-0  31/10/2026"), so a value and its date stay together. */
+    /**
+     * Mixed Hindi/English page: keep the Latin reader's lines and add each Devanagari line the Latin reader
+     * did not cover (a Hindi name or label it missed). A stray one-letter Devanagari mark is ignored.
+     */
+    fun mergeScripts(latin: List<Line>, hindi: List<Line>): List<Line> {
+        fun overlaps(a: Line, b: Line): Boolean {
+            val w = minOf(a.right, b.right) - maxOf(a.left, b.left)
+            val h = minOf(a.bottom, b.bottom) - maxOf(a.top, b.top)
+            if (w <= 0 || h <= 0) return false
+            val small = minOf((a.right - a.left).coerceAtLeast(1) * a.h, (b.right - b.left).coerceAtLeast(1) * b.h)
+            return w.toLong() * h >= small * 0.3
+        }
+        val extra = hindi.filter { d -> d.text.count { it in '\u0900'..'\u097F' } >= 2 && latin.none { overlaps(it, d) } }
+        return latin + extra
+    }
+
     fun rowText(lines: List<Line>): String = rows(lines).joinToString("\n") { r -> r.joinToString("  ") { it.text.trim() } }
 
     /**

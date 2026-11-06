@@ -118,7 +118,12 @@ class MLKitProcessor {
         // must not switch an English slip to the Hindi reader (it reads English letters worse).
         val letters = hindi.sumOf { l -> l.text.count { it.isLetter() } }.coerceAtLeast(1)
         val deva = hindi.sumOf { l -> l.text.count { it in '\u0900'..'\u097F' } }
-        return if (deva * 100 / letters >= 25) hindi else latin
+        return when {
+            deva * 100 / letters >= 25 -> hindi
+            // Some Hindi on a mostly English page: keep the English lines and add the Hindi ones (both scripts survive).
+            deva >= 4 -> ArogyaTableOcr.mergeScripts(latin, hindi)
+            else -> latin
+        }
     }
 
     /**

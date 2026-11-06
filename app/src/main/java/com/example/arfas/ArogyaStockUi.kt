@@ -349,10 +349,10 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
     var err by remember { mutableStateOf("") }
     var shotUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Uri?>(null) }
     var onlineNote by remember { mutableStateOf("") }
-    // "Read online with Muse Spark": the same label photo, read again online when the phone's reading was incomplete.
+    // "Read online": the same label photo, read again by Qwen on Groq when the phone's reading was incomplete.
     fun readOnline() {
         val bmp = bitmap ?: return
-        busy = true; onlineNote = ""; phase = tr("Muse Spark is reading the label…", "Muse Spark लेबल पढ़ रहा है…")
+        busy = true; onlineNote = ""; phase = tr("Qwen (online) is reading the label…", "Qwen (ऑनलाइन) लेबल पढ़ रहा है…")
         scope.launch {
             try {
                 val (net, key) = withContext(Dispatchers.IO) { MetaOnline.hasInternet(context) to runCatching { ArogyaCloud.textChoice(context).let { it.first != null && it.second.isNotBlank() } }.getOrDefault(false) }
@@ -387,7 +387,7 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
                 val t = System.currentTimeMillis()
                 val phoneOcr = withContext(Dispatchers.IO) { ocrProc.recognizeText(bmp) }
                 val phoneScan = ArogyaMedScan.parse(phoneOcr)
-                // Online (Cloud first, or the phone's reading is incomplete): Muse Spark reads the label like a person.
+                // Online (Cloud first, or the phone's reading is incomplete): Qwen on Groq reads the label like a person.
                 val seen = if (ArogyaPhotoVision.wanted(context, phoneScan.name.isNotBlank() && phoneScan.batch.isNotBlank() && phoneScan.expiry.isNotBlank())) {
                     phase = tr("Qwen3 is reading the label…", "Qwen3 लेबल पढ़ रहा है…")
                     ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE) } else null
@@ -434,7 +434,8 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
                     .filter { it.second.isBlank() }.map { it.first }
                 if (notRead.isNotEmpty()) Text(tr("Not read from the label: ", "लेबल से नहीं पढ़ा: ") + notRead.joinToString(", ") + tr(" — enter it on the next screen.", " — अगली स्क्रीन पर लिखें।"),
                     color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                if (notRead.isNotEmpty() && !engine.contains("Muse Spark")) {
+                // Offer the online read only until it has been done (the label used to say "Muse Spark", so the offer never went away).
+                if (notRead.isNotEmpty() && !engine.contains(ArogyaPhotoVision.LABEL)) {
                     val all = listOf(tr("name", "नाम") to s.name, tr("batch", "बैच") to s.batch, tr("expiry", "एक्सपायरी") to s.expiry, tr("quantity", "मात्रा") to (if (s.qty > 0) "x" else ""))
                     ReadOnlineOffer(all.filter { it.second.isNotBlank() }.map { it.first }, notRead, hindi, busy, onlineNote) { readOnline() }
                 }

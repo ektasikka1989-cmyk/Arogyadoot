@@ -4,4 +4,5 @@
 <paths>
     <cache-path name="camera" path="camera/" />
     <external-files-path name="exports" path="Download/" />
+    <files-path name="exports_internal" path="Download/" />
 </paths>

@@ -748,7 +748,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                             val count = ArogyaSamCount.count(found.map { it.confidence })
                             samMsg = "SAM 3.1 " + tr("found $count \"$phrase\" in ${(System.currentTimeMillis() - t) / 1000}s. Sunita confirms the count before it goes in the register.",
                                 "\"$phrase\" $count मिला ${(System.currentTimeMillis() - t) / 1000} सेकंड में। रजिस्टर से पहले सुनीता गिनती पक्की करती हैं।")
-                            ticks += ArogyaAiTick("SAM 3.1 count", "SAM 3.1 गिनती", "SAM 3.1 (Meta, online)", System.currentTimeMillis() - t, true)
+                            ticks += ArogyaAiTick("SAM 3.1 count", "SAM 3.1 गिनती", "SAM 3.1 (online, retired)", System.currentTimeMillis() - t, true)
                             Log.i("ArogyaDemo", "AROGYA_SAM_COUNT item=\"ORS\" phrase=\"$phrase\" found=${found.size} counted=$count ms=${System.currentTimeMillis() - t}")
                         }
                     }
@@ -802,7 +802,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         FilterChip(selected = !cloudMode, onClick = { ArogyaCloud.setCloudFirst(context, false); cloudMode = false },
                             label = { Text(tr("📱 Phone (offline)", "📱 फ़ोन (ऑफ़लाइन)")) })
                         FilterChip(selected = cloudMode, onClick = { ArogyaCloud.setCloudFirst(context, true); cloudMode = true },
-                            label = { Text(tr("☁ Cloud (Meta)", "☁ क्लाउड (Meta)")) })
+                            label = { Text(tr("☁ Cloud (Groq)", "☁ क्लाउड (Groq)")) })
                     }
                     Text((if (online) tr("Internet: on", "इंटरनेट: चालू") else tr("Internet: off — cloud steps fall back to the phone", "इंटरनेट: बंद — क्लाउड चरण फ़ोन पर चलेंगे")) +
                         "  ·  " + tr("Voices: ", "आवाज़: ") + (if (hiVoice) "हिन्दी ✓" else "हिन्दी ✗") + " " + (if (enVoice) "English ✓" else "English ✗"),
@@ -857,8 +857,8 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                     Text("✓ " + tr("Demo complete", "डेमो पूरा"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary)
                     Text(tr("Thank you", "धन्यवाद"), style = MaterialTheme.typography.titleMedium)
-                    Text(tr("${ticks.size} AI steps ran live: ${phoneTicks.size} on this phone, ${cloudTicks.size} on Meta's cloud.",
-                        "${ticks.size} AI चरण लाइव चले: ${phoneTicks.size} इसी फ़ोन पर, ${cloudTicks.size} Meta के क्लाउड पर।"))
+                    Text(tr("${ticks.size} AI steps ran live: ${phoneTicks.size} on this phone, ${cloudTicks.size} online (Groq).",
+                        "${ticks.size} AI चरण लाइव चले: ${phoneTicks.size} इसी फ़ोन पर, ${cloudTicks.size} ऑनलाइन (Groq)।"))
                     Text(tr("Built with Muse Code.", "Muse Code से बनाया गया।"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.weight(1f))
                     Row(verticalAlignment = Alignment.CenterVertically) {

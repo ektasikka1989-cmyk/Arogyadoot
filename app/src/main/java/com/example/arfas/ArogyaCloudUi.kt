@@ -80,7 +80,7 @@ class ArogyaKeyVault(context: Context, private val name: String) {
 object ArogyaCloud {
     private const val TAG = "ArogyaDemo"
     fun prefs(c: Context) = c.getSharedPreferences("arogya_model", Context.MODE_PRIVATE)
-    /** Cloud model used for ArogyaDoot's AI: Qwen3 on Groq by default (Muse Spark retired; Glimmer stays via Together AI). */
+    /** Cloud model used for ArogyaDoot's AI: Qwen3 on Groq only (Muse Spark and Together Glimmer retired). */
     // Groq (Qwen) is the only cloud model: Meta Muse Spark and Together Muse Glimmer are retired,
     // so an old saved choice falls back to Groq.
     fun textEndpoint(c: Context) = ArogyaModelEndpoints.byId("groq")
@@ -155,7 +155,7 @@ object ArogyaCloud {
             "Forms & text: " + (ep?.let { it.label + if (keyFor(c, it).isNotBlank()) " (key saved)" else " (no key — phone model used)" } ?: "phone model only (offline)"),
             "Voice: Whisper on the phone",
             "Reading aloud: " + if (cloudFirst(c)) "best Android voice (online voice when there is signal)" else "offline Android voice",
-            "Photo counting: type the count (photo reading runs on the phone)",
+            "Photo counting: Gemma estimate on the phone, confirmed by tapping",
             "Groq key: ${if (gk) "✓ (Settings)" else "— add it in Settings"}"
         ).joinToString("\n")
     }
@@ -266,7 +266,7 @@ private fun DotsPhoto(bmp: Bitmap, dots: List<CountDot>, onTap: (Float, Float) -
  * she confirms the count.
  */
 @Composable
-fun SamCountDialog(hindi: Boolean = false, balances: Map<String, Int>, vision: MetaVisionEngine? = null,
+fun SamCountDialog(hindi: Boolean = false, balances: Map<String, Int>, vision: MetaVisionEngine? = null, localModel: LocalModelManager? = null,
     onRecord: (item: String, counted: Int, note: String) -> Unit, onDismiss: () -> Unit) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     val context = LocalContext.current
@@ -288,7 +288,8 @@ fun SamCountDialog(hindi: Boolean = false, balances: Map<String, Int>, vision: M
     fun engineLabel() = when (engine) {
         "mobilesam_dino" -> "MobileSAM + DINOv2 (estimate)"
         "dino_grid" -> "DINOv2 grid (estimate)"
-        "sam31" -> "SAM 3.1 (Meta)"
+        "sam31" -> "SAM 3.1"
+        "gemma" -> tr("Gemma estimate, confirmed by tapping", "Gemma अनुमान, उँगली से पक्का किया")
         else -> tr("Counted by tapping", "उँगली से गिना")
     }
 
@@ -382,6 +383,15 @@ fun SamCountDialog(hindi: Boolean = false, balances: Map<String, Int>, vision: M
                     phase = "teach"
                     msg = tr("Tap one $item in the photo, so the phone learns what to count.",
                         "फ़ोटो में एक $item दबाएँ, ताकि फ़ोन सीखे कि क्या गिनना है।")
+                } else if (ArogyaLocalVision.ready(localModel)) {
+                    // Meta counters are retired: Gemma looks at the photo and estimates; the ASHA taps to confirm.
+                    busy = true; phase = "counting"; msg = tr("Gemma is looking at the photo…", "Gemma फ़ोटो देख रहा है…")
+                    val est = try { ArogyaLocalVision.estimateCount(localModel, bmp, phrase.ifBlank { item }) } finally { busy = false }
+                    phase = "manual"
+                    if (est != null) { engine = "gemma"; foundN = est
+                        msg = tr("Gemma estimates about $est. Tap each item to confirm — the saved count is your taps.",
+                            "Gemma का अनुमान लगभग $est है। हर सामान दबाकर पक्का करें — आपकी गिनती ही सेव होगी।") }
+                    else msg = tr("Could not estimate — tap each item yourself.", "अनुमान नहीं लगा — हर सामान खुद दबाएँ।")
                 } else {
                     phase = "manual"
                     msg = tr("No counter available — tap each item yourself.", "गिनती नहीं हो पाई — हर सामान खुद दबाएँ।")

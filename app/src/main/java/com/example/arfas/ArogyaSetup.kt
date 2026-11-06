@@ -119,12 +119,7 @@ object ArogyaSetup {
      */
     suspend fun bundledGuideV2Uri(c: Context): Uri? = withContext(Dispatchers.IO) {
         runCatching {
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, ArogyaSetupMatch.GUIDE_V2_NAME)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
-            }
-            val dest = c.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("no destination")
+            val dest = ArogyaDownloads.create(c, ArogyaSetupMatch.GUIDE_V2_NAME, "application/octet-stream")
             c.assets.open(ArogyaSetupMatch.ASSET_GUIDE_V2).use { inp ->
                 c.contentResolver.openOutputStream(dest, "w")?.use { inp.copyTo(it) } ?: error("cannot write")
             }

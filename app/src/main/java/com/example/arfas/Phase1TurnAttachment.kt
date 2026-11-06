@@ -232,10 +232,16 @@ class Phase1AttachmentManager(private val context: Context) {
     private val activeTurn = mutableListOf<Phase1UserAttachment>()
     private val maxPendingAttachments = 5
 
+    /** Why the last stageUri() returned null, in plain words for the user ("" when it worked). */
+    @Volatile var lastStageProblem: String = ""
+        private set
+
     suspend fun stageUri(uri: Uri): Phase1UserAttachment? = withContext(Dispatchers.IO) {
         val resolver = appContext.contentResolver
         val mime = resolver.getType(uri).orEmpty().lowercase()
         val name = queryDisplayName(uri).ifBlank { "attachment" }
+        lastStageProblem = ""
+        val heic = mime.contains("heic") || mime.contains("heif") || name.endsWith(".heic", true) || name.endsWith(".heif", true)
 
         val prepared = try {
             VisionWorkCoordinator.withVisionWork("attachment_stage") {
@@ -249,6 +255,7 @@ class Phase1AttachmentManager(private val context: Context) {
                     mime.startsWith("text/") || isTextLikeName(name) -> prepareText(uri, name, mime)
                     else -> {
                         Log.w(ATTACH_TAG, "ATTACHMENT_UNSUPPORTED name=$name mime=$mime")
+                        lastStageProblem = "This file type cannot be read. Use a photo (JPG/PNG) or a PDF."
                         null
                     }
                 }
@@ -261,7 +268,17 @@ class Phase1AttachmentManager(private val context: Context) {
                 "ATTACHMENT_PREPARE_FAILED name=$name mime=$mime ${t.javaClass.simpleName}: ${t.message}",
                 t
             )
+            lastStageProblem = when {
+                t is SecurityException && (mime == "application/pdf" || name.endsWith(".pdf", true)) ->
+                    "This PDF is password-protected. Remove the password (or take photos of the pages) and attach it again."
+                t is OutOfMemoryError -> "This file is too large to read on this phone. Attach fewer pages or a smaller photo."
+                else -> ""
+            }
             null
+        }
+        if (prepared == null && lastStageProblem.isBlank()) lastStageProblem = when {
+            heic -> "This photo format (HEIC) cannot be read on this phone. Set the camera to JPG, or share the photo as JPG."
+            else -> ""
         }
 
         val retained = if (prepared != null) {

@@ -1161,7 +1161,7 @@ private fun RegistersTab(hindi: Boolean, data: RegistryData, visits: List<Arogya
         }, confirmButton = { Button(onClick = { if (save { r -> r.copy(diary = r.diary + DiaryEntry(date = date, kind = kind, note = note)) }) diaryOpen = false }) { Text(tr("Save", "सहेजें")) } },
             dismissButton = { TextButton(onClick = { diaryOpen = false }) { Text(tr("Cancel", "रद्द करें")) } })
     }
-    if (samOpen) SamCountDialog(hindi, ArogyaRegistryLogic.stockBalance(data.stock), vision = ai?.vision(), onRecord = { item, counted, note ->
+    if (samOpen) SamCountDialog(hindi, ArogyaRegistryLogic.stockBalance(data.stock), vision = ai?.vision(), localModel = ai?.localModel(), onRecord = { item, counted, note ->
         val diff = counted - (ArogyaRegistryLogic.stockBalance(data.stock)[item] ?: 0)
         if (diff == 0 || save { r -> r.copy(stock = r.stock + StockTxn(item = item, qty = diff, note = "$note: counted $counted", kind = "adjust", reason = note)) }) samOpen = false
     }, onDismiss = { samOpen = false })

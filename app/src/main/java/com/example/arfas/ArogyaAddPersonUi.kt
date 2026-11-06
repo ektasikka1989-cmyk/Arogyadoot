@@ -239,15 +239,10 @@ private fun CsvPersonStep(hindi: Boolean, onDone: (List<Beneficiary>, String) ->
             OutlinedButton(onClick = {
                 scope.launch {
                     val ok = withContext(Dispatchers.IO) { runCatching {
-                        val values = ContentValues().apply {
-                            put(MediaStore.MediaColumns.DISPLAY_NAME, "ArogyaDoot_people_template.csv")
-                            put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
-                            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                        }
-                        val dest = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("no destination")
+                        val dest = ArogyaDownloads.create(context, "ArogyaDoot_people_template.csv", "text/csv")
                         context.contentResolver.openOutputStream(dest, "w")?.use { it.write(ArogyaPersonCsv.template().toByteArray()) } ?: error("cannot write")
                     }.isSuccess }
-                    msg = if (ok) tr("Template saved in Downloads.", "टेम्पलेट Downloads में सेव।") else tr("Could not write the template.", "टेम्पलेट नहीं लिख पाए।")
+                    msg = if (ok) (if (ArogyaDownloads.publicDownloads) tr("Template saved in Downloads.", "टेम्पलेट Downloads में सेव।") else tr("Template saved in the app's Download folder (Android/data/…/Download).", "टेम्पलेट ऐप के Download फ़ोल्डर में सेव (Android/data/…/Download)।")) else tr("Could not write the template.", "टेम्पलेट नहीं लिख पाए।")
                 }
             }) { Text(tr("Download template", "टेम्पलेट उतारें")) }
             Button(onClick = { ArogyaPhotoGuard.hold(context); pick.launch(arrayOf("text/*", "application/vnd.ms-excel")) }, enabled = !busy) { Text(tr("Pick CSV file", "CSV फ़ाइल चुनें")) }

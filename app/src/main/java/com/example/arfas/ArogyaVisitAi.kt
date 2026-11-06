@@ -156,6 +156,8 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
 
     /** On-phone Meta vision stack (MobileSAM + DINOv2) for offline drug-kit counting. */
     fun vision(): MetaVisionEngine = runtime.metaVision
+    /** The on-phone Gemma model (its vision is used for photo descriptions and kit-count estimates). */
+    fun localModel(): LocalModelManager? = runtime.localModelManager
 
     /** True when the on-phone counter can run (DINOv2 + both SAM files installed). */
     fun visionOk(): Boolean = runtime.metaVision.has(MetaModelStore.Component.DINOV2) &&
@@ -223,6 +225,8 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         staged.displayName
     }
     fun attachedNames(): List<String> = attachments?.peekPendingAll()?.map { it.displayName }.orEmpty()
+    /** Plain-words reason the last attach failed ("" = unknown). */
+    fun lastAttachProblem(): String = attachments?.lastStageProblem.orEmpty()
     fun clearAttachments() { attachments?.clearPending() }
 
     suspend fun run(request:ArogyaAiRequest):ArogyaAiResult {
@@ -674,8 +678,11 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         val t = System.currentTimeMillis()
         val mgr = attachments ?: error("Card reading is not available.")
         mgr.clearPending()
-        val staged = mgr.stageUri(uri) ?: error("Could not read this file. Use a clear photo or a PDF.")
-        val claimed = mgr.claimPendingAttachmentsForTurn()
+        // A photo is read once below (positioned OCR lines). Only a PDF goes through the general attachment
+        // reader (page text/OCR); staging a photo too ran OCR, object and barcode detection a second time.
+        val isPhoto = appContext?.contentResolver?.getType(uri)?.startsWith("image/") == true
+        val staged = if (isPhoto) null else (mgr.stageUri(uri) ?: error(mgr.lastStageProblem.ifBlank { "Could not read this file. Use a clear photo or a PDF." }))
+        val claimed = if (staged != null) mgr.claimPendingAttachmentsForTurn() else emptyList()
         try {
             // A card page is a table: ML Kit's plain text lists it column by column, so a vaccine and its date land on
             // different lines and the date cannot be trusted. Rebuild the rows from line positions when it is a photo.
@@ -691,7 +698,9 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
                 val ocr = MLKitProcessor()
                 try { val ls = ocr.recognizeLines(up); photo = up to ls; ArogyaTableOcr.rowText(ls) } finally { runCatching { ocr.close() } }
             }.getOrDefault("")
-            val plain = listOf(staged.extractedText, staged.localVisualContext).filter { it.isNotBlank() }.joinToString("\n").trim()
+            val plain = if (staged != null) listOf(staged.extractedText, staged.localVisualContext).filter { it.isNotBlank() }.joinToString("\n").trim()
+                else photo?.second?.joinToString("\n") { it.text }.orEmpty().trim()
+            if (staged == null && photo == null) error("Could not read this file. Use a clear photo or a PDF.")
             // Online (Cloud first): Muse Spark reads the card like a person (handwritten dates stay on their vaccine's
             // row), Aadhaar blacked out first. Its transcript goes through the same card reader and checks.
             suspend fun vision(): String? {

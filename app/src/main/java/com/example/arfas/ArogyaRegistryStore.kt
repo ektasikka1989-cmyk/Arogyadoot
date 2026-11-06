@@ -135,11 +135,7 @@ class ArogyaRegistryStore private constructor(private val context: Context, priv
 
     /** Saves a file in Downloads/ArogyaDoot. Returns its Uri, or null. */
     fun saveFile(name: String, mime: String, bytes: ByteArray): Uri? = runCatching {
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name); put(MediaStore.MediaColumns.MIME_TYPE, mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/ArogyaDoot")
-        }
-        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("no destination")
+        val uri = ArogyaDownloads.create(context, name, mime, "ArogyaDoot")
         context.contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
         uri
     }.getOrNull()

@@ -29,7 +29,8 @@ object ArogyaVisitMedia {
         if (deg == 0f) b else Bitmap.createBitmap(b, 0, 0, b.width, b.height, android.graphics.Matrix().apply { postRotate(deg) }, true).also { if (it !== b) b.recycle() }
     }.getOrDefault(b)
 
-    suspend fun import(context: Context, uri: Uri, store: ArogyaVisitRepository): ArogyaAttachment = withContext(Dispatchers.IO) {
+    /** [ocr] false: keep the file without reading it (the MCP card reader already read it — no second OCR). */
+    suspend fun import(context: Context, uri: Uri, store: ArogyaVisitRepository, ocr: Boolean = true): ArogyaAttachment = withContext(Dispatchers.IO) {
         val mime = context.contentResolver.getType(uri).orEmpty()
         require(mime.startsWith("image/") || mime == "application/pdf") { "Choose an image or PDF." }
         val bytes = context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -37,7 +38,12 @@ object ArogyaVisitMedia {
             while(true) { val n=stream.read(buf); if(n<0) break; require(out.size()+n<=15*1024*1024) { "File must be under 15 MB." }; out.write(buf,0,n) }
             out.toByteArray()
         } ?: error("Cannot read attachment")
-        storeBytes(context,bytes,mime,store)
+        if (ocr) storeBytes(context,bytes,mime,store)
+        else {
+            val id=UUID.randomUUID().toString(); store.saveAttachment(id,bytes)
+            ArogyaAttachment(id,if(mime=="application/pdf") "Card document" else "Card image",mime,
+                "Card kept with the visit. Its fields were read by the card reader; check them against this original.")
+        }
     }
     suspend fun camera(context: Context, bitmap: Bitmap, store: ArogyaVisitRepository): ArogyaAttachment = withContext(Dispatchers.IO) {
         val out=ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG,90,out)

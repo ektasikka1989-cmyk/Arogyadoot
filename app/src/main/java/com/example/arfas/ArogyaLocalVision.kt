@@ -28,6 +28,16 @@ object ArogyaLocalVision {
     /** Factual description of a photo for the grounded answer, or null when vision is unavailable or fails. */
     suspend fun describe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, DESCRIBE_PROMPT, 320, "describe")
 
+    /**
+     * Gemma's estimate of how many [item] are in a kit photo, or null. Only a hint shown to the ASHA:
+     * the saved count is always the dots she confirms by tapping.
+     */
+    suspend fun estimateCount(lm: LocalModelManager?, bitmap: Bitmap, item: String): Int? {
+        val prompt = "Count the separate $item items in this photo. Reply with one number only. If you cannot count them, reply 0."
+        val out = run(lm, bitmap, prompt, 12, "count") ?: return null
+        return Regex("""\d{1,3}""").find(out)?.value?.toIntOrNull()?.takeIf { it in 1..500 }
+    }
+
     /** Transcription of a card/register photo (fallback when OCR read nothing), or null. */
     suspend fun transcribe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, TRANSCRIBE_PROMPT, 700, "transcribe")
 
@@ -42,6 +52,6 @@ object ArogyaLocalVision {
         }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
         val text = r?.takeIf { it.completed }?.text?.trim().orEmpty()
         Log.i(TAG, "AROGYA_LOCAL_VISION what=$what ok=${text.isNotBlank()} chars=${text.length} ms=${System.currentTimeMillis() - t}")
-        return text.takeIf { it.length >= 8 }?.take(2_000)
+        return text.takeIf { it.length >= (if (what == "count") 1 else 8) }?.take(2_000)
     }
 }

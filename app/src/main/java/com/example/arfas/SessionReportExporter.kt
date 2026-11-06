@@ -27,8 +27,15 @@ object SessionReportExporter {
 
     fun savePdf(context: Context, report: RCAReport, includeTranscript: Boolean): Uri? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            Log.w(TAG, "PDF_SAVE_UNSUPPORTED sdk=${Build.VERSION.SDK_INT} requires=29")
-            return null
+            // Android 7–9: the app's own Download folder (shared via FileProvider) instead of no PDF at all.
+            return runCatching {
+                val uri = ArogyaDownloads.create(context, safeFileName(report), "application/pdf", "ArogyaDoot")
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    val document = render(report, includeTranscript)
+                    try { document.writeTo(out) } finally { document.close() }
+                } ?: error("Unable to open PDF output")
+                uri
+            }.onFailure { Log.e(TAG, "SESSION_PDF_SAVE_FAILED_LEGACY ${it.javaClass.simpleName}") }.getOrNull()
         }
         val fileName = safeFileName(report)
         val values = ContentValues().apply {
