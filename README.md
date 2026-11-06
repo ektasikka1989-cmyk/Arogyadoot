@@ -1,212 +1,146 @@
 # ArogyaDoot
 
-**An offline-first Android field assistant for community health workers.**
+### Offline-first AI field assistant for ASHA workers
 
-ArogyaDoot helps Accredited Social Health Activists (ASHAs) find relevant guidance in health programme documents, organize household visits, capture field observations, and plan follow-up work. It combines an on-device knowledge base with AI-assisted search and drafting, while keeping the health worker in control of every record and action.
+**ArogyaDoot 1.0.0** is an Android application designed to help Accredited Social Health Activists (ASHAs) find source-backed guidance, organise household visits, track follow-ups, maintain registers, and prepare field records—even when internet access is limited.
 
-> **Development status:** Active prototype. This repository documents an evolving Android application. Features and model integrations must be verified on the target device before field use. ArogyaDoot is an assistive workflow tool, not a medical device or a substitute for clinical judgment.
+**Ask the guide. Check the citation. Record the visit. Follow up.**
 
-## Verification status
+> **Status:** Version 1.0.0 working prototype. ArogyaDoot is a decision-support and documentation tool, not a diagnostic device or replacement for an ANM, doctor, or official healthcare protocol.
 
-The current AI engine (offline Gemma 3n + optional Groq Qwen cloud) is **code-complete and build-verified**: `gradlew :app:assembleDebug` succeeds and the APK installs as `com.arogyadoot.app` / `ArogyaDoot`. The following are **not yet proven on a device** and must not be described as working until they are:
+## See ArogyaDoot in action
 
-- Downloading the Gemma bundle from the owner URL, loading the `.litertlm` file, and running text inference through the LiteRT runtime on a phone (including load time and RAM behavior on a 6 GB device).
-- Offline image understanding through Gemma vision.
-- The Groq model id `qwen/qwen3.8-27b` existing on a given account (confirm via the authenticated Groq Models API), and end-to-end cloud text generation, streaming, Hindi/Hinglish handling, and error behavior.
-- Cloud photo reading (whether the Groq model consumes the `image_url` parts the app sends). If it does not, cloud vision will be marked unavailable rather than worked around.
-- Live microphone dictation runs (speech appears inline in the field; host-tested cursor logic only so far).
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/screenshots/01-dashboard-followups.jpg" alt="ASHA dashboard showing visits due and overdue follow-ups" width="300"><br><b>Prioritised field work</b></td>
+<td width="50%" align="center"><img src="docs/screenshots/02-dashboard-actions.jpg" alt="ArogyaDoot dashboard with visits, people, Ask SOP and registers" width="300"><br><b>One field dashboard</b></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/03-ask-sop-answer.jpg" alt="Ask SOP answer from on-device Gemma 3n E2B" width="300"><br><b>Offline Ask SOP</b></td>
+<td align="center"><img src="docs/screenshots/04-source-citation.jpg" alt="Highlighted excerpt with guide title, page citation and Open PDF" width="300"><br><b>Page-level source verification</b></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/05-hindi-guidance.jpg" alt="Hindi guidance shown in the ASHA assistant" width="300"><br><b>Field-friendly language</b></td>
+<td align="center"><img src="docs/screenshots/06-official-guides.jpg" alt="Offline official guide library showing document and passage counts" width="300"><br><b>Local document library</b></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/07-registers.jpg" alt="Registers, monthly reports, drug kit and activity diary" width="300"><br><b>Registers and monthly reporting</b></td>
+<td align="center"><img src="docs/screenshots/08-mcp-pdf.jpg" alt="Offline MCP antenatal card preview and PDF sharing controls" width="300"><br><b>Shareable offline documents</b></td>
+</tr>
+</table>
 
-Speech recognition is on-device Whisper only; cloud transcription is retired. Drug-kit counting is the on-phone counter or tap-to-count; cloud counting is retired. Details: `GEMMA_MIGRATION_REPORT.md`, `GROQ_QWEN_INTEGRATION_REPORT.md`, `REGRESSION_REPORT.md`, `VISION_VERIFICATION.md`, `VOICE_INPUT_REGRESSION.md`, `EMULATOR_MEMORY_RCA.md`.
+*Screenshots show a demonstration dataset and representative workflows. Counts visible on screen are sample records or the installed knowledge-base inventory, not measured population outcomes.*
 
-## What ArogyaDoot does
+## Why ArogyaDoot?
 
-### SOP guidance with evidence
+ASHA workers combine household outreach, maternal and child health activities, immunisation follow-ups, referrals, stock records and monthly reporting. The required guidance is distributed across many documents. Finding the relevant passage during a visit can be difficult, especially in low-connectivity settings.
 
-- Search an installed knowledge base of health guidelines and standard operating procedures (SOPs).
-- Ask questions in plain language, including Hindi or mixed Hindi-English where supported by the active models and retrieval index.
-- Inspect source references and retrieved passages alongside AI-assisted answers.
-- Continue local retrieval without an internet connection after the required models and knowledge base have been installed.
+ArogyaDoot connects **guideline retrieval** with **practical field-work management**. Its purpose is to reduce searching and transcription friction while keeping the source and the healthcare worker's judgement visible.
 
-### Household visit workflow
+## Features
 
-- Organize household and visit information.
-- Record field observations and visit notes.
-- Plan and review follow-up actions.
-- Prepare reports or shareable summaries using available export functions.
+| Area | What the app provides |
+|---|---|
+| **Ask SOP** | Ask a health-workflow question and review a response grounded in the installed guide collection. |
+| **Citations** | Show document title, page references, supporting text and an option to open the source PDF where available. |
+| **Offline AI** | Run local text assistance using the Gemma 3n E2B LiteRT-LM model downloaded during setup. |
+| **Official guides** | Browse/search locally installed reference documents by title, organisation and language. |
+| **Visits and people** | Record field visits and maintain household/person information. |
+| **Follow-ups** | Review work due and overdue and plan subsequent visits. |
+| **Registers** | Access activity diary, drug-kit records, monthly lists, claims, and structured reporting workflows. |
+| **Document output** | Preview, share or print supported forms and summaries as PDFs. |
+| **Speech and OCR** | Speech-input and image/document extraction workflows are available; performance varies by device and input quality. |
+| **Optional online AI** | Configure a Groq API key for cloud-based Qwen assistance when connectivity and user choice permit. |
 
-### Assisted data entry
+### How Ask SOP works
 
-- Dictate text into supported fields using on-device speech recognition (Whisper). There is no cloud transcription path.
-- Capture information from documents and registers using on-phone OCR (ML Kit, Latin + Devanagari) and geometry-aware table processing.
-- Review and correct extracted fields, particularly handwriting and table columns, before saving.
+1. An ASHA asks a question in everyday language.
+2. ArogyaDoot finds relevant passages in the installed guide collection.
+3. The selected AI mode helps formulate a readable response using retrieved context.
+4. The response exposes source information so the worker can inspect the original wording and page.
+5. The ASHA decides what action to take under the applicable SOP and clinical-supervision process.
 
-### Local and online AI
+The local library shown in the current demonstration contains **68 documents, 2,884 pages and 5,389 indexed passages**. This describes that installed dataset only; other installations may differ.
 
-- **Offline:** Gemma 3n E2B using the Google LiteRT-LM runtime, subject to compatible Android hardware and successful local model initialization. Device verification is still pending (see above).
-- **Online (optional):** Groq-hosted Qwen 3.8 27B, configured by the user with their own Groq API key. The model id is pending confirmation against the Groq account. A Together AI / Muse Glimmer preset remains selectable with its own key.
-- **Retrieval:** The application retrieves knowledge-base evidence before generating source-grounded explanations.
+## Installation
 
-The online provider is optional. A missing or invalid Groq API key must not prevent use of available offline functions.
+### Install an APK
 
-## Typical workflow
+1. Obtain a tested ArogyaDoot **1.0.0** APK from the project's [Releases](../../releases) page when one is published, or from the project maintainer.
+2. Install it on a compatible Android device. Android may require permission to install an app from the selected source.
+3. Open **ArogyaDoot** and complete the on-screen setup steps.
+4. Download the supported local Gemma model when prompted. Leave enough free storage for both the model and its temporary download file.
+5. Install or select the knowledge-base/official-guide package as offered by the app and confirm its available-document count.
+6. Choose **Offline** to use local assistance. For optional cloud assistance, enter your own Groq API key in the app's settings.
 
-1. Open or create a household visit.
-2. Ask a question about an approved guideline or SOP.
-3. Review the retrieved source passage and the assistant's explanation.
-4. Record an observation or action, correcting any dictated or OCR-extracted text.
-5. Save the visit and plan the next follow-up.
+**Local model:** `gemma-3n-E2B-it-int4.litertlm`. The model is downloaded separately; it should not be committed to this repository. [Download source](https://huggingface.co/datasets/EktaSikka/Gemma/resolve/main/gemma-3n-E2B-it-int4.litertlm?download=true).
 
-## System overview
+**Cloud key:** A Groq key is optional. Never include a real key in GitHub issues, commits, screenshots, or build logs. Cloud requests require connectivity and may transmit the text submitted to the external provider; do not send identifiable patient information without an appropriate authorised workflow.
 
-```mermaid
-flowchart TD
-    A[Android field interface] --> B[Visit and follow-up workflows]
-    A --> C[Knowledge retrieval]
-    C --> D[Source passages and citations]
-    D --> E[Offline Gemma 3n E2B]
-    D --> F[Optional Groq Qwen]
-    E --> A
-    F --> A
-    A --> G[OCR and speech input]
-```
+### Build from source (Windows)
 
-The AI model explains or structures information. The application maintains the source evidence and structured visit records. The health worker remains responsible for reviewing outputs.
-
-## Technology
-
-| Layer | Technology |
-| --- | --- |
-| Mobile application | Android, Kotlin, Gradle |
-| Offline generative AI | Gemma 3n E2B, LiteRT-LM (`litertlm-android:0.16.1`) |
-| Optional online AI | Groq API, `qwen/qwen3.8-27b` |
-| Retrieval | Local knowledge-base indexing and evidence retrieval |
-| Document recognition | ML Kit OCR and geometry-aware table processing |
-| Speech | On-device Whisper speech recognition; Android TTS for read-aloud |
-| Local persistence | Android application storage and existing local repositories/databases |
-
-The project may retain compatibility-sensitive internal names inherited from its earlier code foundation. The Android package identifier is **`com.arogyadoot.app`**. The APK still packages the retired llama.cpp native runtime for rollback; it is not auto-selected (loads only under an explicit `LLAMA_ONLY` force in Advanced settings).
-
-## Getting started
-
-### Requirements
-
-- Android Studio with a compatible Android SDK and build tools.
-- JDK and Android Gradle Plugin versions specified by the checked-in Gradle files (currently AGP 9.2.1, Kotlin 2.0.21, JDK 17+).
-- The Android NDK/CMake toolchain specified by the project for native dependencies (currently NDK 26.1.10909125, CMake 3.22.1).
-- An ARM64 Android device for native model testing (the app builds for `arm64-v8a` only). Emulator compatibility depends on its ABI, memory allocation, graphics backend, and native libraries.
-- Sufficient device storage and RAM for the chosen local model.
-
-The project has been configured with a minimum Android SDK level of 24 and compile/target SDK 36. Check the current Gradle configuration for the authoritative version requirements.
-
-### Build from source
-
-```bash
-git clone https://github.com/ektasikka1989-cmyk/Arogyadoot.git
-cd Arogyadoot
-```
-
-On Windows:
+Prerequisites: Git, Android Studio/Android SDK, a compatible JDK, and the project-specific Android/Gradle dependencies. Some larger runtime assets are distributed separately and may be absent from a fresh Git checkout.
 
 ```powershell
+git clone https://github.com/ektasikka1989-cmyk/Arogyadoot.git
+cd Arogyadoot
 .\gradlew.bat :app:assembleDebug
 ```
 
-The debug APK is normally generated at:
+Expected debug output: `app\build\outputs\apk\debug\app-debug.apk`.
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
+If a fresh checkout fails because a large offline runtime asset is missing, consult the project-specific setup documents and acquire that asset from its authorised source. Do not assume that a successful Gradle build alone proves every offline AI, OCR or speech path works on a device.
 
-To install with Android Debug Bridge (ADB):
+## Technology
 
-```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+- **Android / Kotlin** application and field-workflow components.
+- **Gemma 3n E2B** local model through **LiteRT-LM** for offline assistance.
+- **On-device document retrieval** for source-backed SOP answers.
+- **Optional Groq-hosted Qwen** integration for cloud requests.
+- **OCR, speech and PDF components** supporting capture, dictation and forms.
 
-An upgrade install preserves app data only when the application ID and signing certificate are compatible. **Do not uninstall or clear application data if existing field records or downloaded models must be retained.**
+The exact runtime and provider availability depends on the installed build, model, device capabilities and configuration.
 
-### First-run setup
+## Privacy, safety and limitations
 
-1. Grant only the permissions required for the feature you intend to use.
-2. Download the offline Gemma model through the app's model setup screen.
-3. Install or attach the supported SOP knowledge base, if not already present (the guide database ships with the app; if it is missing, place `ASHA_Health_Guide_v2.db` in Downloads and tap Retry).
-4. Wait for model and knowledge-base readiness checks.
-5. Optionally enter a personal Groq API key in AI Settings and test the connection.
-6. Try an offline SOP question and verify that its cited passage opens correctly.
+- The app assists with reference lookup and record keeping; it does **not** diagnose, prescribe or replace a healthcare professional.
+- Verify safety-critical instructions against the cited document and current local protocol. Escalate uncertainty or warning signs to the ANM/appropriate clinician.
+- Use demonstration or properly authorised records when testing. Do not publish real patient-identifiable data.
+- Offline features reduce dependence on mobile internet, but require the appropriate model and guides to be installed on the device.
+- Local inference is resource-intensive; memory, speed, ABI and Android page-size compatibility can vary. **16 KB native-library compatibility has not been certified across all packaged components.**
+- OCR on tables and handwritten or low-quality records can misassign fields. Always review extracted content before saving or sharing.
+- Speech recognition quality depends on the microphone, language, ambient noise and device support.
+- This prototype has received clinician feedback, but no formal clinical outcome study or independently validated diagnostic-accuracy claim is made.
 
-#### Offline model
+## Troubleshooting
 
-The configured model artifact is:
+| Symptom | First checks |
+|---|---|
+| Offline answer unavailable | Confirm the Gemma model is fully downloaded, selected and initialised; check free storage and device RAM. |
+| Guide citation missing | Confirm the official-guide package has been installed and the relevant document is present. |
+| Cloud answer unavailable | Check connectivity, Groq key persistence, quota and selected online mode. |
+| OCR result inaccurate | Retake a sharper, flatter image; verify row/column alignment before accepting it. |
+| App crash or 16 KB warning | Capture Android version, ABI, page size and logcat when possible; do not assume all bundled native libraries are 16 KB compatible. |
 
-`gemma-3n-E2B-it-int4.litertlm`
+## Version and development
 
-[Gemma model download](https://huggingface.co/datasets/EktaSikka/Gemma/resolve/main/gemma-3n-E2B-it-int4.litertlm?download=true)
+**Current app version:** `1.0.0`
 
-Download the model using the application's installer. Large model files are intentionally excluded from Git. The installer validates the exact file name and expected size (about 2 GB) and rejects HTML error pages; the model itself loads on first use. On-device load and inference are still pending verification.
+**Android application ID:** `com.arogyadoot.app`
+**Project status:** Active prototype development and device validation.
 
-#### Optional Groq configuration
+Contributions and issue reports should include the app version, Android version, device type and reproducible steps—without secrets or private health records.
 
-- Provider: Groq
-- Model: `qwen/qwen3.8-27b` (confirm availability on your account via the Groq Models API)
-- API endpoint: `https://api.groq.com/openai/v1`
+## Team
 
-Use your own Groq API key. Never add keys to source files, Gradle configuration, issue reports, screenshots, or Git commits. Model availability, usage limits, and pricing are controlled by Groq and may change.
+Developed by **Team AVM**:
 
-## Privacy and responsible use
+- **Ekta Sikka** — Team lead and developer
+- **Aryan Kalra** — Developer
+- **Vaibhav Sikka** — Product research
 
-- Use synthetic records when demonstrating or testing the software.
-- Obtain appropriate consent and organizational permission before collecting real health information.
-- Avoid transmitting identifiable patient data to cloud AI services unless an approved workflow and explicit consent permit it.
-- Text sent to the cloud passes through identifier scrubbers, and detected Aadhaar-number areas are blacked out on the phone before a photo is sent. These are risk-reduction mechanisms, not guarantees of de-identification.
-- Voice audio never leaves the phone: transcription is on-device Whisper only.
-- Treat AI answers as assistance in locating and understanding approved sources, not as independently validated clinical instructions.
-- Verify the original guideline, its applicability, and the current local care protocol before acting.
-- Review dictated text and OCR-extracted values before saving. Handwritten Hindi text and complex register columns remain challenging.
-- Protect the Android device, local records, backups, and any exported reports.
+Prototype reviewed by **Dr Manmohan Singh Rathore (MBBS, 5 years of experience)** and **Dhruv Punjani (third-year MBBS student)**. Their review should not be interpreted as regulatory approval or clinical efficacy validation.
 
-## Current limitations
+## Licensing
 
-- AI answers can be incomplete or incorrect. Citation presence alone does not prove medical correctness.
-- Handwriting recognition and register row/column mapping require continued testing.
-- Offline generative inference is sensitive to device RAM, accelerator support, and model size.
-- Some native dependencies require validation for Android devices using 16 KB memory pages.
-- Online features depend on network connectivity, API-key validity, and provider availability.
-- Formal clinical efficacy and field time-saving benefits have not been established.
-- The Gemma offline path and the Groq online path have not yet been exercised end to end on a device; cloud photo reading in particular is unproven.
-- `MODELS.md`, `PRIVACY.md`, and the third-party note in `LICENSE` still describe the retired Llama/Meta engine and must be updated before any release notes quote them.
-
-## Development and verification
-
-Before submitting a change:
-
-1. Build the Android application.
-2. Run relevant automated tests.
-3. Test model initialization and inference on a representative physical Android device.
-4. Check SOP retrieval and source correctness.
-5. Test visit save/reopen, voice input, and document extraction.
-6. Confirm that no secrets, patient records, large models, generated APKs, or diagnostic dumps are staged.
-
-Build success establishes packaging and compilation, not full functionality. Report tests as passed, failed, or not run.
-
-## Repository organization
-
-The precise folder structure may change as modules evolve. Key areas include the Android `app` module, speech/native support modules, Gradle configuration, documentation, and project-specific test scripts. See `docs/HANDOVER.md`, `AGENTS.md`, and the current verification reports where present.
-
-## Reporting issues
-
-When reporting a problem, include:
-
-- Application version or commit hash.
-- Android version, device model, RAM, and CPU ABI.
-- Reproduction steps and expected/actual behavior.
-- Relevant redacted logs or screenshots, if available.
-
-**Never include an API key, personal health information, or unredacted patient documents.**
-
-## Project status and licensing
-
-ArogyaDoot is under active development. Application code is under the MIT License — see [LICENSE](LICENSE). Models, datasets, and third-party libraries keep their own licenses; review them before redistributing or deploying.
-
----
-
-**ArogyaDoot** · Built by Team AVM: Ekta Sikka, Vaibhav Sikka, and Aryan Kalra.
+No open-source licence is declared in this README. Please do not assume reuse rights beyond those expressly granted by the repository owner. Any third-party models, documents and libraries retain their own licences and terms.
