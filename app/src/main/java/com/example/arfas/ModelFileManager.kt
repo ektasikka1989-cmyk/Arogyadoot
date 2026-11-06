@@ -57,6 +57,8 @@ class ModelFileManager(private val context: Context) {
     enum class ModelType { GEMMA_E2B, DINOv2, SAM31, DETR, LLAMA3B, OCR, CLIP }
 
     companion object {
+        /** Meta models (Llama 3.2 GGUF, DETR, CLIP, DINOv2, SAM) are retired in ArogyaDoot; Gemma 3n replaces them. */
+        const val META_MODELS_ENABLED = false
         private const val PREFS_NAME             = "arfas_model_prefs"
         private const val KEY_MODEL_FILE         = "selected_model_filename"
         private const val KEY_DINOV2_FILE        = "model_dinov2_path"
@@ -91,7 +93,11 @@ class ModelFileManager(private val context: Context) {
     }
 
     fun getForceModelMode(): ForceModelMode = try {
-        ForceModelMode.valueOf(prefs.getString(KEY_FORCE_MODEL_MODE, ForceModelMode.AUTO.name) ?: ForceModelMode.AUTO.name)
+        when (val m = ForceModelMode.valueOf(prefs.getString(KEY_FORCE_MODEL_MODE, ForceModelMode.AUTO.name) ?: ForceModelMode.AUTO.name)) {
+            // Llama / Meta-ensemble modes were retired with the Meta stack: an old saved choice means Auto (Gemma).
+            ForceModelMode.LLAMA_ONLY, ForceModelMode.ENSEMBLE_ONLY -> ForceModelMode.AUTO
+            else -> m
+        }
     } catch (_: Exception) { ForceModelMode.AUTO }
 
     fun setForceModelMode(mode: ForceModelMode) {
@@ -203,8 +209,14 @@ class ModelFileManager(private val context: Context) {
 
     private fun legacyFile(type: ModelType): File? = getModelPath(type)?.let(::File)
 
-    /** The Meta model file of [component] (new layout first, then the old installer's file). */
-    fun metaFile(component: MetaModelStore.Component): File? = when (component) {
+    /**
+     * The Meta model file of [component]. ArogyaDoot retired the Meta stack (Llama 3.2, DETR, CLIP,
+     * DINOv2, SAM): Gemma 3n does text and vision, so this always answers null and nothing loads
+     * those models, even if an old install left files on the phone (they are not deleted).
+     */
+    fun metaFile(component: MetaModelStore.Component): File? = if (!META_MODELS_ENABLED) null else legacyMetaFile(component)
+
+    private fun legacyMetaFile(component: MetaModelStore.Component): File? = when (component) {
         MetaModelStore.Component.LLAMA -> metaStore.file(component, legacyFile(ModelType.LLAMA3B))
         MetaModelStore.Component.DETR -> metaStore.file(component, legacyFile(ModelType.DETR))
         MetaModelStore.Component.CLIP_VISION -> metaStore.file(component, legacyFile(ModelType.CLIP))

@@ -235,7 +235,7 @@ fun AROverlay() {
                 .padding(top = 16.dp, start = 16.dp, end = 16.dp)
         ) {
             Text(
-                text = "Ensemble: DINOv2-B+DETR+SAM2+CLIP+OCR -> Gemma 3n E2B offline, zero-shot, no 4.5GB ImageBind - AR READY",
+                text = "Gemma 3n E2B offline vision + OCR - AR READY",
                 color = Color(0xFF00E676),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
@@ -366,8 +366,67 @@ fun OrbVisualizer() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings dialog — model upload + KB upload
+// Settings — grouped cards: Offline AI · Knowledge base · Online AI · Answers · Check · About
+// ArogyaDoot runs Gemma 3n offline and Groq (Qwen) online. The Meta stack (Llama 3.2, DETR,
+// CLIP, DINOv2, SAM) and its models zip are retired and no longer offered here.
 // ─────────────────────────────────────────────────────────────────────────────
+
+private val SetBg = Color(0xFF14142A)
+private val SetCard = Color(0xFF20203A)
+private val SetAccent = Color(0xFF80D8FF)
+private val SetMuted = Color(0xFFA0A0B8)
+private val SetOk = Color(0xFF00E676)
+private val SetWarn = Color(0xFFFFD54F)
+
+@Composable
+private fun SettingsCard(title: String, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = SetCard, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            if (subtitle != null) Text(subtitle, color = SetMuted, fontSize = 12.sp, lineHeight = 16.sp)
+            content()
+        }
+    }
+}
+
+/** ✓ / … / ✗ and a one-line status. */
+@Composable
+private fun SettingsStatus(text: String, ok: Boolean, warn: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(if (ok) SetOk else if (warn) SetWarn else Color(0xFFFF5252), CircleShape))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = Color(0xFFE0E0E0), fontSize = 13.sp, lineHeight = 17.sp)
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(title: String, detail: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(detail, color = SetMuted, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+    }
+}
+
+/** "More ▾" disclosure for rarely used controls inside a card. */
+@Composable
+private fun SettingsMore(label: String, content: @Composable ColumnScope.() -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) {
+        Text(if (open) "$label ▴" else "$label ▾", color = SetMuted, fontSize = 12.sp)
+    }
+    if (open) Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+}
+
+@Composable
+private fun ReportBox(text: String) {
+    if (text.isNotBlank()) Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF101020), modifier = Modifier.fillMaxWidth()) {
+        Text(text.take(4000), color = Color(0xFFB0BEC5), fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(8.dp))
+    }
+}
 
 @Composable
 fun SettingsDialog(
@@ -375,16 +434,11 @@ fun SettingsDialog(
     modelStatusText: String = "",
     modelFileManager: ModelFileManager? = null,
     onModelFilePicked: ((Uri) -> Unit)?,
-    onMetaModelFilePicked: ((ModelFileManager.ModelType, Uri) -> Unit)? = null,
-    onDeleteMetaModel: ((ModelFileManager.ModelType) -> Unit)? = null,
-    onUseMetaStackChanged: ((Boolean) -> Unit)? = null,
-    /** The user picked the phone's AI (Meta Llama or Gemma): load it now. */
+    /** The phone AI choice changed (Gemma connected/disconnected): load it now. */
     onPhoneEngineChanged: (() -> Unit)? = null,
-    onZipFilePicked: ((Uri) -> Unit)? = null,
     onRunSelfTest: (() -> Unit)? = null,
     selfTestText: String = "",
     selfTestRunning: Boolean = false,
-    zipStatusText: String = "",
     onKbFilePicked: ((Uri) -> Unit)?,
     kbInstalled: Boolean = false,
     kbReady: Boolean = false,
@@ -404,564 +458,149 @@ fun SettingsDialog(
     onSaveGroqKey: ((String) -> Unit)? = null,
     onClearGroqKey: (() -> Unit)? = null,
     onTestGroq: (() -> Unit)? = null,
-    onlineEngine: GroqKeyStore.Engine = GroqKeyStore.Engine.GROQ,
-    groqKeySaved: Boolean = false,
-    metaKeySaved: Boolean = false,
-    onOnlineEngineChanged: ((GroqKeyStore.Engine) -> Unit)? = null,
     answerPolicy: AnswerPolicy = AnswerPolicy.LOCAL_FIRST,
     onAnswerPolicyChanged: ((AnswerPolicy) -> Unit)? = null,
     onlineBackup: Boolean = false,
     onOnlineBackupChanged: ((Boolean) -> Unit)? = null,
-    onlineVoice: Boolean = false,
-    onOnlineVoiceChanged: ((Boolean) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
-    // modelStatus is driven by modelStatusText from MainActivity (live copy/load progress).
-    // Falls back to a sensible default based on modelLoaded when no external status is set.
-    val modelStatus = when {
-        modelStatusText.isNotBlank() -> modelStatusText
-        modelLoaded -> "✓ Local model ready"
-        else -> "Not loaded — tap Upload to add"
-    }
     var groqKeyInput by remember { mutableStateOf("") }
     var showGroqKey by remember { mutableStateOf(false) }
-
-    val modelPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            onModelFilePicked?.invoke(uri)
-        }
+    val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onModelFilePicked?.invoke(uri)
+    }
+    val kbPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onKbFilePicked?.invoke(uri)
     }
 
-    val kbPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            onKbFilePicked?.invoke(uri)
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFF1A1A2E),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                Text(
-                    "Settings",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Divider(color = Color(0xFF333355))
-
-                // ── Local AI Model ────────────────────────────────────────────
-                val gemmaDisconnected = modelFileManager?.isGemmaDisconnected() == true
-                val llamaDisconnected = modelFileManager?.isLlamaDisconnected() == true
-                val forceMode = modelFileManager?.getForceModelMode() ?: ForceModelMode.AUTO
-
-                // ── Phone AI: one clear status, one install button ────────────
-                var showAdvanced by remember { mutableStateOf(false) }
-                val summaryZipPicker = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.GetContent()
-                ) { uri -> if (uri != null) onZipFilePicked?.invoke(uri) }
-                val llamaFile = modelFileManager?.isModelInstalled(ModelFileManager.ModelType.LLAMA3B) == true
-                val visionFiles = modelFileManager?.isModelInstalled(ModelFileManager.ModelType.DETR) == true
-                val llamaFailed = !modelLoaded && llamaFile &&
-                    (modelStatusText.contains("fail", true) || modelStatusText.contains("error", true) || modelStatusText.contains("✗"))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("AI on this phone", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    // Phone AI choice: Auto (Gemma 3n first, Llama only when forced) or Gemma only (also
-                    // sees photos and the camera).
+    Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = SetBg, modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().systemBarsPadding()) {
+                // ── Header ──
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Settings", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("Done", color = SetAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                }
+                Column(
+                    Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // ── 1. Offline AI ──
                     val gemmaInstalled = modelFileManager?.gemmaModelFile() != null
-                    var gemmaChosen by remember { mutableStateOf(forceMode == ForceModelMode.GEMMA_ONLY) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Phone AI:", color = Color.White, fontSize = 12.sp)
-                        FilterChip(
-                            selected = !gemmaChosen,
-                            onClick = {
-                                gemmaChosen = false
-                                modelFileManager?.setForceModelMode(ForceModelMode.AUTO)
-                                modelFileManager?.setLlamaDisconnected(false)
-                                onPhoneEngineChanged?.invoke()
+                    val gemmaDisconnected = modelFileManager?.isGemmaDisconnected() == true
+                    val failed = !modelLoaded && (modelStatusText.contains("fail", true) || modelStatusText.contains("error", true) || modelStatusText.contains("✗"))
+                    SettingsCard("Offline AI", "Gemma 3n on this phone answers questions and reads photos. Works without internet.") {
+                        SettingsStatus(
+                            when {
+                                modelLoaded -> "Gemma 3n ready"
+                                gemmaDisconnected -> "Gemma is switched off (see More)"
+                                failed -> modelStatusText.removePrefix("Local model failed: ").removePrefix("✗ ").take(160)
+                                gemmaInstalled -> modelStatusText.ifBlank { "Loading Gemma 3n…" }
+                                else -> "Not installed — install the Gemma 3n model in Setup"
                             },
-                            label = { Text("Auto (Gemma first)", fontSize = 12.sp) }
+                            ok = modelLoaded, warn = gemmaInstalled && !failed && !gemmaDisconnected
                         )
-                        FilterChip(
-                            selected = gemmaChosen,
-                            enabled = gemmaInstalled,
-                            onClick = {
-                                gemmaChosen = true
-                                modelFileManager?.setForceModelMode(ForceModelMode.GEMMA_ONLY)
-                                modelFileManager?.setGemmaDisconnected(false)
-                                onPhoneEngineChanged?.invoke()
-                            },
-                            label = { Text(if (gemmaInstalled) "Gemma" else "Gemma (upload in Advanced)", fontSize = 12.sp) }
-                        )
-                    }
-                    PhoneAiStatusLine(
-                        label = if (gemmaChosen) "Answers and camera — Gemma" else "Answers — Auto (Gemma first)",
-                        ok = modelLoaded,
-                        detail = when {
-                            modelLoaded -> "Ready, works offline"
-                            llamaFailed -> modelStatusText.removePrefix("Local model failed: ").removePrefix("✗ ").take(160)
-                            llamaFile -> "Loading…"
-                            else -> "Not installed — install the Gemma 3n model in Setup"
-                        },
-                        warn = llamaFile && !modelLoaded && !llamaFailed
-                    )
-                    PhoneAiStatusLine(
-                        label = "Camera — Meta DETR · CLIP · DINOv2 · SAM",
-                        ok = visionFiles,
-                        detail = if (visionFiles) "Installed" else "Not installed",
-                        warn = false
-                    )
-                    Button(
-                        onClick = { summaryZipPicker.launch("*/*") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Install Meta models zip", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    if (zipStatusText.isNotBlank()) {
-                        Text(zipStatusText, color = Color(0xFF80D8FF), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                    }
-                    TextButton(onClick = { showAdvanced = !showAdvanced }) {
-                        Text(if (showAdvanced) "Hide advanced model settings ▴" else "Advanced model settings ▾", color = Color(0xFF9E9E9E), fontSize = 12.sp)
-                    }
-                }
-
-                if (showAdvanced) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Local Models & Debug Control", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    
-                    // Gemma Status & Disconnect Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            // Active only when the loaded engine really is LiteRT (status text comes from LocalModelManager).
-                            val gemmaActive = !gemmaDisconnected && modelLoaded && modelStatusText.contains("LiteRT")
-                            Text("Gemma (.litertlm, optional)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Gemma: ${if (gemmaActive) "Active - answers coming from Gemma" else if (gemmaDisconnected) "Disconnected" else "Not in use"}",
-                                color = if (gemmaActive) Color(0xFF00E676) else Color(0xFF9E9E9E),
-                                fontSize = 11.sp
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                modelFileManager?.setGemmaDisconnected(!gemmaDisconnected)
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(if (gemmaDisconnected) "Connect" else "Disconnect", fontSize = 11.sp)
-                        }
-                    }
-
-                    // Llama Status & Disconnect Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        val llamaInstalled = modelFileManager?.isModelInstalled(ModelFileManager.ModelType.LLAMA3B) == true
-                        Column(modifier = Modifier.weight(1f)) {
-                            val llamaActive = !llamaDisconnected && modelLoaded && modelStatusText.contains("llama.cpp")
-                            Text("Meta Llama 3.2 (GGUF, llama.cpp)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Llama: ${when {
-                                    llamaActive -> "Active - answers written on this phone"
-                                    llamaDisconnected -> "Disconnected"
-                                    llamaInstalled -> "Installed - loading"
-                                    else -> "Not installed"
-                                }}",
-                                color = if (llamaActive) Color(0xFF00E676) else if (llamaInstalled) Color(0xFFFFD54F) else Color(0xFFFF5252),
-                                fontSize = 11.sp
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                modelFileManager?.setLlamaDisconnected(!llamaDisconnected)
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(if (llamaDisconnected) "Connect" else "Disconnect", fontSize = 11.sp)
-                        }
-                    }
-
-                    // Force Model Mode debug selector
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Force Model Mode:", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ForceModelMode.values().forEach { mode ->
-                                val selected = forceMode == mode
-                                FilterChip(
-                                    selected = selected,
-                                    onClick = { modelFileManager?.setForceModelMode(mode) },
-                                    label = { Text(mode.name, fontSize = 10.sp) }
-                                )
+                        SettingsMore("More") {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Use Gemma on this phone", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                Switch(checked = !gemmaDisconnected, onCheckedChange = { on ->
+                                    modelFileManager?.setGemmaDisconnected(!on)
+                                    onPhoneEngineChanged?.invoke()
+                                })
                             }
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = { modelPicker.launch("*/*") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80D8FF)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF80D8FF))
-                    ) {
-                        Text("Upload optional Gemma .litertlm file", fontSize = 12.sp)
-                    }
-                }
-
-                if (modelFileManager != null) {
-                    Divider(color = Color(0xFF333355))
-
-                    // ── Meta Stack (Recommended) ──────────────────────────────
-                    var pendingMetaType by remember { mutableStateOf<ModelFileManager.ModelType?>(null) }
-                    val metaModelPicker = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.GetContent()
-                    ) { uri ->
-                        val type = pendingMetaType
-                        if (uri != null && type != null) {
-                            onMetaModelFilePicked?.invoke(type, uri)
-                        }
-                        pendingMetaType = null
-                    }
-
-                    val zipPicker = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.GetContent()
-                    ) { uri ->
-                        if (uri != null) {
-                            onZipFilePicked?.invoke(uri)
-                        }
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Phone vision stack (optional)",
-                                    color = Color(0xFF80D8FF),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "DINOv2 + SAM / MobileSAM + Gemma 3n local stack",
-                                    color = Color(0xFF9E9E9E),
-                                    fontSize = 11.sp
-                                )
+                            OutlinedButton(onClick = { modelPicker.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Install a Gemma .litertlm file from this phone", fontSize = 12.sp)
                             }
-                            Switch(
-                                checked = modelFileManager.getUseMetaStack(),
-                                onCheckedChange = { enabled ->
-                                    modelFileManager.setUseMetaStack(enabled)
-                                    onUseMetaStackChanged?.invoke(enabled)
-                                }
+                            val (lastSource, lastTime) = modelFileManager?.getLastAnswerSource() ?: (ModelSource.GEMMA_3N_E2B to 0L)
+                            if (lastTime > 0L) Text(
+                                "Last answer: ${lastSource.detailText} at " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(lastTime)),
+                                color = SetMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace
                             )
                         }
-
-                        MetaModelRow(
-                            title = "Vision Detector - DINOv2-B (86MB)",
-                            subtitle = "dinov2_vitb14_reg4_pretrain.safetensors",
-                            modelType = ModelFileManager.ModelType.DINOv2,
-                            modelFileManager = modelFileManager,
-                            isOptional = false,
-                            onBrowseClick = {
-                                pendingMetaType = ModelFileManager.ModelType.DINOv2
-                                metaModelPicker.launch("*/*")
-                            },
-                            onDeleteClick = { onDeleteMetaModel?.invoke(ModelFileManager.ModelType.DINOv2) }
-                        )
-
-                        MetaModelRow(
-                            title = "Vision Anchor - SAM2 / MobileSAM (38.5MB)",
-                            subtitle = "sam2_hiera_t.pt (Optional for tight mask)",
-                            modelType = ModelFileManager.ModelType.SAM31,
-                            modelFileManager = modelFileManager,
-                            isOptional = true,
-                            onBrowseClick = {
-                                pendingMetaType = ModelFileManager.ModelType.SAM31
-                                metaModelPicker.launch("*/*")
-                            },
-                            onDeleteClick = { onDeleteMetaModel?.invoke(ModelFileManager.ModelType.SAM31) }
-                        )
-
-                        MetaModelRow(
-                            title = "Object Detector - DETR ResNet-50 (159MB)",
-                            subtitle = "detr_resnet50.onnx",
-                            modelType = ModelFileManager.ModelType.DETR,
-                            modelFileManager = modelFileManager,
-                            isOptional = false,
-                            onBrowseClick = {
-                                pendingMetaType = ModelFileManager.ModelType.DETR
-                                metaModelPicker.launch("*/*")
-                            },
-                            onDeleteClick = { onDeleteMetaModel?.invoke(ModelFileManager.ModelType.DETR) }
-                        )
-
-                        MetaModelRow(
-                            title = "Reasoning - Llama 3.2 3B GGUF (1.9GB)",
-                            subtitle = "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-                            modelType = ModelFileManager.ModelType.LLAMA3B,
-                            modelFileManager = modelFileManager,
-                            isOptional = false,
-                            onBrowseClick = {
-                                pendingMetaType = ModelFileManager.ModelType.LLAMA3B
-                                metaModelPicker.launch("*/*")
-                            },
-                            onDeleteClick = { onDeleteMetaModel?.invoke(ModelFileManager.ModelType.LLAMA3B) }
-                        )
-
-                        MetaModelRow(
-                            title = "Text Extraction - PP-OCRv4 (100MB)",
-                            subtitle = "ch_PP-OCRv4_det + ch_PP-OCRv4_rec_server",
-                            modelType = ModelFileManager.ModelType.OCR,
-                            modelFileManager = modelFileManager,
-                            isOptional = false,
-                            onBrowseClick = {
-                                pendingMetaType = ModelFileManager.ModelType.OCR
-                                metaModelPicker.launch("*/*")
-                            },
-                            onDeleteClick = { onDeleteMetaModel?.invoke(ModelFileManager.ModelType.OCR) }
-                        )
-
-                        MetaModelRow(
-                            title = "Zero-Shot Embedding - CLIP ViT-B/32 (150MB)",
-                            subtitle = "clip-vit-base-patch32.onnx",
-                            modelType = ModelFileManager.ModelType.CLIP,
-                            modelFileManager = modelFileManager,
-                            isOptional = true,
-                            onBrowseClick = {
-                                pendingMetaType = ModelFileManager.ModelType.CLIP
-                                metaModelPicker.launch("*/*")
-                            },
-                            onDeleteClick = { onDeleteMetaModel?.invoke(ModelFileManager.ModelType.CLIP) }
-                        )
                     }
-                }
-                } // end advanced
 
-                Divider(color = Color(0xFF333355))
-
-                // ── Knowledge Base ────────────────────────────────────────────
-                SettingsSection(
-                    title     = "Knowledge Base",
-                    subtitle  = "Installable private knowledge pack",
-                    status    = kbStatusText,
-                    statusOk  = kbInstalled,
-                    buttonText = if (kbInstalled) "Add another Knowledge .db" else "Install Knowledge .db",
-                    info      = "Supports ArogyaDoot generic knowledge databases and the legacy ANM SOP database. Installed packs are kept, so you can switch between them below. The selected KB is used only when you enable KB for a session.",
-                    onButtonClick = { kbPicker.launch("*/*") }
-                )
-                if (kbPacks.size > 1) {
-                    KnowledgePackList(kbPacks, kbSwitching, onUseKbPack, onRemoveKbPack)
-                }
-                if (kbGuideUpdate != null && onInstallGuideUpdate != null) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Guide on this phone: ${kbGuideUpdate.activeLabel} — ${kbGuideUpdate.wantedName} is in Downloads",
-                            color = Color(0xFFFFD54F), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Button(onClick = { onInstallGuideUpdate() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Install ${kbGuideUpdate.wantedName}")
+                    // ── 2. Knowledge base ──
+                    SettingsCard("ASHA guide (knowledge base)", "Answers are taken from these official documents and show their sources.") {
+                        SettingsStatus(kbStatusText, ok = kbInstalled && kbReady, warn = kbInstalled && !kbReady)
+                        if (kbGuideUpdate != null && onInstallGuideUpdate != null) {
+                            Text("Guide on this phone: ${kbGuideUpdate.activeLabel} — ${kbGuideUpdate.wantedName} is in Downloads",
+                                color = SetWarn, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Button(onClick = { onInstallGuideUpdate() }, modifier = Modifier.fillMaxWidth()) { Text("Install ${kbGuideUpdate.wantedName}") }
+                        }
+                        if (kbPacks.size > 1) KnowledgePackList(kbPacks, kbSwitching, onUseKbPack, onRemoveKbPack)
+                        OutlinedButton(onClick = { kbPicker.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (kbInstalled) "Add another guide (.db)" else "Install guide (.db)", fontSize = 13.sp)
+                        }
+                        if (kbInstalled && onCheckKb != null) SettingsMore("Check this guide") {
+                            Text("Samples passages from every document and checks that search finds them, plus data quality. About 1–2 minutes.",
+                                color = SetMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = { onCheckKb() }, enabled = !kbCheckRunning, modifier = Modifier.weight(1f)) { Text(if (kbCheckRunning) "Checking…" else "Check now") }
+                                OutlinedButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(kbCheckText)) },
+                                    enabled = kbCheckText.isNotBlank() && !kbCheckRunning, modifier = Modifier.weight(1f)) { Text("Copy report") }
+                            }
+                            ReportBox(kbCheckText)
                         }
                     }
-                }
-                // KB validation: does search find the pack's own passages, and is its data clean?
-                if (kbInstalled && onCheckKb != null) {
-                    val kbClip = androidx.compose.ui.platform.LocalClipboardManager.current
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Check this knowledge base", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Samples passages from every document, checks that search finds each one, and checks the data (cut-off passages, duplicates, missing pages, titles). About 1–2 minutes.",
-                            color = Color(0xFF9E9E9E), fontSize = 11.sp, lineHeight = 15.sp)
+
+                    // ── 3. Online AI ──
+                    SettingsCard("Online AI (optional)", "Groq · Qwen3.8 27B. Needs your Groq API key (gsk_…). The key is stored encrypted on this phone; names and phone numbers are masked before anything is sent.") {
+                        SettingsStatus(groqStatusText, ok = groqKeyConfigured && groqStatusText.contains("Connected", true), warn = groqKeyConfigured)
+                        OutlinedTextField(
+                            value = groqKeyInput,
+                            onValueChange = { groqKeyInput = it },
+                            label = { Text(if (groqKeyConfigured) "Replace Groq API key" else "Groq API key (gsk_…)") },
+                            singleLine = true,
+                            visualTransformation = if (showGroqKey) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = { TextButton(onClick = { showGroqKey = !showGroqKey }) { Text(if (showGroqKey) "Hide" else "Show", fontSize = 12.sp) } },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(onClick = { onCheckKb() }, enabled = !kbCheckRunning, modifier = Modifier.weight(1f)) {
-                                Text(if (kbCheckRunning) "Checking…" else "Check now")
-                            }
-                            OutlinedButton(
-                                onClick = { kbClip.setText(androidx.compose.ui.text.AnnotatedString(kbCheckText)) },
-                                enabled = kbCheckText.isNotBlank() && !kbCheckRunning,
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Copy report") }
+                            Button(onClick = { if (groqKeyInput.isNotBlank()) { onSaveGroqKey?.invoke(groqKeyInput.trim()); groqKeyInput = "" } },
+                                enabled = groqKeyInput.isNotBlank(), modifier = Modifier.weight(1f)) { Text("Save") }
+                            OutlinedButton(onClick = { onTestGroq?.invoke() }, enabled = groqKeyConfigured, modifier = Modifier.weight(1f)) { Text("Test") }
                         }
-                        if (kbCheckText.isNotBlank()) {
-                            Text(kbCheckText.take(4000), color = Color(0xFFB0BEC5), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        if (groqKeyConfigured) TextButton(onClick = { groqKeyInput = ""; onClearGroqKey?.invoke() }) {
+                            Text("Remove saved key", color = Color(0xFFFF8A80), fontSize = 12.sp)
                         }
                     }
-                }
 
-                Divider(color = Color(0xFF333355))
+                    // ── 4. How answers are chosen ──
+                    SettingsCard("How answers are chosen") {
+                        SettingsSwitchRow(
+                            "Prefer online answers",
+                            if (answerPolicy == AnswerPolicy.CLOUD_FIRST) "On: Groq answers when there is internet and a key; the phone takes over otherwise."
+                            else "Off: Gemma on this phone answers; online is used only when needed or asked.",
+                            checked = answerPolicy == AnswerPolicy.CLOUD_FIRST
+                        ) { on -> onAnswerPolicyChanged?.invoke(if (on) AnswerPolicy.CLOUD_FIRST else AnswerPolicy.LOCAL_FIRST) }
+                        SettingsSwitchRow(
+                            "Online backup for guide answers",
+                            "If the phone's answer fails its checks, Groq answers from the same guide passages (those passages are sent online).",
+                            checked = onlineBackup
+                        ) { on -> onOnlineBackupChanged?.invoke(on) }
+                        Text("Voice input is always transcribed on this phone (Whisper, Hindi and English); nothing is sent online.",
+                            color = SetMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
 
-                // ── Answer mode ───────────────────────────────────────────────
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Answer mode", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                if (answerPolicy == AnswerPolicy.CLOUD_FIRST) "Cloud First" else "Local First",
-                                color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                if (answerPolicy == AnswerPolicy.CLOUD_FIRST)
-                                    "Cloud is preferred for exact factual and complex general questions; simple stable tasks stay local."
-                                else
-                                    "Uses on-device AI whenever possible. Current information and requested verification use Cloud when needed.",
-                                color = Color(0xFF9E9E9E), fontSize = 11.sp, lineHeight = 15.sp
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Switch(
-                            checked = answerPolicy == AnswerPolicy.CLOUD_FIRST,
-                            onCheckedChange = { enabled ->
-                                onAnswerPolicyChanged?.invoke(if (enabled) AnswerPolicy.CLOUD_FIRST else AnswerPolicy.LOCAL_FIRST)
-                            }
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Online backup for knowledge-base answers", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "When the on-device answer fails its checks, the online AI answers from the same knowledge-base passages " +
-                                    "(needs internet; those passages are sent online). Off: answers stay on this phone.",
-                                color = Color(0xFF9E9E9E), fontSize = 11.sp, lineHeight = 15.sp
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Switch(checked = onlineBackup, onCheckedChange = { enabled -> onOnlineBackupChanged?.invoke(enabled) })
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Online voice (retired — Whisper is used)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Online voice is not available in this version. Spoken questions are transcribed by Whisper on this phone " +
-                                    "(Hindi and English, mixed too); nothing is sent online.",
-                                color = Color(0xFF9E9E9E), fontSize = 11.sp, lineHeight = 15.sp
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Switch(checked = false, onCheckedChange = {}, enabled = false)
-                    }
-                }
-
-                Divider(color = Color(0xFF333355))
-
-                // ── Cloud AI / Groq ─────────────────────────────────────────────
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Online AI (optional)", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("Groq API key (gsk_…): Qwen for answers, photos and web search. Stored encrypted on this phone only; names and phone numbers are masked before anything is sent.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(6.dp).background(
-                                if (groqKeyConfigured && groqStatusText.contains("Connected", ignoreCase = true)) Color(0xFF00E676)
-                                else Color(0xFFFFD740), CircleShape
-                            )
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(groqStatusText, color = Color(0xFFE0E0E0), fontSize = 12.sp)
-                    }
-                    OutlinedTextField(
-                        value = groqKeyInput,
-                        onValueChange = { groqKeyInput = it },
-                        label = {
-                            val name = "Groq API key (gsk_…)"
-                            Text(if (groqKeyConfigured) "Replace $name" else name)
-                        },
-                        singleLine = true,
-                        visualTransformation = if (showGroqKey) VisualTransformation.None else PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { showGroqKey = !showGroqKey }, modifier = Modifier.weight(1f)) {
-                            Text(if (showGroqKey) "Hide" else "Show")
-                        }
-                        Button(
-                            onClick = { if (groqKeyInput.isNotBlank()) { onSaveGroqKey?.invoke(groqKeyInput.trim()); groqKeyInput = "" } },
-                            enabled = groqKeyInput.isNotBlank(),
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Save") }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { onTestGroq?.invoke() }, enabled = groqKeyConfigured, modifier = Modifier.weight(1f)) { Text("Test connection") }
-                        OutlinedButton(onClick = { groqKeyInput = ""; onClearGroqKey?.invoke() }, enabled = groqKeyConfigured, modifier = Modifier.weight(1f)) { Text("Clear key") }
-                    }
-                }
-
-                Divider(color = Color(0xFF333355))
-
-                // ── Self-test ─────────────────────────────────────────────────
-                if (onRunSelfTest != null) {
-                    val clip = androidx.compose.ui.platform.LocalClipboardManager.current
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Self-test", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text("Runs chat, Hindi, knowledge base, photo reading and camera models on this phone and writes one report (2–5 minutes).",
-                            color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                    // ── 5. Check the app ──
+                    if (onRunSelfTest != null) SettingsCard("Check the app", "Runs chat, Hindi, guide search and photo reading on this phone and writes one report (2–5 minutes).") {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(onClick = { onRunSelfTest() }, enabled = !selfTestRunning, modifier = Modifier.weight(1f)) {
-                                Text(if (selfTestRunning) "Running…" else "Run self-test")
-                            }
-                            OutlinedButton(
-                                onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(selfTestText)) },
-                                enabled = selfTestText.isNotBlank() && !selfTestRunning,
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Copy report") }
+                            Button(onClick = { onRunSelfTest() }, enabled = !selfTestRunning, modifier = Modifier.weight(1f)) { Text(if (selfTestRunning) "Running…" else "Run self-test") }
+                            OutlinedButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(selfTestText)) },
+                                enabled = selfTestText.isNotBlank() && !selfTestRunning, modifier = Modifier.weight(1f)) { Text("Copy report") }
                         }
-                        if (selfTestText.isNotBlank()) {
-                            Text(selfTestText.take(4000), color = Color(0xFFB0BEC5), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                        }
+                        ReportBox(selfTestText)
                     }
-                    Divider(color = Color(0xFF333355))
-                }
 
-                // ── About ──────────────────────────────────────────────────────
-                val (lastSource, lastTime) = modelFileManager?.getLastAnswerSource() ?: (ModelSource.GEMMA_3N_E2B to 0L)
-                val formattedTime = if (lastTime > 0L) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(lastTime)) else "N/A"
-
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("About", color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("ArogyaDoot • guidance for ASHA & ANM health workers", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                    Text("Offline: Gemma 3n + on-phone vision models, answers cited from your knowledge base", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                    Text("Online (optional): Qwen on Groq", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                    if (showAdvanced) {
-                        Text("Last answer source: ${lastSource.detailText} at $formattedTime", color = Color(0xFF00E676), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    // ── 6. About ──
+                    Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("ArogyaDoot • guidance for ASHA & ANM health workers", color = SetMuted, fontSize = 11.sp)
+                        Text("Offline: Gemma 3n · Online (optional): Qwen on Groq · Voice: Whisper on the phone", color = SetMuted, fontSize = 11.sp)
+                        Text("Not a diagnosis — always check with your ANM.", color = SetMuted, fontSize = 11.sp)
                     }
+                    Spacer(Modifier.height(12.dp))
                 }
-
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3700B3))
-                ) { Text("Done", color = Color.White) }
             }
         }
     }
@@ -1009,131 +648,6 @@ private fun KnowledgePackList(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun SettingsSection(
-    title:        String,
-    subtitle:     String,
-    status:       String,
-    statusOk:     Boolean,
-    buttonText:   String,
-    info:         String,
-    onButtonClick: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, color = Color(0xFF80D8FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Text(subtitle, color = Color(0xFF9E9E9E), fontSize = 11.sp)
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (statusOk) {
-                Text(
-                    "✓",
-                    color = Color(0xFF00E676),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            } else {
-                Box(
-                    modifier = Modifier.size(6.dp)
-                        .background(Color(0xFFFFD740), CircleShape)
-                )
-            }
-            Spacer(Modifier.width(6.dp))
-            Text(
-                status,
-                color = if (statusOk) Color(0xFF00E676) else Color(0xFFE0E0E0),
-                fontSize = 12.sp,
-                fontWeight = if (statusOk) FontWeight.SemiBold else FontWeight.Normal
-            )
-        }
-
-        OutlinedButton(
-            onClick = onButtonClick,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80D8FF)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF80D8FF))
-        ) {
-            Text(buttonText, fontSize = 13.sp)
-        }
-
-        Text(info, color = Color(0xFF666688), fontSize = 11.sp)
-    }
-}
-
-@Composable
-private fun MetaModelRow(
-    title: String,
-    subtitle: String,
-    modelType: ModelFileManager.ModelType,
-    modelFileManager: ModelFileManager,
-    isOptional: Boolean = false,
-    onBrowseClick: () -> Unit,
-    onDeleteClick: () -> Unit
-) {
-    val installed = modelFileManager.isModelInstalled(modelType)
-    val path = modelFileManager.getModelPath(modelType)
-    val sizeMb = if (installed) modelFileManager.getModelSize(modelType) else 0L
-    val displayPath = if (installed && !path.isNullOrBlank()) "Installed - ${sizeMb} MB - $path" else if (isOptional) "Optional — not installed" else "Not installed"
-
-    val indicatorColor = when {
-        installed -> Color(0xFF00E676)
-        isOptional -> Color(0xFF757575)
-        else -> Color(0xFFFF5252)
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, color = Color(0xFF9E9E9E), fontSize = 11.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .background(indicatorColor, CircleShape)
-                )
-                Spacer(Modifier.width(6.dp))
-                if (installed) {
-                    IconButton(onClick = onDeleteClick, modifier = Modifier.size(24.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete $title",
-                            tint = Color(0xFFFF5252),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-            }
-        }
-        Text(
-            text = if (installed) "$displayPath (${sizeMb}MB)" else displayPath,
-            color = if (installed) Color(0xFF80D8FF) else Color(0xFF757575),
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        OutlinedButton(
-            onClick = onBrowseClick,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.FolderOpen,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(if (installed) "Replace $title" else "Browse $title file", fontSize = 12.sp)
         }
     }
 }

@@ -883,9 +883,10 @@ fun ArogyaVisitScreen(
                             "इंटरनेट नहीं है — ऊपर का ऑफ़लाइन उत्तर रहेगा। सवाल सहेजें, बाद में जाँचेंगे।")
                         saveOfferQ=askedQ; return
                     }
-                    if(!MetaOnline.ready(context)) {
-                        aiError=tr("Online needs a Meta key — tap the Online status on Home to add it. You can save the question meanwhile.",
-                            "ऑनलाइन के लिए Meta key चाहिए — होम पर Online स्थिति दबाकर जोड़ें। तब तक सवाल सहेज सकते हैं।")
+                    // Online = Groq (Meta retired). The old MetaOnline.ready() check needed a Meta key, so it always blocked here.
+                    if(ArogyaCloud.groqKey(context).isBlank()) {
+                        aiError=tr("Online needs a Groq API key — add it in Settings. You can save the question meanwhile.",
+                            "ऑनलाइन के लिए Groq API key चाहिए — Settings में जोड़ें। तब तक सवाल सहेज सकते हैं।")
                         saveOfferQ=askedQ; return
                     }
                     runVisitAi(true,afterSafety=true,questionOverride=askedQ)

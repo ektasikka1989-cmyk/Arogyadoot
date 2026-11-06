@@ -377,17 +377,10 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
                     if (id != autoInstalledId) { autoInstalledId = id; install(ArogyaSetupDownload.contentUri(context, name) ?: Uri.fromFile(ArogyaSetupDownload.file(context, name)), true) }
                 }
                 if (s.failed && !installingNow && !installedNow) {
-                    if (name == ArogyaSetupPlan.MODELS_FILE && ArogyaSetupDownload.source(context, name) == 0) { // Gemma has one source; the standby below serves only the retired zip
-                        // Primary (Cloudflare) failed: try the Hugging Face standby automatically, once.
-                        notice = tr("The main link failed — trying the standby link…", "मुख्य लिंक नहीं चला — दूसरा लिंक आज़मा रहे हैं…")
-                        Log.i("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD primary failed (${s.reason}); trying fallback")
-                        runCatching { ArogyaSetupDownload.start(context, ArogyaSetupPlan.MODELS_URL_FALLBACK, name, tr("ArogyaDoot — offline AI models", "ArogyaDoot — ऑफ़लाइन AI मॉडल"), wifiOnlyNow) }
-                            .onFailure { error = tr("Standby download could not start: ", "दूसरा डाउनलोड शुरू नहीं हुआ: ") + (it.message ?: "") }
-                    } else {
-                        notice = ""
-                        error = tr("Download failed: ", "डाउनलोड नहीं हुआ: ") + s.reason +
-                            tr(". Check the connection and try again, or choose the file below if you already have it.", "। कनेक्शन जाँचकर फिर कोशिश करें, या फ़ाइल पहले से हो तो नीचे से चुनें।")
-                    }
+                    // Gemma has one source. (The retired Meta models zip and its standby link are gone.)
+                    notice = ""
+                    error = tr("Download failed: ", "डाउनलोड नहीं हुआ: ") + s.reason +
+                        tr(". Check the connection and try again, or choose the file below if you already have it.", "। कनेक्शन जाँचकर फिर कोशिश करें, या फ़ाइल पहले से हो तो नीचे से चुनें।")
                 }
             }
             delay(800)

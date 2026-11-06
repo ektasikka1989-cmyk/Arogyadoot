@@ -81,7 +81,9 @@ object ArogyaCloud {
     private const val TAG = "ArogyaDemo"
     fun prefs(c: Context) = c.getSharedPreferences("arogya_model", Context.MODE_PRIVATE)
     /** Cloud model used for ArogyaDoot's AI: Qwen3 on Groq by default (Muse Spark retired; Glimmer stays via Together AI). */
-    fun textEndpoint(c: Context) = ArogyaModelEndpoints.byId(prefs(c).getString("endpoint", "groq") ?: "groq")?.takeIf { it.id != "meta" } ?: ArogyaModelEndpoints.byId("groq")
+    // Groq (Qwen) is the only cloud model: Meta Muse Spark and Together Muse Glimmer are retired,
+    // so an old saved choice falls back to Groq.
+    fun textEndpoint(c: Context) = ArogyaModelEndpoints.byId("groq")
     /** The retired Meta key in settings (GroqKeyStore); kept readable for migration, no longer routed. */
     fun metaKey(c: Context) = runCatching { GroqKeyStore(c.applicationContext).metaKey() }.getOrDefault("")
     fun togetherKey(c: Context) = ArogyaKeyVault(c.applicationContext, "together").get()
@@ -154,7 +156,7 @@ object ArogyaCloud {
             "Voice: Whisper on the phone",
             "Reading aloud: " + if (cloudFirst(c)) "best Android voice (online voice when there is signal)" else "offline Android voice",
             "Photo counting: type the count (photo reading runs on the phone)",
-            "Keys: Groq ${if (gk) "✓ (Settings)" else "— add it in Settings"} · Together ${if (tk) "✓" else "—"}"
+            "Groq key: ${if (gk) "✓ (Settings)" else "— add it in Settings"}"
         ).joinToString("\n")
     }
 }
@@ -192,18 +194,15 @@ fun ArogyaCloudSettingsDialog(hindi: Boolean = false, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val p = remember { ArogyaCloud.prefs(context) }
-    var choice by remember { mutableStateOf(ArogyaCloud.textEndpoint(context)?.id ?: "groq") }
+    val choice = "groq"
     var cloudFirst by remember { mutableStateOf(ArogyaCloud.cloudFirst(context)) }
-    var togetherKey by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf("") }
     var test by remember { mutableStateOf("") }
     var testing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { saved = withContext(Dispatchers.IO) { ArogyaCloud.status(context) } }
     fun persist() {
-        p.edit().putString("endpoint", choice).apply()
+        p.edit().putString("endpoint", "groq").apply()
         ArogyaCloud.setCloudFirst(context, cloudFirst)
-        if (togetherKey.isNotBlank()) runCatching { ArogyaKeyVault(context.applicationContext, "together").save(togetherKey) }
-        togetherKey = ""
     }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(tr("☁ Cloud or phone AI", "☁ क्लाउड या फ़ोन AI")) }, text = {
         Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -217,13 +216,7 @@ fun ArogyaCloudSettingsDialog(hindi: Boolean = false, onDismiss: () -> Unit) {
                 FilterChip(selected = !cloudFirst, onClick = { cloudFirst = false }, label = { Text(tr("📱 Local first", "📱 फ़ोन पहले")) })
             }
             if (saved.isNotBlank()) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) { Text(saved, Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall) }
-            Text(tr("Cloud model for forms, messages and card reading", "फ़ॉर्म, संदेश और कार्ड पढ़ने के लिए क्लाउड मॉडल"), fontWeight = FontWeight.Bold)
-            ArogyaModelEndpoints.all.filter { it.id != "meta" }.map { it.id to it.label }.forEach { (id, label) ->
-                Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(choice == id, { choice = id }); Text(label, style = MaterialTheme.typography.bodyMedium) }
-            }
-            Text(tr("Together AI key — Muse Glimmer 30B", "Together AI key — Muse Glimmer 30B"), fontWeight = FontWeight.Bold)
-            OutlinedTextField(togetherKey, { togetherKey = it.trim() }, label = { Text(tr("Paste key (blank = keep saved)", "key चिपकाएँ (खाली = पुरानी रहेगी)")) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+            Text(tr("Cloud model: ", "क्लाउड मॉडल: ") + (ArogyaModelEndpoints.byId("groq")?.label ?: "Groq"), fontWeight = FontWeight.Bold)
             OutlinedButton(onClick = {
                 persist(); testing = true; test = ""
                 scope.launch {

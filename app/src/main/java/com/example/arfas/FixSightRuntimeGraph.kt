@@ -158,7 +158,7 @@ class FixSightRuntimeGraph private constructor(context: Context) {
                         .count { it.endsWith(".litertlm", ignoreCase = true) }
                     onProgress?.invoke(
                         if (installed > 1) "Multiple local models installed — choose one in Settings"
-                        else "Not loaded — install Llama 3.2 (Meta models zip) in Settings"
+                        else "Not loaded — install the Gemma 3n model in Setup"
                     )
                     return@withLock false
                 }

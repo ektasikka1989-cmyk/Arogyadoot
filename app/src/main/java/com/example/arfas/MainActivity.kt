@@ -406,7 +406,7 @@ class MainActivity : ComponentActivity() {
                 groqStatusText = "Authentication failed"
                 Toast.makeText(
                     this@MainActivity,
-                    "The online Meta AI key was rejected. Open Settings → Online Meta AI and enter a valid key.",
+                    "The Groq API key was rejected. Open Settings → Online AI and enter a valid key.",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -683,17 +683,10 @@ class MainActivity : ComponentActivity() {
                             modelStatusText = modelStatusText,
                             modelFileManager = androRuntime.modelFileManager,
                             onModelFilePicked = { uri -> handleModelFilePick(uri) },
-                            onMetaModelFilePicked = { type, uri -> handleMetaModelFilePick(type, uri) },
-                            onDeleteMetaModel = { type -> handleDeleteMetaModel(type) },
-                            onUseMetaStackChanged = { enabled ->
-                                androRuntime.modelFileManager.setUseMetaStack(enabled)
-                            },
                             onPhoneEngineChanged = { reloadPreferredLocalModel() },
-                            onZipFilePicked = { uri -> handleZipFilePick(uri) },
                             onRunSelfTest = { runSelfTest() },
                             selfTestText = selfTestText,
                             selfTestRunning = selfTestRunning,
-                            zipStatusText = zipStatusText,
                             onKbFilePicked = { uri -> handleKbFilePick(uri) },
                             kbInstalled = knowledgeInstalled,
                             kbReady = knowledgeReady,
@@ -712,10 +705,6 @@ class MainActivity : ComponentActivity() {
                             onSaveGroqKey = { key -> saveGroqApiKey(key) },
                             onClearGroqKey = { clearGroqApiKey() },
                             onTestGroq = { testGroqConnection() },
-                            onlineEngine = onlineEngine,
-                            groqKeySaved = groqKeySaved,
-                            metaKeySaved = metaKeySaved,
-                            onOnlineEngineChanged = { engine -> switchOnlineEngine(engine) },
                             answerPolicy = answerPolicy,
                             onAnswerPolicyChanged = { policy ->
                                 answerPolicy = policy
@@ -725,11 +714,6 @@ class MainActivity : ComponentActivity() {
                             onOnlineBackupChanged = { enabled ->
                                 onlineBackup = enabled
                                 androRuntime.setOnlineBackup(enabled)
-                            },
-                            onlineVoice = onlineVoice,
-                            onOnlineVoiceChanged = { enabled ->
-                                onlineVoice = enabled
-                                androRuntime.setOnlineVoice(enabled)
                             },
                             onDismiss = { showSettingsFromSession = false }
                         )
@@ -1176,7 +1160,7 @@ class MainActivity : ComponentActivity() {
         if (text.isBlank()) return
         if (!groqKeyConfigured) {
             // No key: say how to enable it instead of failing with "couldn't reach the cloud".
-            Toast.makeText(this, "Online check needs a Meta API key. Add it in Settings → Online Meta AI.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Online check needs a Groq API key. Add it in Settings → Online AI.", Toast.LENGTH_LONG).show()
             showSettingsFromSession = true
             return
         }
@@ -1356,7 +1340,7 @@ class MainActivity : ComponentActivity() {
                                 openSettingsWithKnowledgeStatusRefresh()
                                 Toast.makeText(
                                     this@MainActivity,
-                                    "The online Meta AI key was rejected. Check it in Settings → Online Meta AI.",
+                                    "The Groq API key was rejected. Check it in Settings → Online AI.",
                                     Toast.LENGTH_LONG
                                 ).show()
                             } else {

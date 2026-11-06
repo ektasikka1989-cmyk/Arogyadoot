@@ -185,7 +185,7 @@ fun main() {
     check("cloud-outcomes", ArogyaCloudOutcome.why("ok", "Meta · Muse Spark") == null && ArogyaCloudOutcome.why("unavailable", "none")!!.contains("no internet or no cloud key") &&
         ArogyaCloudOutcome.why("timeout:first_token", "Groq · Qwen3.8 27B")!!.startsWith("Groq · Qwen3.8 27B • online — not used: no reply within 20 s"))
     check("groq-no-key", ArogyaCloudOutcome.why("unavailable", "Groq · Qwen3.8 27B", "NO_KEY") == "Groq · Qwen3.8 27B • online — not used: no Groq key saved" &&
-        ArogyaCloudOutcome.why("unavailable", "Meta · Muse Spark", "NO_KEY")!!.contains("no Meta key saved"))
+        ArogyaCloudOutcome.why("unavailable", "Meta · Muse Spark", "NO_KEY")!!.contains("no Groq key saved")) // Meta retired: the only key is Groq
     check("groq-steps", ArogyaAiUsed.steps("Qwen3.8 27B — Groq").first().let { it.model == "Qwen3.8 27B" && it.online } &&
         ArogyaAiUsed.steps("On-phone model (offline): gemma-3n-E2B-it-int4").first().let { it.model == "Gemma 3n E2B" && !it.online } &&
         ArogyaAiUsed.steps("ArogyaDoot • offline (gemma-3n-E2B-it-int4)").first().model == "Gemma 3n E2B" &&

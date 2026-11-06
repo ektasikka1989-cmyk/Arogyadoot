@@ -252,7 +252,7 @@ class PocketRagEngine(
             }
             if (cloudMode == CloudMode.VERIFY) {
                 return PocketRagResult(
-                    "I couldn't reach the online AI to check this answer. Please check the internet connection and that a Meta API key is set in Settings → Online Meta AI, then try again.",
+                    "I couldn't reach the online AI to check this answer. Please check the internet connection and that a Groq API key is set in Settings → Online AI, then try again.",
                     AndroBaselineRuntime.Provider.LOCAL, emptyList(),
                     localAttempted = false, cloudAttempted = true, escalationReason = "check_online_unavailable", accepted = false
                 )

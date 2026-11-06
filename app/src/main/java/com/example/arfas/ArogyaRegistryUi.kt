@@ -152,7 +152,7 @@ private fun AiEngineBox(text: String, ok: Boolean, active: Boolean, cloud: Boole
         colors = CardDefaults.cardColors(
             containerColor = if (active) tint.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text((if (active) "▶ " else "") + if (cloud) tr("☁ Meta cloud", "☁ Meta क्लाउड") else tr("📱 Phone", "📱 फ़ोन"),
+            Text((if (active) "▶ " else "") + if (cloud) tr("☁ Cloud", "☁ क्लाउड") else tr("📱 Phone", "📱 फ़ोन"),
                 style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = tint)
             Text(text, style = MaterialTheme.typography.bodySmall,
                 color = if (!ok && text != "—") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -182,7 +182,7 @@ private fun AiTableGrid(rows: List<AiTableRow>, hindi: Boolean) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("What it does", "क्या करता है"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(190.dp))
             Text(tr("📱 On the phone (offline)", "📱 फ़ोन पर (ऑफ़लाइन)"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, color = AI_PHONE_GREEN, modifier = Modifier.width(210.dp))
-            Text(tr("☁ Meta cloud (online)", "☁ Meta क्लाउड (ऑनलाइन)"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, color = AI_CLOUD_BLUE, modifier = Modifier.width(210.dp))
+            Text(tr("☁ Cloud (online)", "☁ क्लाउड (ऑनलाइन)"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, color = AI_CLOUD_BLUE, modifier = Modifier.width(210.dp))
             Text(tr("Safety check", "सुरक्षा जाँच"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(220.dp))
         }
         HorizontalDivider()

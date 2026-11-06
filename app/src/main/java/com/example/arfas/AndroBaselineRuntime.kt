@@ -189,6 +189,8 @@ class AndroBaselineRuntime(
      */
     val isMetaStackActive: Boolean
         get() {
+            // Meta stack retired: photos and the camera always go to Gemma 3n vision.
+            if (!ModelFileManager.META_MODELS_ENABLED) return false
             val force = modelFileManager.getForceModelMode()
             if (force == ForceModelMode.GEMMA_ONLY) return false
             if (modelFileManager.isLlamaDisconnected()) return false
@@ -4502,12 +4504,12 @@ class AndroBaselineRuntime(
                 return TurnResult(
                     text = when {
                         localModelManager?.isReady != true ->
-                            "The on-phone AI (Meta Llama) is not ready yet, so I couldn't answer. Open Settings to see its status" +
-                                (if (!groqProvider.hasApiKey()) ", or add a Meta API key there for online answers." else ".")
+                            "The on-phone AI (Gemma) is not ready yet, so I couldn't answer. Open Settings to see its status" +
+                                (if (!groqProvider.hasApiKey()) ", or add a Groq API key there for online answers." else ".")
                         !groqProvider.hasApiKey() ->
-                            "I couldn't write a reliable answer to that on this phone. Try asking it a little differently, or add a Meta API key in Settings for online answers."
+                            "I couldn't write a reliable answer to that on this phone. Try asking it a little differently, or add a Groq API key in Settings for online answers."
                         groqProvider.status() == GroqProviderStatus.AUTH_FAILED ->
-                            "The online Meta AI key was rejected, and the on-phone answer did not pass its checks. Please check the key in Settings."
+                            "The Groq API key was rejected, and the on-phone answer did not pass its checks. Please check the key in Settings."
                         groqProvider.status() == GroqProviderStatus.NETWORK_ERROR ->
                             "I couldn't reach the internet, and the on-phone answer did not pass its checks. Please try again, or ask it a little differently."
                         else -> "I couldn't complete that turn. Please try again."
@@ -5327,7 +5329,7 @@ class AndroBaselineRuntime(
                             var done: BaselineGenerationResult? = null
                             withTimeout(engineScaledTimeout(TROUBLESHOOTING_REVIEW_TIMEOUT_MS)) {
                                 lm.inferTextGrounded(
-                                    evidence = "CURRENT CAMERA FRAME — measured by on-device Meta vision models " +
+                                    evidence = "CURRENT CAMERA FRAME — measured by on-device vision models " +
                                         "(you cannot see the image; these facts are the only visual evidence):\n$facts",
                                     userQueryOnly = prompt + "\n\nUse only the CURRENT CAMERA FRAME facts as visual evidence. " +
                                         "Anything they do not establish belongs under UNCERTAINTY.",
@@ -5698,7 +5700,7 @@ class AndroBaselineRuntime(
         // runLocal reads evidence only from attachments, so the observation goes in as one.
         val observationAttachment = BaselineContextAttachment(
             sourceId = "attachment_image_observation",
-            text = "Attached photo, as seen by the phone's Meta vision models (object detection, scene labels and " +
+            text = "Attached photo, as seen by the phone's vision models (object detection, scene labels and " +
                 "printed-text reading). Answer from these facts only; if they are not enough to answer, say what " +
                 "can be seen and what is unclear.\n" + metaObservation.take(2_000),
             priority = 110,

@@ -60,9 +60,9 @@ object ArogyaCloudOutcome {
         val reason = when {
             outcome == "ok" -> return null
             outcome == "unavailable" -> when (providerStatus) {
-                "NO_KEY" -> if (engineLabel.contains("Groq")) "no Groq key saved" else "no Meta key saved"
-                "AUTH_FAILED" -> if (engineLabel.contains("Groq")) "the Groq key was rejected — check it in Settings" else "the Meta key was rejected — check it in Settings"
-                "RATE_LIMITED" -> if (engineLabel.contains("Groq")) "Groq's rate limit reached — try again in a minute" else "Meta's rate limit reached — try again in a minute"
+                "NO_KEY" -> "no Groq key saved"
+                "AUTH_FAILED" -> "the Groq key was rejected — check it in Settings"
+                "RATE_LIMITED" -> "Groq's rate limit reached — try again in a minute"
                 "" -> "no internet or no cloud key"
                 else -> "no internet"
             }

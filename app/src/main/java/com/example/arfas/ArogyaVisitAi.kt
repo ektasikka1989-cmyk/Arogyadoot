@@ -151,7 +151,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         val name = m?.loadedModelFileName?.substringBeforeLast('.') ?: "not loaded yet"
         val state = when { m == null -> "no local model"; m.permanentlyDisabled -> "disabled"; m.isReady -> "ready"; else -> "loading" }
         val kb = runCatching { features.isKnowledgeEnabled() }.getOrDefault(false)
-        return "Language model: $name ($state) · Meta Llama, runs offline\nASHA guide: " + (if (kb) "selected, searchable offline" else "not selected yet")
+        return "Language model: $name ($state) · Gemma 3n, runs offline\nASHA guide: " + (if (kb) "selected, searchable offline" else "not selected yet")
     }
 
     /** On-phone Meta vision stack (MobileSAM + DINOv2) for offline drug-kit counting. */

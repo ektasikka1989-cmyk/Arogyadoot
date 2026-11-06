@@ -415,7 +415,7 @@ object ArogyaAiCatalog {
         ArogyaAiFeature("Daily practice", "Makes questions from guide passages; the answer must be in the passage", GEMMA, "Google (open weights)", false, "On phone, offline"),
         ArogyaAiFeature("Organise notes", "Sorts spoken notes into observations, family report, action, pending question", GEMMA, "Google (open weights)", false, "On phone, offline"),
         ArogyaAiFeature("Finish visit — online", "With signal and a key, Qwen3.8 27B on Groq fills the official form from the voice note instead (identifiers removed first); the phone model takes over if the call fails",
-            "Qwen3.8 27B (Groq) or Muse Glimmer 30B (Together AI)", "Alibaba (open weights), via Groq", false, "Cloud, when online and a key is saved"),
+            "Qwen3.8 27B (Groq)", "Alibaba (open weights), via Groq", false, "Cloud, when online and a key is saved"),
         ArogyaAiFeature("Speak instead of typing — online", "Retired in this version: voice notes always use Whisper on the phone.",
             "—", "—", false, "Retired"),
         ArogyaAiFeature("Count drug kit", "Counts items in a photo as numbered dots she fixes by tapping; the ASHA confirms the number before it goes in the register",
