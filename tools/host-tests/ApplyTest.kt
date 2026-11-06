@@ -12,7 +12,7 @@ fun main() {
     a(out.dob == "2026-09-12" && out.birthWeightKg == 2.6, "DOB and birth weight applied")
     a(out.mcp.vaccines["BCG"] == "2026-09-12" && !out.mcp.vaccines.containsKey("PENTA1"), "dated vaccine applied; undated one never gets today's date")
     a(out.mcp.weights.any { it.date == "2026-10-24" && it.kg == 3.1 }, "weight applied with date")
-    a(ArogyaAiCatalog.features.count { it.metaModel } == 1 && ArogyaAiCatalog.features.any { it.metaModel && it.model.contains("DINOv2") } && ArogyaAiCatalog.features.any { it.model.contains("Gemma") } && ArogyaAiCatalog.features.any { it.model.contains("Qwen") }, "catalog names Gemma, Qwen and the one Meta open-weights counter")
+    a(ArogyaAiCatalog.features.none { it.metaModel || it.model.contains("DINOv2") || it.maker.contains("Meta") } && ArogyaAiCatalog.features.any { it.model.contains("Gemma") } && ArogyaAiCatalog.features.any { it.model.contains("Qwen") }, "catalog names Gemma and Qwen, and no Meta model is left")
     println(if (af == 0) "ALL $ap PASS" else "$af FAILED, $ap passed")
     if (af > 0) kotlin.system.exitProcess(1)
 }
