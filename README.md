@@ -1,85 +1,130 @@
+<div align="center">
+
 # ArogyaDoot
+### Offline-first AI field assistant for ASHA healthcare workers
 
-### Offline-first AI field assistant for ASHA workers
+**Ask a guideline. Inspect the cited source. Document the visit. Track the next action.**
 
-**ArogyaDoot 1.0.0** is an Android application designed to help Accredited Social Health Activists (ASHAs) find source-backed guidance, organise household visits, track follow-ups, maintain registers, and prepare field records—even when internet access is limited.
+[![Version](https://img.shields.io/badge/version-1.0.0-087f75)](https://github.com/ektasikka1989-cmyk/Arogyadoot/releases)
+![Platform](https://img.shields.io/badge/platform-Android-1c7c66)
+![Status](https://img.shields.io/badge/status-prototype-orange)
 
-**Ask the guide. Check the citation. Record the visit. Follow up.**
+</div>
 
-> **Status:** Version 1.0.0 working prototype. ArogyaDoot is a decision-support and documentation tool, not a diagnostic device or replacement for an ANM, doctor, or official healthcare protocol.
+ArogyaDoot is an Android assistant built for **Accredited Social Health Activists (ASHAs)**. It brings source-grounded healthcare guidance, household records, upcoming visits, follow-ups, registers, and printable records into one field-friendly application. Its core guidance and on-device AI can run without an internet connection **after the appropriate model and reference library are installed**.
+
+> **Scope:** A decision-support and fieldwork prototype, not a diagnostic device or a substitute for an ANM, physician, or approved clinical procedures. Always verify the cited guideline and escalate urgent clinical concerns through established channels.
 
 ## See ArogyaDoot in action
 
 <table>
-<tr>
-<td width="50%" align="center"><img src="docs/screenshots/01-dashboard-followups.jpg" alt="ASHA dashboard showing visits due and overdue follow-ups" width="300"><br><b>Prioritised field work</b></td>
-<td width="50%" align="center"><img src="docs/screenshots/02-dashboard-actions.jpg" alt="ArogyaDoot dashboard with visits, people, Ask SOP and registers" width="300"><br><b>One field dashboard</b></td>
-</tr>
-<tr>
-<td align="center"><img src="docs/screenshots/03-ask-sop-answer.jpg" alt="Ask SOP answer from on-device Gemma 3n E2B" width="300"><br><b>Offline Ask SOP</b></td>
-<td align="center"><img src="docs/screenshots/04-source-citation.jpg" alt="Highlighted excerpt with guide title, page citation and Open PDF" width="300"><br><b>Page-level source verification</b></td>
-</tr>
-<tr>
-<td align="center"><img src="docs/screenshots/05-hindi-guidance.jpg" alt="Hindi guidance shown in the ASHA assistant" width="300"><br><b>Field-friendly language</b></td>
-<td align="center"><img src="docs/screenshots/06-official-guides.jpg" alt="Offline official guide library showing document and passage counts" width="300"><br><b>Local document library</b></td>
-</tr>
-<tr>
-<td align="center"><img src="docs/screenshots/07-registers.jpg" alt="Registers, monthly reports, drug kit and activity diary" width="300"><br><b>Registers and monthly reporting</b></td>
-<td align="center"><img src="docs/screenshots/08-mcp-pdf.jpg" alt="Offline MCP antenatal card preview and PDF sharing controls" width="300"><br><b>Shareable offline documents</b></td>
-</tr>
+<tr><td align="center"><img src="docs/readme-v1/265397.jpg" width="290" alt="ArogyaDoot offline dashboard with new visit, people, Ask SOP, registers and practice"/><br/><strong>Offline-first dashboard</strong></td><td align="center"><img src="docs/readme-v1/265395.jpg" width="290" alt="Dashboard shows due visits, overdue tasks and follow-up priorities"/><br/><strong>Prioritise today's fieldwork</strong></td></tr>
+<tr><td align="center"><img src="docs/readme-v1/265399.jpg" width="290" alt="Ask SOP displaying offline Gemma answer to newborn cord-care question"/><br/><strong>Ask SOP — on-device answer</strong></td><td align="center"><img src="docs/readme-v1/265401.jpg" width="290" alt="Highlighted evidence in the government guide and Open PDF citation button"/><br/><strong>Inspect the exact cited passage</strong></td></tr>
+<tr><td align="center"><img src="docs/readme-v1/265405.jpg" width="290" alt="Official healthcare guide collection displayed on phone"/><br/><strong>Browse official guides</strong></td><td align="center"><img src="docs/readme-v1/265403.jpg" width="290" alt="Hindi text prepared for speaking to family in ASHA workflow"/><br/><strong>Family-friendly Hindi guidance</strong></td></tr>
+<tr><td align="center"><img src="docs/readme-v1/265407.jpg" width="290" alt="Registers menu including forms, reports, diary, drug kit and RCH export"/><br/><strong>Registers and reporting</strong></td><td align="center"><img src="docs/readme-v1/265409.jpg" width="290" alt="MCP antenatal record PDF preview with share and print controls"/><br/><strong>MCP card / PDF output</strong></td></tr>
 </table>
 
-*Screenshots show a demonstration dataset and representative workflows. Counts visible on screen are sample records or the installed knowledge-base inventory, not measured population outcomes.*
+*Screenshots are from the version 1.0.0 Android interface. Any pictured names, household details and health records must be demo data or cleared for publication before making the repository public. Screenshots demonstrate interfaces, not clinical-validation outcomes.*
 
-## Why ArogyaDoot?
+## Why it exists
 
-ASHA workers combine household outreach, maternal and child health activities, immunisation follow-ups, referrals, stock records and monthly reporting. The required guidance is distributed across many documents. Finding the relevant passage during a visit can be difficult, especially in low-connectivity settings.
+ASHA workers manage household outreach, maternal and child health follow-ups, records, reporting, and communication with families. Important procedures are spread across many government guides. Finding a specific passage mid-visit, confirming its meaning, documenting what happened, and remembering the next action are separate tasks. ArogyaDoot connects these steps within one offline-capable workflow.
 
-ArogyaDoot connects **guideline retrieval** with **practical field-work management**. Its purpose is to reduce searching and transcription friction while keeping the source and the healthcare worker's judgement visible.
+## What you can do
 
-## Features
-
-| Area | What the app provides |
+| Area | Available capability / purpose |
 |---|---|
-| **Ask SOP** | Ask a health-workflow question and review a response grounded in the installed guide collection. |
-| **Citations** | Show document title, page references, supporting text and an option to open the source PDF where available. |
-| **Offline AI** | Run local text assistance using the Gemma 3n E2B LiteRT-LM model downloaded during setup. |
-| **Official guides** | Browse/search locally installed reference documents by title, organisation and language. |
-| **Visits and people** | Record field visits and maintain household/person information. |
-| **Follow-ups** | Review work due and overdue and plan subsequent visits. |
-| **Registers** | Access activity diary, drug-kit records, monthly lists, claims, and structured reporting workflows. |
-| **Document output** | Preview, share or print supported forms and summaries as PDFs. |
-| **Speech and OCR** | Speech-input and image/document extraction workflows are available; performance varies by device and input quality. |
-| **Optional online AI** | Configure a Groq API key for cloud-based Qwen assistance when connectivity and user choice permit. |
+| **Ask SOP** | Ask a natural-language question against installed healthcare guidance and view a grounded answer with source references. |
+| **Evidence and citations** | View named guide, page number, supporting excerpt, highlighted passage, and open the PDF for verification. |
+| **Offline AI** | Use local Gemma 3n E2B inference via LiteRT-LM when model and guide assets are installed. |
+| **Optional online AI** | Configure a Groq API key and use the available Qwen provider; availability, model access and internet are required. |
+| **Multilingual support** | Hindi and English interfaces and family-facing assistance; output quality varies with input and speech environment. |
+| **Households and people** | Organise records and field activities, including maternal/child health use cases. |
+| **Visits and reminders** | Manage new visits, due/overdue follow-ups and activity records. |
+| **Registers** | Access official forms, monthly lists, monthly reports and claims, activity diary, drug-kit tracking, vital events, village registers and RCH export workflows. |
+| **MCP / antenatal documentation** | Preview and share/print generated record PDFs from the supported form workflow. |
+| **Voice and OCR** | Speech and document-capture assistance in supported screens; verify recognition and any extracted table values manually. |
 
-### How Ask SOP works
+### Ask SOP: the feature at the centre of the product
 
-1. An ASHA asks a question in everyday language.
-2. ArogyaDoot finds relevant passages in the installed guide collection.
-3. The selected AI mode helps formulate a readable response using retrieved context.
-4. The response exposes source information so the worker can inspect the original wording and page.
-5. The ASHA decides what action to take under the applicable SOP and clinical-supervision process.
+For example, an ASHA can ask: **“What should be applied on the baby's cord stump?”** The shown offline workflow displays guidance from an installed newborn-care source. Instead of offering an unsupported answer, the interface provides a guide title, cited page, a highlighted source passage and **Open PDF** action. This helps a worker check the originating guidance before communicating or recording an action. The example should not be treated as individual medical advice.
 
-The local library shown in the current demonstration contains **68 documents, 2,884 pages and 5,389 indexed passages**. This describes that installed dataset only; other installations may differ.
+```mermaid
+flowchart LR
+    A[ASHA question] --> B[Search installed SOP passages]
+    B --> C[Select relevant evidence]
+    C --> D[Gemma 3n offline answer]
+    D --> E[Show source and page]
+    E --> F[Open original PDF]
+    F --> G[Worker verifies guidance]
+```
 
-## Installation
+### Example household-visit journey
 
-### Install an APK
+```mermaid
+flowchart LR
+    A[Review due visits] --> B[Open household or person]
+    B --> C[Record observations]
+    C --> D[Ask SOP if guidance needed]
+    D --> E[Inspect citation]
+    E --> F[Record activity and next follow-up]
+    F --> G[Register or PDF output]
+```
 
-1. Obtain a tested ArogyaDoot **1.0.0** APK from the project's [Releases](../../releases) page when one is published, or from the project maintainer.
-2. Install it on a compatible Android device. Android may require permission to install an app from the selected source.
-3. Open **ArogyaDoot** and complete the on-screen setup steps.
-4. Download the supported local Gemma model when prompted. Leave enough free storage for both the model and its temporary download file.
-5. Install or select the knowledge-base/official-guide package as offered by the app and confirm its available-document count.
-6. Choose **Offline** to use local assistance. For optional cloud assistance, enter your own Groq API key in the app's settings.
+These diagrams describe the intended workflow; availability of each action depends on the selected screen and installed resources.
 
-**Local model:** `gemma-3n-E2B-it-int4.litertlm`. The model is downloaded separately; it should not be committed to this repository. [Download source](https://huggingface.co/datasets/EktaSikka/Gemma/resolve/main/gemma-3n-E2B-it-int4.litertlm?download=true).
+## AI and data architecture
 
-**Cloud key:** A Groq key is optional. Never include a real key in GitHub issues, commits, screenshots, or build logs. Cloud requests require connectivity and may transmit the text submitted to the external provider; do not send identifiable patient information without an appropriate authorised workflow.
+```mermaid
+flowchart TB
+    UI[ArogyaDoot Android UI]
+    UI --> W[Visits, registers, reporting]
+    UI --> S[Ask SOP]
+    S --> R[Local healthcare guide index / retrieval]
+    R --> L[Gemma 3n E2B • LiteRT-LM • on device]
+    L --> C[Answer with passage and citation]
+    C --> P[Original guide PDF]
+    S -. Optional user-selected online AI .-> Q[Groq API • Qwen]
+    UI --> X[OCR / voice components]
+```
 
-### Build from source (Windows)
+**Local model:** `gemma-3n-E2B-it-int4.litertlm`  
+**Configured model source:** [Gemma model download](https://huggingface.co/datasets/EktaSikka/Gemma/resolve/main/gemma-3n-E2B-it-int4.litertlm?download=true)  
+**Cloud provider:** Groq, using the configured Qwen model if accessible for the account.  
+**Architecture boundary:** RAG retrieval, source provenance and UI citation display are application functionality; a generative model by itself does not establish that a clinical answer is correct.
 
-Prerequisites: Git, Android Studio/Android SDK, a compatible JDK, and the project-specific Android/Gradle dependencies. Some larger runtime assets are distributed separately and may be absent from a fresh Git checkout.
+### Official guide library
+
+The screenshots from the current installation show **68 documents, 2,884 pages and 5,389 passages**, stored locally. Counts are **installation-specific**, and may change when guides are added or reindexed. The guide browser supports document discovery and filters such as language and publishing body. Sources can be inspected directly rather than trusting a generated answer alone.
+
+### Offline and online behavior
+
+| Without internet | With internet (optional) |
+|---|---|
+| Locally installed model and guide search | Optional Groq/Qwen access with a configured API key |
+| Source-grounded answers and PDF viewing when resources are available | Online generation where the API and account support it |
+| Visits, records and local documents | External services may process data sent to them; avoid sending identifiable patient details without appropriate safeguards |
+
+**Model download is an initial online setup step**; offline operation applies after installation. Not every OCR, speech or cloud feature has the same offline capability. Check the relevant setup screen and feature status.
+
+## Registers and digital documentation
+
+The Registers screen groups **official forms**, **monthly reports and claims**, **monthly lists** (including ANC and immunisation due), **activity diary**, **drug kit**, **births/deaths/cases**, **village health register**, and **RCH export**. The MCP card screen demonstrates antenatal record preview with **Share PDF**, **Print**, and **Back** actions. Use these as workflow aids, and verify generated records against original records before distribution.
+
+## Install ArogyaDoot v1.0.0
+
+1. Visit the [Releases page](https://github.com/ektasikka1989-cmyk/Arogyadoot/releases).
+2. Download the **APK attached to the v1.0.0 release**, if one has been published. The source repository alone does not install an Android app.
+3. Install on a compatible Android ARM64 device using Android's installation prompt. Install only packages from a release you trust.
+4. Open the app, complete initial setup, and download the local Gemma model and available healthcare guide library as prompted.
+5. Allow the device sufficient free storage and memory for the model, guide data and other required resources.
+6. Use **Offline** mode for local guidance; configure an optional Groq key only when online features are needed.
+
+**Android 16 KB compatibility:** Some native dependencies in v1.0.0 may trigger a 16 KB page-size warning on supported Android environments. Compatibility must be validated for the particular build and device; a successful APK build alone is not proof.
+
+### Build from source
+
+Requirements: Android Studio, compatible Android SDK/NDK and JDK as declared by the Gradle project. The repository may rely on locally supplied, ignored native assets and model files; a fresh clone is not necessarily a complete reproducible release build until those dependencies are supplied.
 
 ```powershell
 git clone https://github.com/ektasikka1989-cmyk/Arogyadoot.git
@@ -87,60 +132,50 @@ cd Arogyadoot
 .\gradlew.bat :app:assembleDebug
 ```
 
-Expected debug output: `app\build\outputs\apk\debug\app-debug.apk`.
+Typical debug APK location: `app/build/outputs/apk/debug/app-debug.apk`. Debug builds are not equivalent to a verified signed production release. Do not add API keys or model weights to Git.
 
-If a fresh checkout fails because a large offline runtime asset is missing, consult the project-specific setup documents and acquire that asset from its authorised source. Do not assume that a successful Gradle build alone proves every offline AI, OCR or speech path works on a device.
+### Project configuration
 
-## Technology
+- **Android application ID:** `com.arogyadoot.app`
+- **Release version:** `1.0.0`
+- **Gemma:** installed separately; model data is not required in Git history.
+- **Groq:** user-supplied API key; do not commit or display it in screenshots or logs.
+- **Knowledge base:** install and verify official guide data using supported setup paths.
 
-- **Android / Kotlin** application and field-workflow components.
-- **Gemma 3n E2B** local model through **LiteRT-LM** for offline assistance.
-- **On-device document retrieval** for source-backed SOP answers.
-- **Optional Groq-hosted Qwen** integration for cloud requests.
-- **OCR, speech and PDF components** supporting capture, dictation and forms.
+## Privacy, safeguards and limitations
 
-The exact runtime and provider availability depends on the installed build, model, device capabilities and configuration.
-
-## Privacy, safety and limitations
-
-- The app assists with reference lookup and record keeping; it does **not** diagnose, prescribe or replace a healthcare professional.
-- Verify safety-critical instructions against the cited document and current local protocol. Escalate uncertainty or warning signs to the ANM/appropriate clinician.
-- Use demonstration or properly authorised records when testing. Do not publish real patient-identifiable data.
-- Offline features reduce dependence on mobile internet, but require the appropriate model and guides to be installed on the device.
-- Local inference is resource-intensive; memory, speed, ABI and Android page-size compatibility can vary. **16 KB native-library compatibility has not been certified across all packaged components.**
-- OCR on tables and handwritten or low-quality records can misassign fields. Always review extracted content before saving or sharing.
-- Speech recognition quality depends on the microphone, language, ambient noise and device support.
-- This prototype has received clinician feedback, but no formal clinical outcome study or independently validated diagnostic-accuracy claim is made.
+- Use only demonstration data in publicly shared screenshots and issue reports.
+- Keep device backups secure, and verify local storage, export, and device access controls before handling real patient information.
+- Cloud requests require informed local policy and appropriate data minimisation; do not assume all cloud traffic remains on device.
+- A source citation improves auditability but is **not a guarantee** that the model's interpretation is correct, complete or up to date.
+- Verify clinical guidance, urgently refer warning signs through approved channels, and retain qualified human oversight.
+- OCR and table extraction may misread handwritten or columnar records; inspect all extracted fields before saving or sharing.
+- Speech accuracy, model memory usage, processing time and multilingual performance vary by device.
+- Large-scale ASHA field deployment, model accuracy, and clinical outcomes have not been independently validated by this README.
 
 ## Troubleshooting
 
-| Symptom | First checks |
+| Symptom | What to check |
 |---|---|
-| Offline answer unavailable | Confirm the Gemma model is fully downloaded, selected and initialised; check free storage and device RAM. |
-| Guide citation missing | Confirm the official-guide package has been installed and the relevant document is present. |
-| Cloud answer unavailable | Check connectivity, Groq key persistence, quota and selected online mode. |
-| OCR result inaccurate | Retake a sharper, flatter image; verify row/column alignment before accepting it. |
-| App crash or 16 KB warning | Capture Android version, ABI, page size and logcat when possible; do not assume all bundled native libraries are 16 KB compatible. |
+| Offline AI unavailable | Model download complete, compatible runtime, storage and memory availability; restart and retry without deleting data. |
+| SOP answer lacks a source | Verify guide installation and retrieval; do not treat an uncited response as verified guidance. |
+| Groq errors | Internet connectivity, API key validity, rate limits and model availability. |
+| OCR or voice inaccurate | Lighting, image quality, table layout, language settings and microphone permissions. |
+| 16 KB compatibility warning | The APK's native library alignment; see Android native page-size compatibility guidance. |
+| Unexpected crash | Record device/API level, reproduction steps and a redacted crash log when reporting an issue. |
 
-## Version and development
+## Repository and support
 
-**Current app version:** `1.0.0`
+- [Source repository](https://github.com/ektasikka1989-cmyk/Arogyadoot)
+- [Issues / bug reports](https://github.com/ektasikka1989-cmyk/Arogyadoot/issues)
+- [Version 1.0.0 releases](https://github.com/ektasikka1989-cmyk/Arogyadoot/releases)
 
-**Android application ID:** `com.arogyadoot.app`
-**Project status:** Active prototype development and device validation.
+When opening an issue, include your app version, Android version, steps to reproduce and redacted logs. Never paste API keys, names, addresses or patient records.
 
-Contributions and issue reports should include the app version, Android version, device type and reproducible steps—without secrets or private health records.
+## Roadmap
 
-## Team
+More reliable OCR column mapping, streamlined inline dictation, broader on-device compatibility, guided field validation and reproducible benchmarking. These are improvement priorities, **not claims that every item is already delivered in v1.0.0**.
 
-Developed by **Team AVM**:
+---
 
-- **Ekta Sikka** — Team lead and developer
-- **Aryan Kalra** — Developer
-- **Vaibhav Sikka** — Product research
-
-Prototype reviewed by **Dr Manmohan Singh Rathore (MBBS, 5 years of experience)** and **Dhruv Punjani (third-year MBBS student)**. Their review should not be interpreted as regulatory approval or clinical efficacy validation.
-
-## Licensing
-
-No open-source licence is declared in this README. Please do not assume reuse rights beyond those expressly granted by the repository owner. Any third-party models, documents and libraries retain their own licences and terms.
+<div align="center"><strong>ArogyaDoot 1.0.0</strong><br/>Guidance you can verify. Fieldwork you can follow through.</div>
