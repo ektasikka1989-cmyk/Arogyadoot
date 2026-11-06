@@ -207,7 +207,21 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
 
     // ── Attachments for a guide question (ArogyaDoot's pending-attachment path, unchanged) ──
     /** Reads a photo or PDF on the phone and holds it for the next question. Returns its name, or null if unreadable. */
-    suspend fun attach(uri: android.net.Uri): String? = attachments?.stageUri(uri)?.displayName
+    suspend fun attach(uri: android.net.Uri): String? = mutex.withLock {
+        val mgr = attachments ?: return@withLock null
+        val staged = mgr.stageUri(uri) ?: return@withLock null
+        // Guide questions run with the knowledge base on, and that path never hands pixels to the
+        // on-phone vision model. So Gemma looks at the photo now and its factual description joins
+        // the photo's OCR as on-phone evidence (offline; nothing is sent anywhere).
+        if (staged.kind == Phase1AttachmentKind.IMAGE) {
+            val bmp = staged.visionBitmaps.firstOrNull { !it.isRecycled && it.width > 0 && it.height > 0 }
+            val seen = if (bmp != null) ArogyaLocalVision.describe(runtime.localModelManager, bmp) else null
+            if (seen != null) mgr.replacePending(staged.copy(
+                localVisualContext = (staged.localVisualContext.trim() + "\n[" + ArogyaLocalVision.LABEL + " — an AI description, check it]\n" + seen).trim(),
+                localEvidenceSubstantial = true))
+        }
+        staged.displayName
+    }
     fun attachedNames(): List<String> = attachments?.peekPendingAll()?.map { it.displayName }.orEmpty()
     fun clearAttachments() { attachments?.clearPending() }
 
@@ -259,7 +273,13 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         check(features.ensureKnowledgeReady()) { "The ASHA guide is not ready. Open Setup → Install ASHA guide. Your visit is saved." }
         if (!features.isKnowledgeEnabled()) check(features.setKnowledgeEnabled(true)) { "Could not select the ASHA guide. Open Setup and select it. Your visit is saved." }
         // One ArogyaDoot conversation per visit: follow-ups stay within this visit, never another household's.
-        if (lastVisitId != request.visit.id) { runCatching { runtime.startNewChat(clearHistory = true, mode = "NORMAL") }; lastVisitId = request.visit.id }
+        if (lastVisitId != request.visit.id) {
+            // A new household: the previous visit's attachment copies (card photos, PDFs) are deleted, not kept on disk.
+            val previous = runCatching { runtime.currentConversationId() }.getOrDefault("")
+            runCatching { runtime.startNewChat(clearHistory = true, mode = "NORMAL") }
+            if (lastVisitId != null) runtime.forgetConversationAttachments(previous)
+            lastVisitId = request.visit.id
+        }
         runCatching { runtime.ensureConversationOpen() }
         // The question goes to ArogyaDoot as the worker wrote it (an appended age phrase split retrieval
         // into two clauses on the phone: 30 s instead of 15 s).
@@ -706,7 +726,15 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
                     Log.i(TAG, "AROGYA_EXTRACT_SPLIT feature=card_read parts=2 fields=${fields.size}")
                 }
             }
-            // Local first: the phone found nothing on the card → the cloud model reads the photo (when online), same checks.
+            // The phone's OCR found nothing on the card → Gemma looks at the photo on the phone (card photos never
+            // go online). Same card reader and checks; the label tells the ASHA an AI read it, so every value is checked.
+            if (fields.isEmpty() && seen == null && photo != null) {
+                ArogyaLocalVision.transcribe(runtime.localModelManager, photo!!.first)?.let { ArogyaPhotoText.cardText(it) }?.takeIf { it.length >= 15 }?.let { v ->
+                    val (o2, by2) = route("card_read", ArogyaAiExtras.cardPrompt(v), 900, cloud = false, cloudTokens = 1500, lang = ArogyaBudget.langOf(v)) { out ->
+                        ArogyaAiExtras.parseCard(out, v).takeIf { it.isNotEmpty() } }
+                    if (!o2.isNullOrEmpty()) { fields = o2; by = ArogyaLocalVision.LABEL + " · " + by2; seen = v }
+                }
+            }
             if (fields.isEmpty() && seen == null && appContext != null && photo != null && ArogyaPhotoVision.wanted(appContext, false)) {
                 vision()?.let { v ->
                     val (o2, by2) = route("card_read", ArogyaAiExtras.cardPrompt(v), 900, cloud = false, cloudTokens = 1500, lang = ArogyaBudget.langOf(v)) { out ->
@@ -714,7 +742,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
                     if (!o2.isNullOrEmpty()) { fields = o2; by = ArogyaPhotoVision.LABEL + " · " + by2; seen = v }
                 }
             }
-            if (seen != null && !by.startsWith(ArogyaPhotoVision.LABEL)) by = ArogyaPhotoVision.LABEL + " · " + by
+            if (seen != null && !by.startsWith(ArogyaPhotoVision.LABEL) && !by.startsWith(ArogyaLocalVision.LABEL)) by = ArogyaPhotoVision.LABEL + " · " + by
             Log.i(TAG, "AROGYA_TIMING event=card_read ms=${System.currentTimeMillis() - t} ocrChars=${text.length} fields=${fields.size}")
             ArogyaCardReading(seen ?: text, fields) to by
         } finally { mgr.releaseTurnAttachments(claimed.map { it.id }, consumed = true) }

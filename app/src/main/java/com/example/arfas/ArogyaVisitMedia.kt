@@ -19,6 +19,16 @@ import kotlinx.coroutines.withContext
 
 /** Visit documents stay local. OCR is a draft for human review, never clinical evidence. */
 object ArogyaVisitMedia {
+    private const val OCR_PDF_PAGES = 6
+
+    /** Phone photos are often stored sideways with an EXIF tag that BitmapFactory ignores (OCR then reads little). */
+    private fun upright(bytes: ByteArray, b: Bitmap): Bitmap = runCatching {
+        val o = android.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)
+        val deg = when (o) { android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f; android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f; else -> 0f }
+        if (deg == 0f) b else Bitmap.createBitmap(b, 0, 0, b.width, b.height, android.graphics.Matrix().apply { postRotate(deg) }, true).also { if (it !== b) b.recycle() }
+    }.getOrDefault(b)
+
     suspend fun import(context: Context, uri: Uri, store: ArogyaVisitRepository): ArogyaAttachment = withContext(Dispatchers.IO) {
         val mime = context.contentResolver.getType(uri).orEmpty()
         require(mime.startsWith("image/") || mime == "application/pdf") { "Choose an image or PDF." }
@@ -45,8 +55,8 @@ object ArogyaVisitMedia {
                         ParcelFileDescriptor.open(temp,ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                             PdfRenderer(fd).use { pdf ->
                                 buildString {
-                                    appendLine("OCR draft: first ${minOf(3,pdf.pageCount)} of ${pdf.pageCount} pages only. Verify against the original.")
-                                    for(i in 0 until minOf(3,pdf.pageCount)) pdf.openPage(i).use { page ->
+                                    appendLine("OCR draft: first ${minOf(OCR_PDF_PAGES,pdf.pageCount)} of ${pdf.pageCount} pages only. Verify against the original.")
+                                    for(i in 0 until minOf(OCR_PDF_PAGES,pdf.pageCount)) pdf.openPage(i).use { page ->
                                         val scale=minOf(1600f/page.width,1600f/page.height)
                                         val b=Bitmap.createBitmap((page.width*scale).toInt().coerceAtLeast(1),(page.height*scale).toInt().coerceAtLeast(1),Bitmap.Config.ARGB_8888)
                                         try { b.eraseColor(Color.WHITE); page.render(b,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY); appendLine("Page ${i+1}: ${ocr.recognizeText(b)}") } finally { b.recycle() }
@@ -59,7 +69,7 @@ object ArogyaVisitMedia {
                     val opts=BitmapFactory.Options().apply { inJustDecodeBounds=true }; BitmapFactory.decodeByteArray(bytes,0,bytes.size,opts)
                     require(opts.outWidth>0 && opts.outHeight>0)
                     var sample=1; while(maxOf(opts.outWidth,opts.outHeight)/sample>2048) sample*=2
-                    val b=BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply { inSampleSize=sample }) ?: error("Cannot decode image")
+                    val b=upright(bytes,BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply { inSampleSize=sample }) ?: error("Cannot decode image"))
                     try { "OCR draft; verify orientation, dates and units against original:\n"+ocr.recognizeText(b) } finally { b.recycle() }
                 }
             } finally { ocr.close() }
@@ -73,7 +83,7 @@ object ArogyaVisitMedia {
             val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }; BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
             require(bounds.outWidth>0 && bounds.outHeight>0)
             var sample=1; while(maxOf(bounds.outWidth,bounds.outHeight)/sample>1600) sample*=2
-            (BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply {inSampleSize=sample}) ?: error("Unreadable image")) to 1
+            upright(bytes,BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply {inSampleSize=sample}) ?: error("Unreadable image")) to 1
         } else {
             val temp=File(context.noBackupFilesDir,"arogya-preview-${a.id}.pdf")
             try {

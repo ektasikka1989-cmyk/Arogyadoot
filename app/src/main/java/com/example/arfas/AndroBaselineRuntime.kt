@@ -84,6 +84,8 @@ class AndroBaselineRuntime(
         private const val ATTACHMENT_ONLINE_LOCAL_TIMEOUT_MS = 20_000L
         private const val ATTACHMENT_HIERARCHICAL_TIMEOUT_MS = 90_000L
         private const val LOCAL_VLM_TURN_TIMEOUT_MS = 45_000L
+        /** Groq (Qwen) reads at most 3 images per request; planning more only meant the extra one was silently dropped. */
+        private const val CLOUD_MAX_IMAGES = 3
         // Troubleshooting prioritizes a complete evidence contract over the
         // shortest possible first token. The previous 12s/160-token envelope
         // frequently cut off headings and caused answer-only acceptance.
@@ -575,6 +577,11 @@ class AndroBaselineRuntime(
     }
 
     fun currentConversationId(): String = chatStore.currentConversationId()
+
+    /** Deletes the files a conversation kept for attachment follow-ups (source copy, extracted text). */
+    suspend fun forgetConversationAttachments(conversationId: String) {
+        if (conversationId.isNotBlank()) runCatching { attachmentContextProvider?.deleteConversationAttachments(conversationId) }
+    }
 
     fun conversationSessions(limit: Int = 5): List<AndroConversationSession> =
         chatStore.listConversations(limit)
@@ -3480,10 +3487,23 @@ class AndroBaselineRuntime(
                 }
 
                 runtimeHealth.cloudFailure("attachment_vision_no_answer", groqProvider.status())
-                // Offline (or cloud failed): the phone's own eyes. Meta DETR / CLIP / DINOv2 + OCR
-                // describe the attached photo and Llama answers from that description.
+                // Offline (or cloud failed): the phone's own eyes. The Meta stack is retired, so Gemma 3n
+                // looks at the photo itself (only without a selected knowledge base: KB turns stay grounded
+                // in guide passages and get Gemma's photo description through the attachment evidence).
                 localMetaAttachmentAnswer(query, evidence, attachments, attachedVisionBitmaps.firstOrNull(), onLocalDelta, started, turnSourceIds)
                     ?.let { return it }
+                val gemmaBitmap = attachedVisionBitmaps.firstOrNull { !it.isRecycled && it.width > 0 }
+                if (gemmaBitmap != null && localModelManager?.isReadyForVision == true && selectedKnowledgeProvider?.isSelected() != true) {
+                    val seen = runCatching { withTimeout(LOCAL_VLM_TURN_TIMEOUT_MS) { runLocalVision(query, gemmaBitmap, grounded = evidence.isNotBlank()) } }
+                        .onFailure { if (it is CancellationException && it !is TimeoutCancellationException) throw it }.getOrNull()
+                    if (seen != null && seen.text.isNotBlank()) {
+                        Log.i(TAG, "ATTACHMENT_VISION_LOCAL_GEMMA chars=${seen.text.length}")
+                        chatStore.append("user", query)
+                        chatStore.append("assistant", seen.text)
+                        notifyAcceptedTurn(query, seen.text, Provider.LOCAL)
+                        return seen.copy(elapsedMs = System.currentTimeMillis() - started, sourceIds = turnSourceIds)
+                    }
+                }
                 if (!attachmentHasLocalEvidence) {
                     localModelManager?.closeSession()
                     return TurnResult(
@@ -4412,8 +4432,8 @@ class AndroBaselineRuntime(
                     .flatMap { it.visionBitmaps }
                     .filter { !it.isRecycled && it.width > 0 && it.height > 0 }
                     .distinctBy { System.identityHashCode(it) }
-                    .take(4)
-                val remainingRecoverySlots = (4 - originalFallbackBitmaps.size).coerceAtLeast(0)
+                    .take(CLOUD_MAX_IMAGES)
+                val remainingRecoverySlots = (CLOUD_MAX_IMAGES - originalFallbackBitmaps.size).coerceAtLeast(0)
                 val temporaryRecoveryBitmaps = if (
                     selectedKnowledgeProvider?.isSelected() == true || remainingRecoverySlots == 0
                 ) {
@@ -4424,7 +4444,7 @@ class AndroBaselineRuntime(
                 val documentFallbackBitmaps = (originalFallbackBitmaps + temporaryRecoveryBitmaps)
                     .filter { !it.isRecycled && it.width > 0 && it.height > 0 }
                     .distinctBy { System.identityHashCode(it) }
-                    .take(4)
+                    .take(CLOUD_MAX_IMAGES)
                 val hasEvidence = cloudEvidence.isNotBlank()
                 val cloud = try { if (!canAttemptCloud()) {
                     Log.w(TAG, "CLOUD_FALLBACK_SKIPPED canAttempt=${canAttemptCloud()} network=${networkDiagnosticHint()} hasKey=${groqProvider.hasApiKey()} status=${groqProvider.status()}")
@@ -7242,8 +7262,8 @@ class AndroBaselineRuntime(
         val originals = turnAttachments.flatMap { it.visionBitmaps }
             .filter { !it.isRecycled && it.width > 0 && it.height > 0 }
             .distinctBy { System.identityHashCode(it) }
-            .take(4)
-        val remainingRecoverySlots = (4 - originals.size).coerceAtLeast(0)
+            .take(CLOUD_MAX_IMAGES)
+        val remainingRecoverySlots = (CLOUD_MAX_IMAGES - originals.size).coerceAtLeast(0)
         val temporary = if (remainingRecoverySlots == 0) {
             emptyList()
         } else {
@@ -7252,7 +7272,7 @@ class AndroBaselineRuntime(
         val images = (originals + temporary)
             .filter { !it.isRecycled && it.width > 0 && it.height > 0 }
             .distinctBy { System.identityHashCode(it) }
-            .take(4)
+            .take(CLOUD_MAX_IMAGES)
         Log.i(
             TAG,
             "ATTACHMENT_ESCALATION_CLOUD_PAYLOAD rev=V11_0_CAPABILITY_CLOUD " +

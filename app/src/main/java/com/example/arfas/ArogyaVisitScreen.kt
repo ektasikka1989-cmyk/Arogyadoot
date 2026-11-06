@@ -225,6 +225,8 @@ fun ArogyaVisitScreen(
     }
     LaunchedEffect(Unit) { registry.load(); registry.autoBackupIfDue() }
     var photoUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var visitShotUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var qFileJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     // Load the model and select the guide as soon as ArogyaDoot opens, so the first question does not wait for it.
     LaunchedEffect(knowledgeReady) { if(knowledgeReady) runCatching { ai?.warmUp(context.applicationContext) } }
     // Every ArogyaDoot AI action follows the Settings order (Cloud first / Local first).
@@ -313,17 +315,29 @@ fun ArogyaVisitScreen(
             finally { mediaBusy=false }
         } }
     }
-    val camera=rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+    // Full-resolution card photo (the old preview thumbnail was too small for OCR), written to private storage.
+    val camera=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val id=attachmentVisitId; attachmentVisitId=null
-        if(bitmap!=null && id!=null) { mediaBusy=true; scope.launch {
-            try { queue.state.first { it.loaded || it.error.isNotBlank() }; check(queue.state.value.loaded); acceptAttachment(id,ArogyaVisitMedia.camera(context,bitmap,repo)) }
-            catch(e:CancellationException) { throw e }
-            catch (_: Exception) { Toast.makeText(context,"Photo could not be attached.",Toast.LENGTH_LONG).show() }
-            finally { mediaBusy=false }
-        } }
+        val shot=visitShotUri; visitShotUri=null
+        if(shot!=null) {
+            if(!ok || id==null) runCatching { context.contentResolver.delete(shot,null,null) }
+            else { mediaBusy=true; scope.launch {
+                try { queue.state.first { it.loaded || it.error.isNotBlank() }; check(queue.state.value.loaded); acceptAttachment(id,ArogyaVisitMedia.import(context,shot,repo)) }
+                catch(e:CancellationException) { throw e }
+                catch (_: Exception) { Toast.makeText(context,"Photo could not be attached.",Toast.LENGTH_LONG).show() }
+                finally { runCatching { context.contentResolver.delete(shot,null,null) }; mediaBusy=false }
+            } }
+        }
+    }
+    fun launchVisitCamera() {
+        val u=ArogyaCameraFiles.newPhotoUri(context,"visit")
+        if(u==null) { attachmentVisitId=null; Toast.makeText(context,"Camera unavailable. Attach a photo instead.",Toast.LENGTH_LONG).show(); return }
+        visitShotUri=u; ArogyaPhotoGuard.hold(context)
+        runCatching { camera.launch(u) }.onFailure { runCatching { context.contentResolver.delete(u,null,null) }; visitShotUri=null; attachmentVisitId=null
+            Toast.makeText(context,"Camera unavailable. Attach a photo instead.",Toast.LENGTH_LONG).show() }
     }
     val cameraPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if(granted) { ArogyaPhotoGuard.hold(context); runCatching { camera.launch(null) }.onFailure { Toast.makeText(context,"Camera unavailable. Attach a photo instead.",Toast.LENGTH_LONG).show() } }
+        if(granted) launchVisitCamera() else { attachmentVisitId=null; Toast.makeText(context,"Camera permission was not granted.",Toast.LENGTH_LONG).show() }
     }
     val pdf=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val id=exportVisitId; val revision=exportRevision; exportVisitId=null;exportRevision=null
@@ -362,14 +376,14 @@ fun ArogyaVisitScreen(
     fun attachToQuestion(uri:Uri, temp:Boolean) {
         if(ai==null) { toast("Attachments are not available."); return }
         qFileBusy=true
-        scope.launch {
+        qFileJob=scope.launch {
             try {
                 val name=ai.attach(uri)
                 if(name==null) toast(tr("Could not read this file. Use a photo or PDF.","यह फ़ाइल पढ़ी नहीं जा सकी। फ़ोटो या PDF चुनें।"))
                 qFiles=ai.attachedNames()
             } catch(e:CancellationException) { throw e }
             catch(e:Exception) { toast(e.message ?: "Could not attach.") }
-            finally { if(temp) deleteTemp(uri); qFileBusy=false }
+            finally { if(temp) deleteTemp(uri); qFileBusy=false; qFileJob=null }
         }
     }
     val takePhoto=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -653,9 +667,9 @@ fun ArogyaVisitScreen(
                         OutlinedButton(onClick={attachmentVisitId=visit.id;ArogyaPhotoGuard.hold(context);pick.launch(arrayOf("image/*","application/pdf"))},enabled=editable && !locked && visit.attachments.size<8,modifier=Modifier.fillMaxWidth()) { Text(tr("Attach a card or document","कार्ड या दस्तावेज़ जोड़ें")) }
                         TextButton(onClick={
                             attachmentVisitId=visit.id
-                            if(context.checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED) { ArogyaPhotoGuard.hold(context); runCatching { camera.launch(null) }.onFailure { Toast.makeText(context,"Camera unavailable",Toast.LENGTH_SHORT).show() } }
+                            if(context.checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED) launchVisitCamera()
                             else cameraPermission.launch(Manifest.permission.CAMERA)
-                        },enabled=editable && !locked && visit.attachments.size<8) { Text(tr("Photograph a card (preview quality)","कार्ड की फ़ोटो लें")) }
+                        },enabled=editable && !locked && visit.attachments.size<8) { Text(tr("Photograph a card","कार्ड की फ़ोटो लें")) }
                         Text(tr("Ask permission first. Images and OCR remain on this phone. OCR may misread dates, handwriting and units; nothing is filled automatically.","पहले इजाज़त लें। फ़ोटो और पढ़ा पाठ इसी फ़ोन पर रहेगा। तारीख़, लिखावट और इकाई गलत पढ़ी जा सकती है; कुछ अपने आप नहीं भरेगा।"),style=MaterialTheme.typography.bodySmall)
                         visit.attachments.forEach { a ->
                             Row { TextButton(onClick={ocrVisitId=visit.id;ocr=a}) { Text("${a.label}: review OCR") }
@@ -1023,7 +1037,10 @@ fun ArogyaVisitScreen(
                             }
                         }
                     }
-                    if(qFileBusy) Text(tr("Reading the attachment on this phone…","फ़ोन पर अटैचमेंट पढ़ा जा रहा है…"),style=MaterialTheme.typography.bodySmall)
+                    if(qFileBusy) Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text(tr("Reading the attachment on this phone… (a long scanned PDF can take a minute)","फ़ोन पर अटैचमेंट पढ़ा जा रहा है… (लंबी स्कैन PDF में एक मिनट लग सकता है)"),style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f))
+                        TextButton(onClick={ qFileJob?.cancel() }) { Text(tr("Cancel","रद्द करें")) }
+                    }
                     if(qFiles.isNotEmpty()) {
                         Row(verticalAlignment=Alignment.CenterVertically) {
                             AssistChip(onClick={},label={Text("📎 "+qFiles.joinToString(", "),maxLines=1)},modifier=Modifier.weight(1f,fill=false))

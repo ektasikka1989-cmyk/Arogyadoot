@@ -12,6 +12,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -93,9 +94,10 @@ data class Phase1UserAttachment(
      * - PDF/Office pages need Cloud vision only when local extraction produced no
      *   usable evidence.
      *
-     * The current Gemma model is text-only, so offline photo understanding is limited
-     * to the visual facts ML Kit can extract locally. Raw-pixel reasoning requires a
-     * local VLM and is intentionally not faked here.
+     * Gemma 3n can see images when its LiteRT-LM vision executor initialised
+     * (LocalModelManager.isReadyForVision). ArogyaVisitAi.attach adds Gemma's factual
+     * description of a photo to localVisualContext, so knowledge-base turns (which do
+     * not route pixels to the VLM) still get on-phone visual evidence.
      */
     val needsVision: Boolean
         get() = when (kind) {
@@ -206,14 +208,17 @@ class Phase1AttachmentManager(private val context: Context) {
         private const val MAX_EXTRACTED_CHARS = 3_000_000
         // Product contract: PDFs up to 100 pages are fully ingested offline.
         // OCR/native text can cover all 100 pages; VLM rendering remains query-driven.
-        private const val MAX_PDF_OCR_PAGES = 100
+        // Without native PDF text (Android 14 and below) every page is rendered + OCR'd while the
+        // user waits; 100 pages took minutes and risked memory next to Gemma. Pages beyond this are
+        // reported as not read (truncated) instead.
+        private const val MAX_PDF_OCR_PAGES = 24
         private const val MAX_PDF_NATIVE_TEXT_PAGES = 100
         private const val MAX_PDF_LOCAL_ANALYSIS_PAGES = 6
         private const val MAX_PDF_VISION_PAGES = 1
         private const val PDF_RENDER_LONG_SIDE = 1_400
         private const val MAX_IMAGE_LONG_SIDE = 1_280
         private const val MAX_RETAINED_VISION_LONG_SIDE = 960
-        private const val MAX_CLOUD_RECOVERY_IMAGES = 4
+        private const val MAX_CLOUD_RECOVERY_IMAGES = 3 // Groq (Qwen) reads at most 3 images per request
         private const val MAX_CACHED_SOURCE_BYTES = 256 * 1024 * 1024
         private const val CLOUD_RECOVERY_LONG_SIDE = 960
         private const val CLOUD_RECOVERY_JPEG_QUALITY = 76
@@ -296,6 +301,12 @@ class Phase1AttachmentManager(private val context: Context) {
 
     fun peekPending(): Phase1UserAttachment? = synchronized(ownershipLock) { pending.lastOrNull() }
 
+    /** Replaces a still-pending attachment with an enriched copy (same id), e.g. after an on-phone vision look. */
+    fun replacePending(updated: Phase1UserAttachment): Boolean = synchronized(ownershipLock) {
+        val i = pending.indexOfFirst { it.id == updated.id }
+        if (i < 0) false else { pending[i] = updated; true }
+    }
+
     fun peekPendingAll(): List<Phase1UserAttachment> = synchronized(ownershipLock) { pending.toList() }
 
     fun pendingDisplayLabel(): String = synchronized(ownershipLock) {
@@ -337,6 +348,12 @@ class Phase1AttachmentManager(private val context: Context) {
             }
         }
         recycle.forEach { it.recycle() }
+        // A used attachment's plaintext copy in the cache is deleted too (card photos, PDFs).
+        // Copies the conversation workspace kept for follow-ups live outside cacheDir and are untouched.
+        val cache = appContext.cacheDir.absolutePath
+        recycle.forEach { a ->
+            if (a.sourceCachePath.isNotBlank() && a.sourceCachePath.startsWith(cache)) runCatching { File(a.sourceCachePath).delete() }
+        }
         Log.i(ATTACH_TAG, "ATTACHMENT_LEASE_RELEASE count=${ids.size} consumed=$consumed")
     }
 
@@ -872,6 +889,7 @@ class Phase1AttachmentManager(private val context: Context) {
                 val pageIndices = ((0 until pagesToInspect).toSet() + cloudRecoveryIndices).toList().sorted()
 
                 for (index in pageIndices) {
+                    kotlin.coroutines.coroutineContext.ensureActive()   // Cancel in the question box stops reading
                     renderer.openPage(index).use pageUse@ { page ->
                         val nativeText = if (nativeTextAvailable && index < pagesToInspect) {
                             runCatching {
