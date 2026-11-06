@@ -97,3 +97,16 @@ Two separate dialogs:
 3. **16 KB.** Stop building and packaging llama.cpp (removes 4 of the 6 bad libraries), link `libwhisper` with `-z max-page-size=16384`, and make sure the packaged `libc++_shared.so` is 16 KB aligned. Re-measure the APK.
 4. **Emulator crash.** Guard the Keystore save (no crash; show a "save failed" message instead of false success). The 16 KB fix covers the Whisper linker death. Ask for logcat to confirm.
 5. Later: asset provisioning documentation, fixing the stale tests, device acceptance matrix (handover §11).
+
+## 11. Changes made after the audit (6 Nov 2026, one commit each)
+
+| Commit | Change | Verified by |
+|---|---|---|
+| `7ebae56` | Inline mic dictation everywhere (no popup; never auto-sends; strips `[BLANK_AUDIO]`) | DictationTextTest 13/13, compile |
+| `214b341` | Meta removed (Settings rows, zip install, Together Muse, runtime gate `META_MODELS_ENABLED=false`); Settings redesigned as cards; visit "Check online" fixed (it required a Meta key) | Host tests (TableOcr 74/76 = baseline), compile |
+| `db1610c` | 16 KB: llama.cpp no longer built, NDK 27, Whisper/ggml flexible page sizes; **20/20 libs 16 KB aligned** (measured) | ELF check of new APK, assembleDebug |
+| `ed6793c` | Groq key save no longer crashes on Keystore failure; verified save | compile |
+
+New APK: `app/build/outputs/apk/debug/app-debug.apk` (733,848,487 B, 444 assets, 20 libs), copy in the recovery folder.
+**Not yet verified on a device or emulator:** inline mic, the new Settings, 16 KB emulator launch, Groq key save.
+Still open: Meta labels inside the demo tour and AI-used badges; dead llama/Meta Kotlin classes; emulator crash root cause (needs logcat).
