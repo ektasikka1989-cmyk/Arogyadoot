@@ -41,6 +41,15 @@ object ArogyaLocalVision {
     /** Transcription of a card/register photo (fallback when OCR read nothing), or null. */
     suspend fun transcribe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, TRANSCRIBE_PROMPT, 700, "transcribe")
 
+    /**
+     * The photo's text read by Gemma on the phone with the same prompt the cloud reader used
+     * ([ArogyaPhotoText.prompt]), so the existing parsers (people, card rows, medicine) work unchanged.
+     * Handwriting is where this matters: ML Kit reads handwritten Hindi badly. Null when unavailable.
+     */
+    suspend fun readPhoto(lm: LocalModelManager?, bitmap: Bitmap, kind: ArogyaPhotoText.Kind): String? =
+        run(lm, bitmap, ArogyaPhotoText.SYSTEM + "\n" + ArogyaPhotoText.prompt(kind), 900, "read_${kind.name.lowercase()}")
+            ?.let { ArogyaPhotoText.clean(it) }
+
     private suspend fun run(lm: LocalModelManager?, bitmap: Bitmap, prompt: String, maxTokens: Int, what: String): String? {
         if (lm == null || !lm.isReadyForVision || bitmap.isRecycled || bitmap.width <= 0) return null
         val t = System.currentTimeMillis()

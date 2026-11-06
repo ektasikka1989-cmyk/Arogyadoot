@@ -738,7 +738,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             // The phone's OCR found nothing on the card → Gemma looks at the photo on the phone (card photos never
             // go online). Same card reader and checks; the label tells the ASHA an AI read it, so every value is checked.
             if (fields.isEmpty() && seen == null && photo != null) {
-                ArogyaLocalVision.transcribe(runtime.localModelManager, photo!!.first)?.let { ArogyaPhotoText.cardText(it) }?.takeIf { it.length >= 15 }?.let { v ->
+                ArogyaLocalVision.readPhoto(runtime.localModelManager, photo!!.first, ArogyaPhotoText.Kind.CARD)?.let { ArogyaPhotoText.cardText(it) }?.takeIf { it.length >= 15 }?.let { v ->
                     val (o2, by2) = route("card_read", ArogyaAiExtras.cardPrompt(v), 900, cloud = false, cloudTokens = 1500, lang = ArogyaBudget.langOf(v)) { out ->
                         ArogyaAiExtras.parseCard(out, v).takeIf { it.isNotEmpty() } }
                     if (!o2.isNullOrEmpty()) { fields = o2; by = ArogyaLocalVision.LABEL + " · " + by2; seen = v }

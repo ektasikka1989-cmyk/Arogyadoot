@@ -135,18 +135,19 @@ private fun PhotoPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Be
                 val tableRows = ArogyaTableOcr.people(lines)
                 val layout = ArogyaTableOcr.rowText(lines).ifBlank { ocr }
                 Log.i("ArogyaDemo", "AROGYA_REGISTER_ROWS lines=${lines.size} people=${tableRows.size}")
-                // Online (Cloud first, or the phone's reading is incomplete): Qwen reads the photo like a person,
-                // Aadhaar blacked out first. Every person it finds goes to the same review; the phone's Aadhaar fills in.
+                // Person photos never go online (privacy): the phone reads them (rules, then Gemma for handwriting).
                 val phoneRules = ArogyaTableOcr.readPerson(lines)
                 val phoneGood = tableRows.size > 1 || ArogyaTableOcr.CORE.all { !phoneRules[it].isNullOrBlank() }
-                if (ArogyaPhotoVision.wanted(context, phoneGood)) {
-                    msg = tr("Qwen3 is reading the photo…", "Qwen3 फ़ोटो पढ़ रहा है…")
-                    val seen = ArogyaPhotoVision.transcribe(context, bmp, lines, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it) }.orEmpty()
-                    Log.i("ArogyaDemo", "AROGYA_PERSON_READ vision_people=${seen.size} phone_rows=${tableRows.size}")
+                // Handwritten slip or register (OCR found too little): Gemma reads the photo on the phone. Person photos
+                // never go online, so this is the handwriting reader. Every person still goes to the ASHA's review.
+                if (!phoneGood && ArogyaLocalVision.ready(ai.localModel())) {
+                    msg = tr("Gemma is reading the handwriting on this phone…", "Gemma फ़ोन पर लिखावट पढ़ रहा है…")
+                    val seen = ArogyaLocalVision.readPhoto(ai.localModel(), bmp, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it) }.orEmpty()
+                    Log.i("ArogyaDemo", "AROGYA_PERSON_READ gemma_people=${seen.size} phone_rows=${tableRows.size}")
                     if (seen.isNotEmpty()) {
                         val withId = if (seen.size == 1) listOf(phoneRules.filterKeys { it == "aadhaar" } + seen[0]) else seen
-                        msg = tr("Photo read by Qwen3 online (Aadhaar blacked out on the phone before sending). Check each person.",
-                            "फ़ोटो Qwen3 ने ऑनलाइन पढ़ी (भेजने से पहले आधार काला किया)। हर व्यक्ति जाँचें।")
+                        msg = tr("Read by Gemma on this phone — an AI reading of handwriting. Check every person and value.",
+                            "Gemma ने फ़ोन पर पढ़ा — लिखावट का AI पाठ। हर व्यक्ति और हर जानकारी जाँचें।")
                         onDone(withId.map { ArogyaPersonCsv.toBeneficiary(it) }); return@launch
                     }
                 }
@@ -172,7 +173,7 @@ private fun PhotoPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Be
                             "यह पंजीकरण पर्ची, रजिस्टर या कार्ड नहीं लगता: नाम, उम्र, मोबाइल, मकान या LMP नहीं मिला। कागज़ जाँचें और फिर फ़ोटो लें।")
                         else tr("The name could not be read on this photo (found: ", "इस फ़ोटो पर नाम नहीं पढ़ा जा सका (मिला: ") +
                             ArogyaTableOcr.CORE.filter { !fields[it].isNullOrBlank() }.joinToString(", ") { personFieldLabel(it, hindi) } +
-                            tr("). Turn on the internet to read it with Qwen3, or add the person by typing.", ")। Qwen3 से पढ़ने के लिए इंटरनेट चालू करें, या टाइप करके जोड़ें।"))
+                            tr("). Take a closer photo in good light, or add the person by typing.", ")। अच्छी रोशनी में पास से फ़ोटो लें, या टाइप करके जोड़ें।"))
                     listOf(ArogyaPersonCsv.toBeneficiary(fields))
                 }
                 if (found.any { it.aadhaar.isNotBlank() }) msg = tr("Aadhaar number read — saved encrypted, shown masked (last 4 digits).", "आधार नंबर पढ़ा — सुरक्षित (एन्क्रिप्टेड) सेव, सिर्फ़ आखिरी 4 अंक दिखते हैं।")
@@ -221,10 +222,12 @@ private fun CsvPersonStep(hindi: Boolean, onDone: (List<Beneficiary>, String) ->
                         if (c.moveToFirst()) c.getString(c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)) else ""
                     }.orEmpty()
                 }
-                if (name.endsWith(".xlsx", true) || name.endsWith(".xls", true))
-                    throw IllegalStateException(tr("Excel files: please Save As CSV in Excel first, then pick the .csv file.", "Excel फ़ाइल: पहले Excel में CSV में सेव करें, फिर .csv चुनें।"))
-                val text = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(u)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty() }
-                val parsed = ArogyaPersonCsv.parse(text)
+                if (name.endsWith(".xls", true))
+                    throw IllegalStateException(tr("Old Excel .xls files cannot be read: save it as .xlsx or CSV in Excel, then pick that file.", "पुरानी Excel .xls फ़ाइल नहीं पढ़ी जा सकती: Excel में .xlsx या CSV में सेव करें, फिर वह फ़ाइल चुनें।"))
+                val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(u)?.use { it.readBytes() } } ?: ByteArray(0)
+                // .xlsx is a zip ("PK"): read it directly. Anything else is CSV / tab text in any common encoding.
+                val isXlsx = name.endsWith(".xlsx", true) || (bytes.size > 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte())
+                val parsed = withContext(Dispatchers.Default) { if (isXlsx) ArogyaXlsx.rows(bytes) else ArogyaPersonCsv.parse(ArogyaPersonCsv.decode(bytes)) }
                 if (parsed.isEmpty()) throw IllegalStateException(tr("No rows found in this file.", "फ़ाइल में पंक्तियाँ नहीं मिलीं।"))
                 headers = parsed.first(); rows = parsed.drop(1).take(500)
                 mapping = ArogyaPersonCsv.matchHeaders(parsed.first())
@@ -234,7 +237,7 @@ private fun CsvPersonStep(hindi: Boolean, onDone: (List<Beneficiary>, String) ->
         }
     }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(tr("Download the template, fill one row per person, then pick the file. Excel opens CSV.", "टेम्पलेट उतारें, हर व्यक्ति एक पंक्ति में भरें, फिर फ़ाइल चुनें।"), style = MaterialTheme.typography.bodySmall)
+        Text(tr("Download the template, fill one row per person (in Excel or any sheet app), then pick the file — CSV or Excel .xlsx.", "टेम्पलेट उतारें, हर व्यक्ति एक पंक्ति में भरें, फिर फ़ाइल चुनें।"), style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
                 scope.launch {
@@ -245,7 +248,8 @@ private fun CsvPersonStep(hindi: Boolean, onDone: (List<Beneficiary>, String) ->
                     msg = if (ok) (if (ArogyaDownloads.publicDownloads) tr("Template saved in Downloads.", "टेम्पलेट Downloads में सेव।") else tr("Template saved in the app's Download folder (Android/data/…/Download).", "टेम्पलेट ऐप के Download फ़ोल्डर में सेव (Android/data/…/Download)।")) else tr("Could not write the template.", "टेम्पलेट नहीं लिख पाए।")
                 }
             }) { Text(tr("Download template", "टेम्पलेट उतारें")) }
-            Button(onClick = { ArogyaPhotoGuard.hold(context); pick.launch(arrayOf("text/*", "application/vnd.ms-excel")) }, enabled = !busy) { Text(tr("Pick CSV file", "CSV फ़ाइल चुनें")) }
+            Button(onClick = { ArogyaPhotoGuard.hold(context); pick.launch(arrayOf("text/*", "text/csv", "text/comma-separated-values", "application/csv", "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream")) }, enabled = !busy) { Text(tr("Pick CSV / Excel file", "CSV / Excel फ़ाइल चुनें")) }
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (msg.isNotBlank()) Text(msg, style = MaterialTheme.typography.bodySmall)
@@ -305,6 +309,10 @@ private fun PdfPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Bene
         busy = true; msg = tr("Reading the PDF…", "PDF पढ़ रहे हैं…")
         scope.launch {
             try {
+                var totalPages = 0
+                val tableRowsFromPages = ArrayList<Map<String, String>>()
+                val pageImages = ArrayList<Bitmap>()
+                val wantImages = ArogyaLocalVision.ready(ai.localModel())
                 val pageTexts = withContext(Dispatchers.IO) {
                     val bytes = context.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: error("Cannot read file")
                     val temp = File(context.noBackupFilesDir, "arogya-addpdf-${System.currentTimeMillis()}.pdf")
@@ -314,12 +322,19 @@ private fun PdfPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Bene
                         try {
                             ParcelFileDescriptor.open(temp, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                                 PdfRenderer(fd).use { pdf ->
+                                    totalPages = pdf.pageCount
                                     (0 until minOf(6, pdf.pageCount)).map { i ->
                                         pdf.openPage(i).use { page ->
                                             val scale = minOf(1400f / page.width, 1400f / page.height)
                                             val bmp = Bitmap.createBitmap((page.width * scale).toInt().coerceAtLeast(1), (page.height * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-                                            try { bmp.eraseColor(android.graphics.Color.WHITE); page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY); ocr.recognizeText(bmp) }
-                                            finally { bmp.recycle() }
+                                            try {
+                                                bmp.eraseColor(android.graphics.Color.WHITE); page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                                // Register pages: rebuild rows from word positions, as the photo path does
+                                                // (the old plain-text split on double spaces broke on scanned tables).
+                                                runCatching { tableRowsFromPages += ArogyaTableOcr.people(ocr.recognizeLines(bmp)) }
+                                                if (wantImages && i < 3) pageImages += Bitmap.createScaledBitmap(bmp, (bmp.width * 0.9f).toInt().coerceAtLeast(1), (bmp.height * 0.9f).toInt().coerceAtLeast(1), true)
+                                                ocr.recognizeText(bmp)
+                                            } finally { bmp.recycle() }
                                         }
                                     }
                                 }
@@ -328,7 +343,29 @@ private fun PdfPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Bene
                     } finally { temp.delete() }
                 }
                 val full = pageTexts.joinToString("\n")
-                if (full.trim().length < 4) throw IllegalStateException(tr("No readable text in this PDF.", "PDF में पढ़ने लायक अक्षर नहीं मिले।"))
+                val pagesNote = if (totalPages > 6) tr(" Only the first 6 of $totalPages pages were read — split the PDF to add the rest.",
+                    " $totalPages में से सिर्फ़ पहले 6 पेज पढ़े — बाकी के लिए PDF बाँटें।") else ""
+                if (tableRowsFromPages.size > 1) {
+                    busy = false; pageImages.forEach { it.recycle() }
+                    msg = tr("Register: ${tableRowsFromPages.size} people read row by row on the phone.", "रजिस्टर: ${tableRowsFromPages.size} लोग पंक्ति-दर-पंक्ति पढ़े।") + pagesNote
+                    onDone(tableRowsFromPages.take(200).map { ArogyaPersonCsv.toBeneficiary(it) }); return@launch
+                }
+                // Scanned handwriting (little or no OCR text): Gemma reads the first pages on the phone.
+                suspend fun gemmaPeople(): List<Beneficiary> {
+                    val found = ArrayList<Beneficiary>()
+                    pageImages.forEachIndexed { i, b ->
+                        msg = tr("Gemma is reading page ${i + 1} on this phone…", "Gemma फ़ोन पर पेज ${i + 1} पढ़ रहा है…")
+                        ArogyaLocalVision.readPhoto(ai.localModel(), b, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it) }
+                            ?.forEach { found += ArogyaPersonCsv.toBeneficiary(it) }
+                    }
+                    pageImages.forEach { it.recycle() }; pageImages.clear()
+                    return found
+                }
+                if (full.trim().length < 4) {
+                    val g = gemmaPeople()
+                    if (g.isNotEmpty()) { busy = false; msg = tr("Read by Gemma on this phone — check every person.", "Gemma ने फ़ोन पर पढ़ा — हर व्यक्ति जाँचें।") + pagesNote; onDone(g); return@launch }
+                    throw IllegalStateException(tr("No readable text in this PDF.", "PDF में पढ़ने लायक अक्षर नहीं मिले।") + pagesNote)
+                }
                 // Tabular first: a header line matching 2+ known columns, then data lines.
                 val lines = full.lines().map { it.trim() }.filter { it.isNotBlank() }
                 val tabled = splitTableLines(lines)
@@ -342,15 +379,19 @@ private fun PdfPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Bene
                     }
                 } else {
                     val blocks = full.split(Regex("\n\\s*\n")).map { it.trim() }.filter { it.length > 20 }.take(10)
-                    if (blocks.isEmpty()) throw IllegalStateException(tr("No person blocks found in this PDF.", "PDF में व्यक्ति के हिस्से नहीं मिले।"))
+                    if (blocks.isEmpty() && pageImages.isNotEmpty()) out += gemmaPeople()
+                    else if (blocks.isEmpty()) throw IllegalStateException(tr("No person blocks found in this PDF.", "PDF में व्यक्ति के हिस्से नहीं मिले।"))
                     blocks.forEachIndexed { i, block ->
                         msg = tr("Reading person ${i + 1} of ${blocks.size}…", "व्यक्ति ${i + 1} / ${blocks.size} पढ़ रहे हैं…")
                         val (fields, _, _) = ai.extractPersonFields(block)
                         if (!fields["name"].isNullOrBlank()) out += ArogyaPersonCsv.toBeneficiary(fields)
                     }
                 }
-                if (out.isEmpty()) throw IllegalStateException(tr("No people found in this PDF.", "PDF में कोई व्यक्ति नहीं मिला।"))
+                if (out.isEmpty() && pageImages.isNotEmpty()) out += gemmaPeople()
+                pageImages.forEach { it.recycle() }
+                if (out.isEmpty()) throw IllegalStateException(tr("No people found in this PDF.", "PDF में कोई व्यक्ति नहीं मिला।") + pagesNote)
                 busy = false
+                msg = pagesNote.trim()
                 onDone(out)
             } catch (e: CancellationException) { throw e } catch (e: Exception) { busy = false; msg = (e.message ?: "").take(200) }
         }

@@ -45,16 +45,8 @@ fun main() {
         "one matching name token cannot validate an invented surname")
     a(ArogyaPersonExtract.ground(mapOf("age" to "3", "sex" to "F"), "Age: 3 Sex: F").size == 2,
         "single digit age and sex grounded as whole values")
-    val photoLines = listOf(ArogyaTableOcr.Line("Name Age Phone", 0, 0, 500, 20),
-        ArogyaTableOcr.Line("Meera Devi 23 9000000001", 0, 50, 500, 70),
-        ArogyaTableOcr.Line("Rani Devi 31 9000000002", 0, 100, 500, 120))
-    val photoRaw = """{"people":[{"rows":[2],"fields":{"name":"Meera Devi","age":"23","phone":"9000000002"}}]}"""
-    val photoRead = ArogyaPersonPhoto.parse(photoRaw, photoLines)!!
-    a(photoRead.size == 1 && "phone" !in photoRead[0], "photo cannot borrow phone from another person's row")
-    a(ArogyaPersonPhoto.parse(photoRaw.dropLast(2), photoLines) == null, "truncated people list rejected")
-    a(ArogyaPersonPhoto.parse(photoRaw.replace("[2]", "[99]"), photoLines) == null, "invalid OCR row rejected")
-    val partialPhoto = """{"people":[{"rows":[2],"fields":{"name":"Meera Devi"}},{"rows":[2],"fields":{"name":"Rani Devi"}}]}"""
-    a(ArogyaPersonPhoto.parse(partialPhoto, photoLines) == null, "wrong source rows cannot silently drop a person")
+    // (ArogyaPersonPhoto JSON-row checks removed: that reader was deleted from the app; person photos are now
+    //  read by ArogyaTableOcr rules + ArogyaPhotoText.people, covered by RegisterTablesTest and TableOcrTest.)
     // 8. Aadhaar masking.
     a(ArogyaPersonExtract.hasAadhaar("id 2345 6789 0123 ok"), "12-digit pattern detected")
     a(!ArogyaPersonExtract.hasAadhaar("phone 9811100001"), "10-digit phone not flagged")

@@ -53,8 +53,41 @@ object ArogyaPersonCsv {
         }
     }
 
-    /** Minimal CSV parser: commas, quotes ("" escape), CR/LF tolerant. */
+    /**
+     * File bytes → text. Excel's "CSV UTF-8" has a BOM; "Unicode text" is UTF-16 (often without a BOM on
+     * some exports); older "CSV" files are ANSI. Wrongly decoded Hindi used to come out garbled.
+     */
+    fun decode(bytes: ByteArray): String {
+        if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte())
+            return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+        if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+        if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+        // UTF-16 without a BOM: one byte of every pair is the "page" (0x00 for English, 0x09 for Hindi), so it
+        // takes only a few distinct values while the other byte varies. Plain 8-bit text varies in both.
+        val sample = bytes.take(600)
+        if (sample.size >= 8 && sample.size % 2 == 0) {
+            val even = sample.filterIndexed { i, _ -> i % 2 == 0 }.toSet()
+            val odd = sample.filterIndexed { i, _ -> i % 2 == 1 }.toSet()
+            if (odd.size <= 3 && even.size >= odd.size * 2 && 0.toByte() in odd) return String(bytes, Charsets.UTF_16LE)
+            if (even.size <= 3 && odd.size >= even.size * 2 && 0.toByte() in even) return String(bytes, Charsets.UTF_16BE)
+        }
+        val decoder = Charsets.UTF_8.newDecoder()
+        return runCatching { decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString() }
+            .getOrElse { String(bytes, charset("windows-1252")) }
+    }
+
+    /** The separator of the header line: comma, semicolon (European Excel) or tab ("Unicode text"). */
+    fun delimiter(text: String): Char {
+        val first = text.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+        var q = false
+        val counts = mutableMapOf(',' to 0, ';' to 0, '\t' to 0)
+        for (c in first) { if (c == '"') q = !q else if (!q && c in counts) counts[c] = counts.getValue(c) + 1 }
+        return counts.maxByOrNull { it.value }?.takeIf { it.value > 0 }?.key ?: ','
+    }
+
+    /** Minimal CSV parser: comma / semicolon / tab (detected), quotes ("" escape), CR/LF tolerant. */
     fun parse(text: String): List<List<String>> {
+        val sep = delimiter(text)
         val rows = ArrayList<List<String>>()
         val row = ArrayList<String>()
         val cell = StringBuilder()
@@ -67,7 +100,7 @@ object ArogyaPersonCsv {
             when {
                 q && c == '"' && i + 1 < text.length && text[i + 1] == '"' -> { cell.append('"'); i++ }
                 c == '"' -> q = !q
-                !q && c == ',' -> endCell()
+                !q && c == sep -> endCell()
                 !q && (c == '\n' || c == '\r') -> { endRow(); if (c == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++ }
                 else -> cell.append(c)
             }
@@ -252,21 +285,25 @@ $ocr"""
     private fun norm(s: String): String = s.trim().lowercase().replace(Regex("[^a-z0-9\\u0900-\\u097F]+"), " ").replace(Regex("\\s+"), " ").trim()
 
     /**
-     * Grounding: keep a value only when its text appears in the source. Names need
-     * 2+ matching tokens (or one token of 4+ letters); numbers/dates need the digits.
+     * Grounding: keep a value only when it is really written in the source.
+     * - Numbers and dates must match one number on the page (digits joined only by space, "-", "/" or ".",
+     *   so "98111 00001" and "10/08/2026" count). Before, all digits on the page were glued together, so an
+     *   invented age 23 passed on "Age 2, ANC 3" and a real one-digit age never passed. A value of 6+ digits
+     *   may also sit inside a longer number (a phone written with +91).
+     * - Words: every word of the value must appear as a whole word. Before, one matching word was enough,
+     *   so "Meera Sharma" passed on a page that says "Meera Devi".
      */
     fun ground(fields: Map<String, String>, source: String): Map<String, String> {
-        val hay = norm(source)
-        val hayDigits = source.filter { it.isDigit() }
+        val words = norm(source).split(" ").filter { it.isNotBlank() }.toSet()
+        val numbers = Regex("""\d(?:[ \-/.]?\d)*""").findAll(source).map { m -> m.value.filter { it.isDigit() } }.toSet()
         return fields.filterValues { v ->
             val n = norm(v)
             if (n.isEmpty()) false
             else if (v.any { it.isDigit() }) {
                 val vd = v.filter { it.isDigit() }
-                vd.length >= 2 && hayDigits.contains(vd)
+                vd in numbers || (vd.length >= 6 && numbers.any { it.contains(vd) })
             } else {
-                val toks = n.split(" ").filter { it.isNotBlank() }
-                toks.count { hay.contains(it) } >= 2 || toks.any { it.length >= 4 && hay.contains(it) }
+                n.split(" ").filter { it.isNotBlank() }.all { it in words }
             }
         }
     }
