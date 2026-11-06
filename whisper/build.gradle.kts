@@ -5,7 +5,8 @@ plugins {
 android {
     namespace = "io.androllm.core.whisper"
     compileSdk = 36
-    ndkVersion = "26.1.10909125"
+    // r27: 16 KB-aligned libc++_shared.so + ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES (Android 15+ 16 KB pages).
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         minSdk = 24
@@ -30,7 +31,9 @@ android {
                     // ggml's OpenMP backend needs the NDK's libomp.so which AGP
                     // does not package for AARs; keep it off (ggml has its own
                     // CPU threading).
-                    "-DGGML_OPENMP=OFF"
+                    "-DGGML_OPENMP=OFF",
+                    // Link libwhisper + libggml* with 16 KB ELF segment alignment (works on 4 KB devices too).
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
                 )
             }
         }

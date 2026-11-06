@@ -21,13 +21,10 @@ configurations.all {
 android {
     namespace = "com.example.arfas"
 
-    ndkVersion = "26.1.10909125" // AROGYADOOT: same NDK as the :whisper module
-    externalNativeBuild { // AROGYADOOT: Meta Llama (llama.cpp) bridge
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
+    // AROGYADOOT: same NDK as the :whisper module. r27 ships a 16 KB-aligned libc++_shared.so.
+    ndkVersion = "27.0.12077973"
+    // The Meta Llama (llama.cpp) bridge in src/main/cpp is no longer built: Gemma 3n (LiteRT-LM)
+    // is the offline engine, and libpramaan_llama.so was 4 KB aligned (Android 15+ 16 KB warning).
 
     compileSdk {
         version = release(36) {
@@ -36,18 +33,6 @@ android {
     }
 
     defaultConfig {
-        externalNativeBuild { // AROGYADOOT
-            cmake {
-                arguments += listOf(
-                    "-DANDROID_STL=c++_shared",
-                    "-DCMAKE_BUILD_TYPE=Release",
-                    // llama.cpp is built for Android 9+ (API 28); phones that can run
-                    // a 3B model are all newer. The app itself keeps minSdk 24.
-                    "-DANDROID_PLATFORM=android-28"
-                )
-            }
-        }
-
         applicationId = "com.arogyadoot.app"
 
         minSdk = 24
@@ -96,7 +81,7 @@ android {
             // Required for native LiteRT-LM / Sherpa ONNX libraries.
             useLegacyPackaging = true
 
-            pickFirsts += "**/libc++_shared.so" // AROGYADOOT: whisper, LiteRT and llama all ship it
+            pickFirsts += "**/libc++_shared.so" // AROGYADOOT: shipped by :whisper (NDK r27, 16 KB aligned)
 
             // ONNX Runtime can be supplied by more than one dependency.
             // Package only one copy when duplicates exist.

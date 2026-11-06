@@ -3,6 +3,11 @@ project(whisper.cpp)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# 16 KB page-size compatibility (Android 15+): align ELF LOAD segments of libwhisper and the
+# bundled libggml* to 16 KB. Set before FetchContent(ggml) so ggml inherits it. Harmless on 4 KB
+# devices. (Gradle also passes -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON with NDK r27.)
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+
 # Repo-relative path to the vendored whisper.cpp + bundled ggml.
 set(WHISPER_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../../../third_party/whisper.cpp)
 
