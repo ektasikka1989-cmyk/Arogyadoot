@@ -203,10 +203,25 @@ class FixSightRuntimeGraph private constructor(context: Context) {
      */
     private fun cloudKey(): String = groqKeyStore.getKey().ifBlank { groqKeyStore.groqKey() }
 
-    fun updateGroqKey(key: String) {
+    /**
+     * Saves (or clears, when blank) the Groq key. Returns false instead of throwing when the
+     * phone's secure storage (Android Keystore) fails — this threw uncaught on the UI thread and is
+     * the prime suspect for the emulator crash while saving a key. A save only counts when the key
+     * reads back.
+     */
+    fun updateGroqKey(key: String): Boolean {
         val clean = key.trim()
-        if (clean.isBlank()) groqKeyStore.clearKey() else groqKeyStore.saveKey(clean)
-        runtime.updateGroqApiKey(cloudKey())
+        val ok = try {
+            if (clean.isBlank()) { groqKeyStore.clearKey(); true }
+            else { groqKeyStore.saveKey(clean); !clean.startsWith("gsk_") || groqKeyStore.groqKey() == clean }
+        } catch (t: Throwable) {
+            if (t is VirtualMachineError) throw t
+            Log.e(TAG, "GROQ_KEY_SAVE_FAILED ${t.javaClass.simpleName}")  // never log the key itself
+            false
+        }
+        runCatching { runtime.updateGroqApiKey(cloudKey()) }
+        if (!ok) Log.w(TAG, "GROQ_KEY_SAVE_NOT_VERIFIED")
+        return ok
     }
 
     /** Online AI engine switch (Settings): Groq · Qwen or Meta · Muse Spark, each with its own key. */

@@ -550,10 +550,14 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
     var result by remember { mutableStateOf("") }
     var ok by remember { mutableStateOf(false) }
     var offerSaveAnyway by remember { mutableStateOf(false) }
-    fun save(k: String) {
-        FixSightRuntimeGraph.get(context).updateGroqKey(k)   // encrypted Groq key + the answer engine updated at once
+    /** True when the key was stored and reads back (secure-storage failures no longer crash the app). */
+    fun save(k: String): Boolean {
+        val stored = FixSightRuntimeGraph.get(context).updateGroqKey(k)   // encrypted Groq key + the answer engine updated at once
         onChanged()
+        return stored
     }
+    val saveFailed = tr("The key works, but this phone could not store it securely. Try again; if it keeps failing, restart the phone.",
+        "Key चल रही है, पर यह फ़ोन उसे सुरक्षित सेव नहीं कर पाया। फिर कोशिश करें; बार-बार हो तो फ़ोन रीस्टार्ट करें।")
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         StepIcon("🔑")
         Text(tr("Groq AI key (optional)", "Groq AI key (वैकल्पिक)"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -591,7 +595,8 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
                     }
                     testing = false
                     when {
-                        outcome.first -> { save(k); ok = true; key = ""; result = tr("✓ The key works — Qwen3 answered. Saved.", "✓ Key चल रही है — Qwen3 ने जवाब दिया। सेव हो गई।") }
+                        outcome.first -> if (save(k)) { ok = true; key = ""; result = tr("✓ The key works — Qwen3 answered. Saved.", "✓ Key चल रही है — Qwen3 ने जवाब दिया। सेव हो गई।") }
+                            else { ok = false; result = saveFailed }
                         outcome.second == "offline" -> { result = tr("No internet right now, so the key cannot be tested.", "अभी इंटरनेट नहीं, इसलिए key जाँची नहीं जा सकती।"); offerSaveAnyway = true }
                         outcome.second == "rejected" -> result = tr("Groq rejected this key. Copy it again from console.groq.com and paste.", "Groq ने यह key नहीं मानी। console.groq.com से फिर कॉपी करके चिपकाएँ।")
                         outcome.second == "timeout" -> { result = tr("Groq did not reply in 25 s (weak signal?).", "Groq ने 25 सेकंड में जवाब नहीं दिया (कमज़ोर सिग्नल?)।"); offerSaveAnyway = true }
@@ -601,7 +606,10 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
                 }
             }, enabled = !testing && key.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (testing) tr("Testing…", "जाँच रहे हैं…") else tr("Test and save key", "जाँचें और सेव करें")) }
             if (result.isNotBlank()) Text(result, color = if (ok) SetupGreen else MaterialTheme.colorScheme.error, fontWeight = if (ok) FontWeight.Bold else FontWeight.Normal)
-            if (offerSaveAnyway) OutlinedButton(onClick = { save(key); key = ""; offerSaveAnyway = false; ok = true; result = tr("Saved. It will be used when there is internet.", "सेव हो गई। इंटरनेट होने पर इस्तेमाल होगी।") }) {
+            if (offerSaveAnyway) OutlinedButton(onClick = {
+                if (save(key)) { key = ""; offerSaveAnyway = false; ok = true; result = tr("Saved. It will be used when there is internet.", "सेव हो गई। इंटरनेट होने पर इस्तेमाल होगी।") }
+                else { ok = false; result = tr("This phone could not store the key securely. Try again; if it keeps failing, restart the phone.", "यह फ़ोन key सुरक्षित सेव नहीं कर पाया। फिर कोशिश करें; बार-बार हो तो फ़ोन रीस्टार्ट करें।") }
+            }) {
                 Text(tr("Save without testing", "बिना जाँचे सेव करें")) }
             Text(tr("🔒 Stored encrypted on this phone only. Names, phone numbers and Aadhaar are removed before anything is sent online.",
                 "🔒 सिर्फ़ इसी फ़ोन पर सुरक्षित (एन्क्रिप्टेड)। ऑनलाइन भेजने से पहले नाम, फ़ोन नंबर और आधार हटाए जाते हैं।"),

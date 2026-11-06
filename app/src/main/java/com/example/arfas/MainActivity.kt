@@ -1494,8 +1494,12 @@ class MainActivity : ComponentActivity() {
     private fun saveGroqApiKey(key: String) {
         val clean = key.trim()
         if (clean.isBlank()) return
-        runtimeGraph.updateGroqKey(clean)
+        val saved = runtimeGraph.updateGroqKey(clean)
         refreshOnlineKeys()
+        if (!saved) {
+            groqStatusText = "Could not save the key — this phone's secure storage failed. Try again."
+            return
+        }
         groqStatusText = "Saved — not tested"
         testGroqConnection()
     }
