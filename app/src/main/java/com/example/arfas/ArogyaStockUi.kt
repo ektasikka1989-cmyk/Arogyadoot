@@ -101,13 +101,21 @@ fun StockReceiveDialog(hindi: Boolean, items: List<StockItem>, initialItem: Stri
                 StockField(tr("Expiry (yyyy-MM-dd, optional)", "एक्सपायरी (वैकल्पिक)"), expiry, { expiry = it.take(10) })
                 StockField(tr("Source (sub-centre…)", "स्रोत"), source, { source = it.take(40) })
                 if (expiry.isNotBlank() && runCatching { LocalDate.parse(expiry) }.isFailure) Text(tr("Expiry must be yyyy-MM-dd or blank.", "एक्सपायरी yyyy-MM-dd या ख़ाली रखें।"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                // Expiry check against the date received: expired stock must not be given; near-expiry is used first.
+                val expiryFlag = ArogyaMedScan.expiryWarning(expiry, runCatching { LocalDate.parse(date) }.getOrDefault(LocalDate.now()))
+                val daysLeft = ArogyaMedScan.daysToExpiry(expiry, runCatching { LocalDate.parse(date) }.getOrDefault(LocalDate.now()))
+                if (expiryFlag == "expired") Text(tr("This batch is already EXPIRED. Do not give it to anyone — return it, or record it with “Mark expired / damaged”.",
+                    "यह बैच एक्सपायर हो चुका है। किसी को न दें — लौटाएँ, या “एक्सपायर / ख़राब दर्ज करें” से दर्ज करें।"),
+                    color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                if (expiryFlag == "soon") Text(tr("Expires in $daysLeft days — give this batch first.", "$daysLeft दिन में एक्सपायर — यह बैच पहले दें।"),
+                    color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text(tr("Cancel", "रद्द करें")) }
                     Button(onClick = {
-                        onSave(StockTxn(date = date, item = item, qty = qty.toInt(), note = notePrefix + "Received", kind = "receive",
+                        onSave(StockTxn(date = date, item = item, qty = qty.toInt(), note = notePrefix + (if (expiryFlag == "expired") "Received (EXPIRED on arrival)" else "Received"), kind = "receive",
                             batch = batch.trim(), expiry = expiry.trim(), source = source.trim(),
                             unit = items.firstOrNull { it.name == item }?.unit.orEmpty()))
-                    }, enabled = ok && (expiry.isBlank() || runCatching { LocalDate.parse(expiry) }.isSuccess), modifier = Modifier.weight(1f)) { Text(tr("Save", "सहेजें")) }
+                    }, enabled = ok && (expiry.isBlank() || runCatching { LocalDate.parse(expiry) }.isSuccess), modifier = Modifier.weight(1f)) { Text(if (expiryFlag == "expired") tr("Save anyway", "फिर भी सहेजें") else tr("Save", "सहेजें")) }
                 }
             }
         }
@@ -391,13 +399,20 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
                 val seen = if (ArogyaPhotoVision.wanted(context, phoneScan.name.isNotBlank() && phoneScan.batch.isNotBlank() && phoneScan.expiry.isNotBlank())) {
                     phase = tr("Qwen3 is reading the label…", "Qwen3 लेबल पढ़ रहा है…")
                     ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE) } else null
-                val ocr = seen ?: phoneOcr
+                // Offline (or no cloud read): when the phone's OCR missed the name, batch or expiry, Gemma reads the
+                // label on the phone. Its text is added to the OCR (never replaces it) and the engine label says an AI read it.
+                val phoneIncomplete = phoneScan.name.isBlank() || phoneScan.batch.isBlank() || phoneScan.expiry.isBlank()
+                val gemmaText = if (seen == null && phoneIncomplete && ArogyaLocalVision.ready(ai.localModel())) {
+                    phase = tr("Gemma is reading the label on this phone…", "Gemma फ़ोन पर लेबल पढ़ रहा है…")
+                    ArogyaLocalVision.readPhoto(ai.localModel(), bmp, ArogyaPhotoText.Kind.MEDICINE)
+                } else null
+                val ocr = seen ?: listOfNotNull(phoneOcr.takeIf { it.isNotBlank() }, gemmaText).joinToString("\n")
                 if (ocr.isBlank()) throw IllegalStateException(tr("No readable text on this photo", "फ़ोटो में पढ़ने लायक अक्षर नहीं मिले"))
                 ocrText = ocr
                 phase = if (ai.isBusy) tr("Waiting for the AI to finish the current answer…", "AI पिछला उत्तर पूरा कर रहा है, रुकिए…")
                     else tr("Finding name, batch and expiry…", "नाम, बैच और एक्सपायरी ढूँढ रहे हैं…")
                 val (res, eng0, _) = withContext(Dispatchers.IO) { ai.scanMedicine(ocr) }
-                val eng = if (seen != null) ArogyaPhotoVision.LABEL + " · " + eng0 else eng0
+                val eng = if (seen != null) ArogyaPhotoVision.LABEL + " · " + eng0 else if (gemmaText != null) ArogyaLocalVision.LABEL + " · " + eng0 else eng0
                 scan = res; engine = eng; ms = System.currentTimeMillis() - t
                 Log.i("ArogyaDemo", "AROGYA_MEDSCAN name=\"${res.name}\" batch=\"${res.batch}\" expiry=\"${res.expiry}\" qty=${res.qty} engine=$eng ms=$ms")
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {

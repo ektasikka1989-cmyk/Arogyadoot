@@ -89,10 +89,23 @@ object ArogyaMedScan {
     private val DOSAGE = setOf("tablet", "tablets", "tabs", "tab", "dispersible", "ip", "bp", "usp", "capsule", "capsules", "caps", "syrup", "oral", "suspension",
         "mg", "ml", "film", "coated", "uncoated", "strip", "strips", "each", "contains", "for", "use", "only", "govt", "government", "supply", "hospital", "not", "sale")
     /** Kit item by the medicine's own words (name on the strip → the drug-kit item). */
-    private val ALIASES = listOf("syrup" to "IFA syrup (child)", "iron" to "IFA tablets (adult)", "folic" to "IFA tablets (adult)", "ifa" to "IFA tablets (adult)",
+    // "syrup" alone is not IFA ("Crocin syrup" is paracetamol): IFA syrup needs an iron word too (see matchItem).
+    private val IRON_WORDS = Regex("""(?<![a-z])(iron|ifa|folic|ferrous)(?![a-z])|आयरन|फोलिक""")
+    private val ALIASES = listOf("iron" to "IFA tablets (adult)", "folic" to "IFA tablets (adult)", "ifa" to "IFA tablets (adult)",
         "zinc" to "Zinc tablets", "paracetamol" to "Paracetamol", "pcm" to "Paracetamol", "ors" to "ORS", "rehydration" to "ORS", "calcium" to "Calcium tablets",
         "albendazole" to "Albendazole", "cotrimoxazole" to "Cotrimoxazole", "condom" to "Condoms", "nirodh" to "Condoms", "levonorgestrel" to "Emergency contraceptive pill",
-        "mala" to "Oral contraceptive pills", "chloroquine" to "Chloroquine / ACT", "artesunate" to "Chloroquine / ACT", "napkin" to "Sanitary napkins")
+        "mala" to "Oral contraceptive pills", "chloroquine" to "Chloroquine / ACT", "artesunate" to "Chloroquine / ACT", "napkin" to "Sanitary napkins",
+        // Generic, common brand and Hindi names printed on kit supplies.
+        "electral" to "ORS", "ओआरएस" to "ORS", "crocin" to "Paracetamol", "calpol" to "Paracetamol", "dolo" to "Paracetamol",
+        "acetaminophen" to "Paracetamol", "पैरासिटामोल" to "Paracetamol", "जिंक" to "Zinc tablets", "zentel" to "Albendazole",
+        "bandy" to "Albendazole", "अल्बेंडाजोल" to "Albendazole", "ferrous" to "IFA tablets (adult)", "आयरन" to "IFA tablets (adult)",
+        "फोलिक" to "IFA tablets (adult)", "septran" to "Cotrimoxazole", "bactrim" to "Cotrimoxazole", "sulfamethoxazole" to "Cotrimoxazole",
+        "trimethoprim" to "Cotrimoxazole", "कैल्शियम" to "Calcium tablets", "कंडोम" to "Condoms", "i-pill" to "Emergency contraceptive pill",
+        "ipill" to "Emergency contraceptive pill", "unwanted" to "Emergency contraceptive pill", "artemether" to "Chloroquine / ACT",
+        "lumefantrine" to "Chloroquine / ACT", "sanitary" to "Sanitary napkins", "सैनिटरी" to "Sanitary napkins",
+        "pregnancy" to "Pregnancy test kit", "nischay" to "Pregnancy test kit", "hcg" to "Pregnancy test kit",
+        "rdt" to "Rapid diagnostic test (malaria)", "bivalent" to "Rapid diagnostic test (malaria)",
+        "bandage" to "Cotton / bandage", "gauze" to "Cotton / bandage", "cotton" to "Cotton / bandage")
     private val EXPIRY = Regex("""(?i)\b(?:exp(?:iry|\.?date)?|expiry date|use (?:by|before))\b\.?\s*[:\-]?\s*(\d{1,2}[/\-.]\d{2,4}|\d{4}[/\-.]\d{1,2}|[A-Z]{3,9}\s+\d{2,4}|\d{1,2}\s+[A-Z]{3,9}\s+\d{2,4})""")
     private const val UNITS = "(tablets?|tabs?|capsules?|caps?|sachets?|packets?|strips?|bottles?|vials?|pieces?|pcs?|ml)"
     private val QTY = Regex("""(?i)\b(\d{1,5})\s*$UNITS\b""")
@@ -157,6 +170,16 @@ object ArogyaMedScan {
      * format (last day of the month for month-only prints). Unparseable prints pass through
      * unchanged for the ASHA to fix; only yyyy-MM-dd drives the expiring-soon flag.
      */
+    /** Days from [onDate] to an ISO [expiry] (negative = already expired), or null when there is no valid expiry. */
+    fun daysToExpiry(expiry: String, onDate: java.time.LocalDate = java.time.LocalDate.now()): Long? =
+        runCatching { java.time.temporal.ChronoUnit.DAYS.between(onDate, java.time.LocalDate.parse(normExpiry(expiry))) }.getOrNull()
+
+    /** Expiry warning for stock being received: "expired", "soon" (within [soonDays]) or null. */
+    fun expiryWarning(expiry: String, onDate: java.time.LocalDate = java.time.LocalDate.now(), soonDays: Long = 90): String? {
+        val d = daysToExpiry(expiry, onDate) ?: return null
+        return when { d < 0 -> "expired"; d <= soonDays -> "soon"; else -> null }
+    }
+
     fun normExpiry(raw: String): String {
         val t = raw.trim()
         if (t.isEmpty()) return ""
@@ -188,6 +211,7 @@ object ArogyaMedScan {
         items.firstOrNull { it.equals(name, ignoreCase = true) }?.let { return it }
         // The medicine's own words first (IRON & FOLIC ACID → IFA tablets); dosage words like "tablets" never decide.
         val low = name.lowercase()
+        if ("syrup" in low && IRON_WORDS.containsMatchIn(low) && "IFA syrup (child)" in items) return "IFA syrup (child)"
         ALIASES.firstOrNull { (w, item) -> Regex("(?<![a-z])$w(?![a-z])").containsMatchIn(low) && item in items }?.let { return it.second }
         val words = name.split(Regex("\\s+")).filter { it.length >= 4 && it.lowercase().trim('(', ')', ',', '.') !in DOSAGE }
         return items.firstOrNull { item -> words.any { w -> item.contains(w, ignoreCase = true) } }

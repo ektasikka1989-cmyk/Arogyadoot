@@ -434,7 +434,8 @@ fun SamCountDialog(hindi: Boolean = false, balances: Map<String, Int>, vision: M
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Row(verticalAlignment = Alignment.CenterVertically) { Text(tr("📷 Count stock from a photo", "📷 फ़ोटो से स्टॉक गिनें"), Modifier.weight(1f)); AiBadge("Count drug kit") } }, text = {
         Column(Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Lay the items out on a plain cloth, not overlapping, and take one photo.", "सामान सादे कपड़े पर अलग-अलग रखें और एक फ़ोटो लें।"), style = MaterialTheme.typography.bodySmall)
-            ArogyaRegistryLogic.DRUG_KIT.take(11).forEach { i -> Row(verticalAlignment = Alignment.CenterVertically) {
+            // Every kit medicine (was only the first 11 of 16) plus any item added to this ASHA's stock list.
+            (ArogyaRegistryLogic.DRUG_KIT + balances.keys).distinct().forEach { i -> Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(item == i, { item = i; phrase = ArogyaKitPhrases.phrase(i); per = ArogyaKitPhrases.perItem(i).toString()
                     dots = emptyList(); foundN = 0; engine = ""; phase = "" }); Text("$i  (register: ${balances[i] ?: 0})", style = MaterialTheme.typography.bodyMedium) } }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
