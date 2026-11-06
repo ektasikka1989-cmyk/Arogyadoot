@@ -83,10 +83,9 @@ fun ArogyaVisitScreen(
     var showOnlineOptions by remember {mutableStateOf(false)}
     var showFullRecord by remember {mutableStateOf(false)}
     var aiOriginalNotes by remember { mutableStateOf("") }
-    var autoOrganise by remember { mutableStateOf(false) }
     fun tr(en:String,hi:String)=if(hindi) hi else en
     var source by remember { mutableStateOf<ArogyaSource?>(null) }
-    var voice by remember { mutableStateOf(false) }; var ocr by remember { mutableStateOf<ArogyaAttachment?>(null) }
+    var ocr by remember { mutableStateOf<ArogyaAttachment?>(null) }
     var ocrVisitId by remember { mutableStateOf<String?>(null) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     var aiVisitId by remember { mutableStateOf<String?>(null) }
@@ -116,7 +115,6 @@ fun ArogyaVisitScreen(
     // UI6: every Ask/More-detail run gets a number; Stop bumps it so the old job, which may still be
     // finishing a blocking step (re-ranker batch, model call), can no longer touch the screen.
     var aiRunId by remember { mutableStateOf(0) }
-    var questionDictation by remember { mutableStateOf(false) }
     var aiCopy by remember { mutableStateOf("") }
     var aiCapture by remember { mutableStateOf<List<ArogyaCaptureItem>>(emptyList()) }
     var autoRunDraft by remember { mutableStateOf(false) }
@@ -195,7 +193,6 @@ fun ArogyaVisitScreen(
     val profilePrefs=remember { context.getSharedPreferences("arogya_profile",android.content.Context.MODE_PRIVATE) }
     var ashaName by remember { mutableStateOf(profilePrefs.getString("name","").orEmpty()) }
     var ashaVillage by remember { mutableStateOf(profilePrefs.getString("village","").orEmpty()) }
-    var guidedSpeak by remember { mutableStateOf<((String)->Unit)?>(null) }
     var askedQuestionForWarning by remember { mutableStateOf("") }
     fun loadSample() {
         val sm=ArogyaSampleVillage.build()
@@ -278,7 +275,7 @@ fun ArogyaVisitScreen(
             }
         })
         val owner=context as? LifecycleOwner
-        val observer=LifecycleEventObserver { _,event -> if(event==Lifecycle.Event.ON_STOP) { tts.stop(); voice=false } }
+        val observer=LifecycleEventObserver { _,event -> if(event==Lifecycle.Event.ON_STOP) { tts.stop() } }
         owner?.lifecycle?.addObserver(observer)
         onDispose { owner?.lifecycle?.removeObserver(observer); tts.stop(); tts.shutdown() }
     }
@@ -328,7 +325,6 @@ fun ArogyaVisitScreen(
     val cameraPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if(granted) { ArogyaPhotoGuard.hold(context); runCatching { camera.launch(null) }.onFailure { Toast.makeText(context,"Camera unavailable. Attach a photo instead.",Toast.LENGTH_LONG).show() } }
     }
-    val mic=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if(granted) voice=true else {autoOrganise=false;Toast.makeText(context,"Microphone permission was not granted. Type your observations below.",Toast.LENGTH_LONG).show()} }
     val pdf=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val id=exportVisitId; val revision=exportRevision; exportVisitId=null;exportRevision=null
         if(uri!=null) { mediaBusy=true; scope.launch {
@@ -425,7 +421,7 @@ fun ArogyaVisitScreen(
         if(!knowledgeReady) { Toast.makeText(context,tr("Install the ASHA guide first (below).","पहले ASHA गाइड इंस्टॉल करें (नीचे)।"),Toast.LENGTH_LONG).show(); return }
         quizOpen=true; if(quizItems.isEmpty() && !quizBusy) loadQuiz()
     }
-    BackHandler(selectedId!=null) { if(!locked && !voice && !aiOpen) selectedId=null }
+    BackHandler(selectedId!=null) { if(!locked && !aiOpen) selectedId=null }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal=16.dp)) {
         if(visit==null) {
             // Home header: app name, what this screen is, today, and whether AI is on the phone or the cloud.
@@ -638,8 +634,11 @@ fun ArogyaVisitScreen(
                     }
                     2 -> {
                         ArogyaSection(tr("VOICE TO VISIT RECORD","आवाज़ से विज़िट रिकॉर्ड"),tr("Tell me about the visit","विज़िट के बारे में बताइए"),tr("Ask permission before recording. Say what the family told you, what you observed and what you did.","रिकॉर्ड करने से पहले अनुमति लें। परिवार ने क्या बताया, आपने क्या देखा और क्या किया—बोलकर दर्ज करें।"))
-                        Button(onClick={questionDictation=false;autoOrganise=true;if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO)},enabled=editable && !locked,modifier=Modifier.fillMaxWidth().heightIn(min=64.dp)) {Text(tr("●  Speak about this visit","●  विज़िट के बारे में बोलें"),fontWeight=FontWeight.Bold)}
-                        ArogyaField("Observed facts, measurements with units, concerns and action taken",visit.notes,editable,5) { edit(visit.id) {row->row.copy(notes=it.take(20000))} }
+                        // Inline: speak, tap ■, the words are added to the notes below and AI organises them (no popup).
+                        InlineSpeakButton(tr("●  Speak about this visit","●  विज़िट के बारे में बोलें"),hindi,enabled=editable && !locked) { text ->
+                            if(appendNotes(visit.id,text)) { openAi(ArogyaAiTask.ORGANISE_NOTES); autoRunDraft=true }
+                        }
+                        ArogyaField("Observed facts, measurements with units, concerns and action taken",visit.notes,editable,5,mic=true,hindi=hindi) { edit(visit.id) {row->row.copy(notes=it.take(20000))} }
                         TextButton(onClick={showCards=!showCards}) {Text(tr(if(showCards) "Hide cards and photos" else "Add a card or photo",if(showCards) "कार्ड और फ़ोटो छिपाएँ" else "कार्ड या फ़ोटो जोड़ें"))}
                         // Read an MCP card with AI: the photo is kept with the visit; values are shown for the ASHA to tick.
                         Card(Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.secondaryContainer)) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
@@ -767,17 +766,6 @@ fun ArogyaVisitScreen(
         AlertDialog(onDismissRequest={ocr=null},title={Text(tr("Review OCR — never auto-filled","OCR देखें — अपने आप नहीं भरेगा"))},text={Column(Modifier.verticalScroll(rememberScrollState())) { ArogyaAttachmentPreview(repo,a,hindi); Text(tr("Compare with the original card. Edit or remove uncertain text before adding it to Notes.","असली कार्ड से मिलाएँ। नोट्स में जोड़ने से पहले संदिग्ध पाठ सुधारें या हटाएँ।")); OutlinedTextField(value=reviewedText,onValueChange={reviewedText=it.take(16000)},modifier=Modifier.fillMaxWidth(),minLines=5) }},
             confirmButton={TextButton(onClick={if(appendNotes(ocrVisitId,"Worker-reviewed card transcription:\n"+reviewedText)) ocr=null},enabled=visit!=null && visit.id==ocrVisitId && !visit.completed && !locked) {Text(tr("Confirm and add to Notes","पक्का करें और नोट्स में जोड़ें"))}},dismissButton={TextButton(onClick={ocr=null}) {Text(tr("Close","बंद करें"))}})
     }
-    if(voice) ArogyaDictationDialog(onDismiss={voice=false;autoOrganise=false;guidedSpeak=null},cloudVoice={ samples,langs -> ArogyaCloud.transcribe(context,samples,langs) },cloudFirst=ArogyaCloud.cloudFirst(context),hindi=hindi,onAccept={text ->
-        val cb=guidedSpeak
-        if(cb!=null) { guidedSpeak=null; voice=false; cb(text) }
-        else if(questionDictation) {
-            if(text.length<=700) {aiQuestion=text;voice=false}
-            else Toast.makeText(context,"Shorten the question to 700 characters; it was not cut or submitted.",Toast.LENGTH_LONG).show()
-        } else if(appendNotes(selectedId,text)) {
-            voice=false
-            if(autoOrganise) {autoOrganise=false;openAi(ArogyaAiTask.ORGANISE_NOTES);autoRunDraft=true}
-        }
-    })
     val gv=if(aiVisitId==SOP_VISIT_ID) sopVisit else visit
     if(aiOpen && gv!=null && gv.id==aiVisitId) Dialog(onDismissRequest={ if(!aiBusy) aiOpen=false },properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(6.dp),shape=MaterialTheme.shapes.large) {
@@ -1050,7 +1038,6 @@ fun ArogyaVisitScreen(
                         attachEnabled=!qFileBusy && ai!=null && qFiles.size<3,
                         onSend={ askedQuestionForWarning=aiQuestion;runVisitAi(false,afterSafety=ArogyaUrgentTriage.assess(aiQuestion,gv)!=null);aiQuestion="" },
                         onStop={ stopAi() },
-                        onMic={ questionDictation=true;if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO) },
                         onPhoto={ startPhoto("question") },
                         onFile={ ArogyaPhotoGuard.hold(context); questionFilePicker.launch(arrayOf("image/*","application/pdf")) })
                     Text(tr("Answers come from official guides. Not a diagnosis — check with your ANM.","उत्तर आधिकारिक गाइड से। यह निदान नहीं — ANM से पूछें।"),
@@ -1310,7 +1297,6 @@ fun ArogyaVisitScreen(
     if(pickerOpen) ArogyaPersonPicker(hindi,reg.beneficiaries,dueNow,onPick={ b -> pickerOpen=false; guidedFor=b },onAdd={ pickerOpen=false; hubOpen="patients" },onDismiss={ pickerOpen=false })
     guidedFor?.let { b -> ArogyaGuidedVisit(b,hindi,visits,queue,ai,onClose={ guidedFor=null; guidedForm=null },formId=guidedForm,
         onAskSop={ q -> if(knowledgeReady) { openAi(ArogyaAiTask.EXPLAIN,"",sop=true); aiQuestion=q } else Toast.makeText(context,"Install the ASHA guide first.",Toast.LENGTH_LONG).show() },
-        onSpeak={ cb -> guidedSpeak=cb; questionDictation=false; if(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) voice=true else mic.launch(Manifest.permission.RECORD_AUDIO) },
         speak={ t -> speak(t) },
         ) }
     if(visitsOpen) {
@@ -1421,70 +1407,15 @@ fun ArogyaVisitScreen(
 }
 
 @Composable
-private fun ArogyaField(label: String,value: String,enabled: Boolean,lines: Int=1,onChange:(String)->Unit) {
-    OutlinedTextField(value=value,onValueChange=onChange,label={Text(label)},enabled=enabled,modifier=Modifier.fillMaxWidth(),minLines=lines,singleLine=lines==1)
-}
-
-@Composable
-internal fun ArogyaDictationDialog(onDismiss:()->Unit,cloudVoice:(suspend (FloatArray,List<String>)->String?)?=null,cloudFirst:Boolean=false,hindi:Boolean=false,onAccept:(String)->Unit) {
-    fun tr(en:String,hi:String)=if(hindi) hi else en
-    val context=LocalContext.current
-    var status by remember {mutableStateOf(tr("Getting ready to listen…","सुनने की तैयारी…"))}
-    var text by remember {mutableStateOf("")}; var ready by remember {mutableStateOf(false)}
-    var recorder by remember {mutableStateOf<AndroAudioRecorder?>(null)}
-    var engine by remember {mutableStateOf("")}
-    var voiceChoice by remember {mutableStateOf(ArogyaLang.voiceLang(context))}
-    DisposableEffect(Unit) { onDispose {recorder?.stop()} }
-    LaunchedEffect(Unit) {
-        val recognizer=AndroWhisperRecognizer(context.applicationContext)
-        try {
-            // One setting: Cloud first tries Muse Voice Transcribe, then Whisper; Local first is Whisper only.
-            val whisperOk=withContext(Dispatchers.IO) {recognizer.ensureInitialized()}
-            // The cloud lambda is always passed, so "no speech engine at all" must test real availability
-            // (Cloud first + saved key + signal), never cloudVoice==null (dead check: otherwise a phone
-            // with no Whisper model records 60 s and then misreports "No speech recognised").
-            val cloudPossible=cloudFirst && cloudVoice!=null && withContext(Dispatchers.IO) {MetaOnline.ready(context.applicationContext)}
-            android.util.Log.i("ArogyaDemo","AROGYA_VOICE_START whisperOk=$whisperOk cloudPossible=$cloudPossible")
-            if(!whisperOk && !cloudPossible) {ready=true;status=tr("Speech model unavailable. Type your note instead.","बोलने वाला मॉडल नहीं है। नोट लिखें।");return@LaunchedEffect}
-            val session=if(whisperOk) recognizer.newSession(language=ArogyaLang.whisperLang(voiceChoice),maxSeconds=60,streaming=false) else null
-            val audio=AndroAudioRecorder();recorder=audio
-            if(!audio.start()) {ready=true;status=tr("Microphone unavailable. Type your note instead.","माइक नहीं है। नोट लिखें।");return@LaunchedEffect}
-            android.util.Log.i("ArogyaDemo","AROGYA_VOICE_RECORDING rate=${audio.actualSampleRate}")
-            status=tr("Listening (up to 60 seconds)… Tap Stop when done.","सुन रहे हैं (60 सेकंड तक)… हो जाए तो रोकें दबाएँ।")
-            val heard=ArrayList<FloatArray>()
-            try { withTimeoutOrNull(60000) { for(chunk in audio.chunks) { session?.append(chunk); if(cloudVoice!=null) heard.add(chunk) } } }
-            finally {audio.stop()}
-            android.util.Log.i("ArogyaDemo","AROGYA_VOICE_CAPTURED phoneSamples=${session?.sampleCount ?: 0} cloudSamples=${heard.sumOf {it.size}}")
-            val choiceAtStop=voiceChoice
-            suspend fun cloud():String? {
-                if(cloudVoice==null || heard.isEmpty()) return null
-                status=tr("Transcribing with Muse Voice Transcribe (Meta, online)…","Muse Voice Transcribe (Meta, ऑनलाइन) से लिख रहे हैं…")
-                val all=FloatArray(heard.sumOf {it.size}); var o=0; heard.forEach { c -> c.copyInto(all,o); o+=c.size }
-                return cloudVoice(all,ArogyaLang.metaLanguages(choiceAtStop))?.takeIf { it.isNotBlank() }?.also { engine=tr("Muse Voice Transcribe (Meta, online)","Muse Voice Transcribe (Meta, ऑनलाइन)") }
-            }
-            suspend fun phone():String? {
-                if(session==null) return null
-                status=tr("Transcribing on this phone…","इसी फ़ोन पर लिख रहे हैं…")
-                // An explicit Hindi/English choice re-decodes in that language ("hi" fixes
-                // Hindi coming out in Urdu script); Auto keeps the session's own result.
-                val t=withContext(Dispatchers.Default) { if(choiceAtStop==ArogyaLang.VOICE_AUTO) session.finish() else session.finishWithLanguage(ArogyaLang.whisperLang(choiceAtStop)) }
-                return t.takeIf { it.isNotBlank() }?.also { engine=tr("Whisper (on this phone, offline)","Whisper (इसी फ़ोन पर, ऑफलाइन)") }
-            }
-            text=(if(cloudFirst) cloud() ?: phone() else phone()).orEmpty()
-            android.util.Log.i("ArogyaDemo","AROGYA_VOICE_DONE chars=${text.length} engine=$engine")
-            ready=true
-            status=if(text.isBlank()) tr("No speech recognised. Type your note instead.","कुछ सुनाई नहीं दिया। नोट लिखें।") else tr("Review and correct the transcript before adding it. ($engine)","जोड़ने से पहले देखकर सुधारें। ($engine)")
-        } catch(e:CancellationException) {throw e}
-        catch(_:Exception) {ready=true;status=tr("Voice unavailable. You can type and confirm your note below.","आवाज़ नहीं चली। नीचे नोट लिखकर पक्का करें।")}
-        finally {recorder?.stop();withContext(NonCancellable+Dispatchers.IO) {recognizer.release()} }
+private fun ArogyaField(label: String,value: String,enabled: Boolean,lines: Int=1,mic: Boolean=false,hindi: Boolean=false,onChange:(String)->Unit) {
+    if(!mic) { OutlinedTextField(value=value,onValueChange=onChange,label={Text(label)},enabled=enabled,modifier=Modifier.fillMaxWidth(),minLines=lines,singleLine=lines==1); return }
+    // Inline dictation: 🎤 writes at the cursor, like typing (no popup, nothing is sent).
+    val field=rememberDictatingField(value,hindi,onChange)
+    Column(Modifier.fillMaxWidth()) {
+        OutlinedTextField(value=field.tfv,onValueChange={field.onUserEdit(it)},label={Text(label)},enabled=enabled,modifier=Modifier.fillMaxWidth(),minLines=lines,singleLine=lines==1,
+            trailingIcon={ DictationMicButton(field.controller,hindi,enabled=enabled) { field.start() } })
+        DictationStatusLine(field.controller,hindi)
     }
-    AlertDialog(onDismissRequest=onDismiss,title={Row(verticalAlignment=Alignment.CenterVertically) { Text(tr("Visit dictation","विज़िट बोलकर लिखें"),modifier=Modifier.weight(1f)); AiBadge("Speak instead of typing") }},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf(ArogyaLang.VOICE_AUTO to tr("Auto (Hindi+English)","ऑटो (हिन्दी+English)"),ArogyaLang.VOICE_HINDI to tr("Hindi","हिन्दी"),ArogyaLang.VOICE_ENGLISH to tr("English","English")).forEach { (v,label) ->
-                FilterChip(selected=voiceChoice==v,onClick={voiceChoice=v;ArogyaLang.setVoiceLang(context,v)},label={Text(label,maxLines=1)})
-            }
-        }
-        Text(status);OutlinedTextField(value=text,onValueChange={text=it.take(10000)},minLines=4,modifier=Modifier.fillMaxWidth());TextButton(onClick={recorder?.stop()},enabled=!ready) {Text(tr("Stop recording","रिकॉर्डिंग रोकें"))}}},confirmButton={TextButton(onClick={onAccept(text)},enabled=ready&&text.isNotBlank()) {Text(tr("Confirm transcript","लिखा पक्का करें"))}},dismissButton={TextButton(onClick=onDismiss) {Text(tr("Cancel","रद्द करें"))}})
 }
 
 @Composable

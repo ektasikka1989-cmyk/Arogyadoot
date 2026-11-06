@@ -82,7 +82,7 @@ fun OfficialFormGrid(t: FormTable, highlight: Int?, sources: Map<String, String>
 @Composable
 fun ArogyaGuidedVisit(person: Beneficiary, hindi: Boolean, visits: List<ArogyaVisit>, queue: ArogyaVisitQueue, ai: ArogyaVisitAi?, onClose: () -> Unit,
     formId: String? = null,
-                      onAskSop: (String) -> Unit, onSpeak: ((String) -> Unit) -> Unit, speak: (String) -> Unit = {}) {
+                      onAskSop: (String) -> Unit, speak: (String) -> Unit = {}) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -185,7 +185,7 @@ fun ArogyaGuidedVisit(person: Beneficiary, hindi: Boolean, visits: List<ArogyaVi
                             Text(tr("From the official form (${spec.source}). Check these, then speak one note — AI writes them into the form.",
                                 "आधिकारिक फ़ॉर्म से (${spec.source})। ये जाँचें, फिर एक बार बोलें — AI फ़ॉर्म में लिखेगा।"), style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Button(onClick = { onSpeak { fill(it) } }, enabled = !aiBusy, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text(tr("🎤 Speak visit note", "🎤 विज़िट नोट बोलें")) }
+                                InlineSpeakButton(tr("🎤 Speak visit note", "🎤 विज़िट नोट बोलें"), hindi, enabled = !aiBusy, modifier = Modifier.weight(1f)) { fill(it) }
                                 OutlinedButton(onClick = { speak(tr("Please check: ", "कृपया जाँचें: ") + rows.joinToString(". ") { label(it) }) }) { Text("🔊") }
                                 AiBadge("Finish visit")
                             }
@@ -273,7 +273,7 @@ fun ArogyaGuidedVisit(person: Beneficiary, hindi: Boolean, visits: List<ArogyaVi
                                 Text(tr("${missing.size} rows not covered yet", "${missing.size} पंक्तियाँ बाकी"), fontWeight = FontWeight.Medium)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(onClick = { speak(tr("Not recorded yet: ", "अभी दर्ज नहीं: ") + missing.joinToString(". ") { label(it) }) }) { Text(tr("🔊 Read them", "🔊 सुनें")) }
-                                    Button(onClick = { onSpeak { fill(it) } }, enabled = !aiBusy) { Text(tr("🎤 Add more", "🎤 और बोलें")) }
+                                    InlineSpeakButton(tr("🎤 Add more", "🎤 और बोलें"), hindi, enabled = !aiBusy, modifier = Modifier.weight(1f)) { fill(it) }
                                 }
                                 if (aiBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
                                 Text(tr("Leave blank what you did not check — blanks stay blank on the form.", "जो नहीं जाँचा वह खाली छोड़ें।"), style = MaterialTheme.typography.labelSmall)

@@ -61,12 +61,7 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
     } else Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
             val villages = remember(data) { data.beneficiaries.map { it.village }.filter { it.isNotBlank() }.distinct() }
-            var dictateTarget by remember { mutableStateOf<((String) -> Unit)?>(null) }
             val context = LocalContext.current
-            if (dictateTarget != null) ArogyaDictationDialog(onDismiss = { dictateTarget = null },
-                cloudVoice = { s, l -> ArogyaCloud.transcribe(context, s, l) },
-                cloudFirst = ArogyaCloud.cloudFirst(context), hindi = hindi,
-                onAccept = { dictateTarget?.invoke(it); dictateTarget = null })
             fun toReview(people: List<Beneficiary>, source: String, srcOf: (Int) -> String, note: String = "") {
                 review = people.mapIndexed { i, b -> ReviewPerson(b, srcOf(i), b.birthWeightKg?.toString().orEmpty()) }
                 reviewSource = source; reviewNote = note; step = "review"
@@ -82,7 +77,7 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
                     TextButton(onClick = onClose) { Text(tr("Close", "बंद करें")) }
                 }
                 when (step) {
-                    "manual" -> ManualPersonStep(hindi, villages, { dictateTarget = it }) { b -> toReview(listOf(b), "manual", { tr("typed in", "लिखा हुआ") }) }
+                    "manual" -> ManualPersonStep(hindi, villages) { b -> toReview(listOf(b), "manual", { tr("typed in", "लिखा हुआ") }) }
                     "photo" -> PhotoPersonStep(hindi, ai)
                         { toReview(it, "photo", { i -> tr("person ${i + 1} from photo", "फ़ोटो से व्यक्ति ${i + 1}") }) }
                     "csv" -> CsvPersonStep(hindi)
@@ -90,7 +85,7 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
                     "pdf" -> PdfPersonStep(hindi, ai,
                         { list -> toReview(list, "pdf", { i -> tr("PDF block ${i + 1}", "PDF हिस्सा ${i + 1}") }) })
                     else -> AddPersonReview(hindi, ai != null, review, { review = it }, reviewNote, reviewSource, data, visits, villages,
-                        { dictateTarget = it }, save, onClose)
+                        save, onClose)
                 }
             }
         }
@@ -99,12 +94,12 @@ fun AddPersonSheet(hindi: Boolean, ai: ArogyaVisitAi?, data: RegistryData, visit
 
 /** Manual path: category first, then the shared fields. */
 @Composable
-private fun ManualPersonStep(hindi: Boolean, villages: List<String>, dictate: (((String) -> Unit)) -> Unit, onDone: (Beneficiary) -> Unit) {
+private fun ManualPersonStep(hindi: Boolean, villages: List<String>, onDone: (Beneficiary) -> Unit) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     var b by remember { mutableStateOf(Beneficiary(category = BenCategory.PREGNANT)) }
     var weight by remember { mutableStateOf("") }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, villages, dictate)
+        PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, villages)
         val ok = b.name.isNotBlank() && (b.category != BenCategory.CHILD || b.dob.isNotBlank()) && (b.category != BenCategory.PREGNANT || b.lmp.isNotBlank())
         Button(onClick = { onDone(b.copy(birthWeightKg = weight.toDoubleOrNull()?.takeIf { it in 0.3..8.0 })) }, enabled = ok, modifier = Modifier.fillMaxWidth()) {
             Text(tr("Continue to review", "जाँच के लिए आगे"))
@@ -393,7 +388,7 @@ private fun splitTableLines(lines: List<String>): Pair<Map<Int, String>, List<St
 @Composable
 private fun AddPersonReview(hindi: Boolean, aiReady: Boolean, people: List<ReviewPerson>, onPeople: (List<ReviewPerson>) -> Unit,
     note: String, source: String, data: RegistryData, visits: List<ArogyaVisit>, villages: List<String>,
-    dictate: (((String) -> Unit)) -> Unit, save: ((RegistryData) -> RegistryData) -> Boolean, onClose: () -> Unit) {
+    save: ((RegistryData) -> RegistryData) -> Boolean, onClose: () -> Unit) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     val context = LocalContext.current
     var consent by remember { mutableStateOf(false) }
@@ -412,7 +407,7 @@ private fun AddPersonReview(hindi: Boolean, aiReady: Boolean, people: List<Revie
                     }
                     if (!rp.skip) {
                         PatientFormFields(hindi, rp.b, rp.weight, { w -> onPeople(people.mapIndexed { j, p -> if (j == i) p.copy(weight = w) else p }) },
-                            { b -> onPeople(people.mapIndexed { j, p -> if (j == i) p.copy(b = b) else p }) }, villages, dictate)
+                            { b -> onPeople(people.mapIndexed { j, p -> if (j == i) p.copy(b = b) else p }) }, villages)
                         val dueLine = remember(rp.b) { runCatching {
                             val (sp, col) = ArogyaOfficialForms.formFor(rp.b, data.forms)
                             val due = ArogyaOfficialForms.nextDue(sp, rp.b, col, LocalDate.now())

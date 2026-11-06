@@ -225,7 +225,6 @@ fun VoiceStockDialog(hindi: Boolean, ai: ArogyaVisitAi?, items: List<StockItem>,
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val catalog = remember(items) { items.map { it.name } }
-    var dictating by remember { mutableStateOf(true) }
     var transcript by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var lines by remember { mutableStateOf<List<VoiceStockLine>>(emptyList()) }
@@ -248,17 +247,16 @@ fun VoiceStockDialog(hindi: Boolean, ai: ArogyaVisitAi?, items: List<StockItem>,
             } finally { busy = false }
         }
     }
-    if (dictating) ArogyaDictationDialog(onDismiss = { dictating = false },
-        cloudVoice = { s, l -> ArogyaCloud.transcribe(context, s, l) },
-        cloudFirst = ArogyaCloud.cloudFirst(context), hindi = hindi,
-        onAccept = { dictating = false; transcript = it; parse(it) })
     val ops = listOf(ArogyaVoiceStock.RECEIVE, ArogyaVoiceStock.WRITEOFF, ArogyaVoiceStock.CORRECTION)
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(tr("🎤 Speak stock change", "🎤 स्टॉक बोलकर लिखें")) }, text = {
         Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Say what changed, e.g. “received 100 ORS and 60 zinc”, “10 ORS damaged”, “counted 45 IFA”.",
                 "बदलाव बोलें, जैसे “100 ORS और 60 ज़िंक मिला”, “10 ORS ख़राब”, “45 IFA गिना”।"), style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = { dictating = true }, enabled = !busy) { Text(if (transcript.isBlank()) tr("🎤 Speak", "🎤 बोलें") else tr("🎤 Speak again", "🎤 फिर बोलें")) }
+            // Inline: tap, speak, tap ■ — the words show here live, then the change is read (no popup).
+            InlineSpeakButton(if (transcript.isBlank()) tr("🎤 Speak", "🎤 बोलें") else tr("🎤 Speak again", "🎤 फिर बोलें"), hindi, enabled = !busy) {
+                transcript = it; parse(it)
+            }
             if (transcript.isNotBlank()) Text(tr("Heard: ", "सुना: ") + transcript, style = MaterialTheme.typography.bodySmall)
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (err.isNotBlank()) Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

@@ -557,19 +557,25 @@ private fun PatientsTab(hindi: Boolean, data: RegistryData, visits: List<ArogyaV
     }
 }
 
-/** Text field with a mic button: dictation follows the Offline/Online setting. */
+/** Text field with inline mic dictation: tap 🎤, speak, the words appear at the cursor (no popup). */
 @Composable
-internal fun MicField(value: String, onValue: (String) -> Unit, label: String, dictate: (((String) -> Unit)) -> Unit,
+internal fun MicField(value: String, onValue: (String) -> Unit, label: String,
     singleLine: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) {
-    OutlinedTextField(value, onValue, label = { Text(label) }, singleLine = singleLine, modifier = modifier,
-        trailingIcon = { IconButton(onClick = { dictate { t -> onValue(t.take(200)) } }) { Text("🎤") } })
+    val hindi = ArogyaLang.uiHindi(LocalContext.current)
+    val field = rememberDictatingField(value, hindi, onValue)
+    Column(modifier) {
+        OutlinedTextField(field.tfv, { field.onUserEdit(it) }, label = { Text(label) }, singleLine = singleLine,
+            modifier = Modifier.fillMaxWidth(),
+            trailingIcon = { DictationMicButton(field.controller, hindi) { field.start() } })
+        DictationStatusLine(field.controller, hindi)
+    }
 }
 
 /** Shared editable person fields for add, edit and the import review screen. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, onWeight: (String) -> Unit,
-    onChange: (Beneficiary) -> Unit, villages: List<String>, dictate: (((String) -> Unit)) -> Unit) {
+    onChange: (Beneficiary) -> Unit, villages: List<String>) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     var villageMenu by remember { mutableStateOf(false) }
     var villageNew by remember { mutableStateOf(false) }
@@ -578,9 +584,9 @@ internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, o
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             BenCategory.values().forEach { c -> FilterChip(selected = b.category == c, onClick = { onChange(b.copy(category = c, sex = if (c == BenCategory.CHILD) b.sex else "F")) }, label = { Text(if (hindi) c.titleHi else c.title) }) }
         }
-        MicField(b.name, { onChange(b.copy(name = it.take(80))) }, tr("Name *", "नाम *"), dictate)
-        MicField(b.relativeName, { onChange(b.copy(relativeName = it.take(80))) }, tr("Husband / mother / father", "पति / माँ / पिता"), dictate)
-        MicField(b.household, { onChange(b.copy(household = it.take(60))) }, tr("Household (house no. / family head) — from line listing", "परिवार (मकान नं. / मुखिया) — सूची से"), dictate)
+        MicField(b.name, { onChange(b.copy(name = it.take(80))) }, tr("Name *", "नाम *"))
+        MicField(b.relativeName, { onChange(b.copy(relativeName = it.take(80))) }, tr("Husband / mother / father", "पति / माँ / पिता"))
+        MicField(b.household, { onChange(b.copy(household = it.take(60))) }, tr("Household (house no. / family head) — from line listing", "परिवार (मकान नं. / मुखिया) — सूची से"))
         if (villages.isNotEmpty() && !villageNew) {
             Box {
                 OutlinedButton(onClick = { villageMenu = true }, modifier = Modifier.fillMaxWidth()) {
@@ -595,10 +601,10 @@ internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, o
                     }
                 }
             }
-        } else MicField(b.village, { onChange(b.copy(village = it.take(80))) }, tr("Village / hamlet", "गाँव / टोला"), dictate)
+        } else MicField(b.village, { onChange(b.copy(village = it.take(80))) }, tr("Village / hamlet", "गाँव / टोला"))
         if (b.category != BenCategory.CHILD) OutlinedTextField(b.age, { onChange(b.copy(age = it.filter { c -> c.isDigit() }.take(3))) }, label = { Text(tr("Age (years)", "उम्र (साल)")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        MicField(b.phone, { onChange(b.copy(phone = it.filter { c -> c.isDigit() || c == '+' }.take(15))) }, tr("Phone", "फ़ोन"), dictate)
-        MicField(b.rchId, { onChange(b.copy(rchId = it.take(30))) }, tr("RCH ID (if any)", "RCH ID (हो तो)"), dictate)
+        MicField(b.phone, { onChange(b.copy(phone = it.filter { c -> c.isDigit() || c == '+' }.take(15))) }, tr("Phone", "फ़ोन"))
+        MicField(b.rchId, { onChange(b.copy(rchId = it.take(30))) }, tr("RCH ID (if any)", "RCH ID (हो तो)"))
         if (b.category == BenCategory.CHILD) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("F" to tr("Girl", "लड़की"), "M" to tr("Boy", "लड़का")).forEach { (s, l) -> FilterChip(selected = b.sex == s, onClick = { onChange(b.copy(sex = s)) }, label = { Text(l) }) } }
             DateBox(tr("Date of birth *", "जन्मतिथि *"), b.dob, Modifier.fillMaxWidth()) { onChange(b.copy(dob = it)) }
@@ -611,12 +617,12 @@ internal fun PatientFormFields(hindi: Boolean, b: Beneficiary, weight: String, o
         if (b.category == BenCategory.PREGNANT) {
             DateBox(tr("LMP *", "अंतिम माहवारी *"), b.lmp, Modifier.fillMaxWidth()) { onChange(b.copy(lmp = it)) }
             ArogyaRegistryLogic.edd(b)?.let { Text(tr("EDD: ", "प्रसव तिथि: ") + it) }
-            MicField(b.ancNumber, { onChange(b.copy(ancNumber = it.take(10))) }, tr("ANC number", "ANC नंबर"), dictate)
+            MicField(b.ancNumber, { onChange(b.copy(ancNumber = it.take(10))) }, tr("ANC number", "ANC नंबर"))
             DateBox(tr("Delivery date (after birth)", "प्रसव तारीख़ (जन्म के बाद)"), b.deliveryDate, Modifier.fillMaxWidth()) { onChange(b.copy(deliveryDate = it)) }
         }
         if (b.category == BenCategory.ELIGIBLE_COUPLE || b.category == BenCategory.MOTHER)
-            MicField(b.familyPlanning, { onChange(b.copy(familyPlanning = it.take(60))) }, tr("Family planning method", "परिवार नियोजन साधन"), dictate)
-        MicField(b.notes, { onChange(b.copy(notes = it.take(1000))) }, tr("Notes", "नोट"), dictate, singleLine = false)
+            MicField(b.familyPlanning, { onChange(b.copy(familyPlanning = it.take(60))) }, tr("Family planning method", "परिवार नियोजन साधन"))
+        MicField(b.notes, { onChange(b.copy(notes = it.take(1000))) }, tr("Notes", "नोट"), singleLine = false)
     }
 }
 
@@ -626,15 +632,10 @@ private fun PatientForm(hindi: Boolean, initial: Beneficiary, onDismiss: () -> U
     val context = LocalContext.current
     var b by remember { mutableStateOf(initial) }
     var weight by remember { mutableStateOf(initial.birthWeightKg?.toString().orEmpty()) }
-    var dictateTarget by remember { mutableStateOf<((String) -> Unit)?>(null) }
-    if (dictateTarget != null) ArogyaDictationDialog(onDismiss = { dictateTarget = null },
-        cloudVoice = { s, l -> ArogyaCloud.transcribe(context, s, l) },
-        cloudFirst = ArogyaCloud.cloudFirst(context), hindi = hindi,
-        onAccept = { dictateTarget?.invoke(it); dictateTarget = null })
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (initial.name.isBlank()) tr("Add patient", "रोगी जोड़ें") else tr("Edit patient", "रोगी सुधारें")) }, text = {
         Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Use fictional names in demos.", "डेमो में काल्पनिक नाम लिखें।"), style = MaterialTheme.typography.bodySmall)
-            PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, emptyList()) { dictateTarget = it }
+            PatientFormFields(hindi, b, weight, { weight = it }, { b = it }, emptyList())
         }
     }, confirmButton = {
         val ok = b.name.isNotBlank() && (b.category != BenCategory.CHILD || b.dob.isNotBlank()) && (b.category != BenCategory.PREGNANT || b.lmp.isNotBlank())

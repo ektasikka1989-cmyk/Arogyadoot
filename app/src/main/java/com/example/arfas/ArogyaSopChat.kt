@@ -556,12 +556,14 @@ fun SopComposer(
     attachEnabled: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onMic: () -> Unit,
     onPhoto: () -> Unit,
     onFile: () -> Unit
 ) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     var menu by remember { mutableStateOf(false) }
+    // Inline dictation (ChatGPT-style): 🎤 writes straight into the box; it never sends by itself.
+    val field = rememberDictatingField(value, hindi, onValueChange)
+    Column(Modifier.fillMaxWidth()) {
     Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.Bottom) {
@@ -576,7 +578,7 @@ fun SopComposer(
                 }
             }
             TextField(
-                value = value, onValueChange = onValueChange, enabled = !busy,
+                value = field.tfv, onValueChange = { field.onUserEdit(it) }, enabled = !busy,
                 placeholder = { Text(if (busy) tr("Writing the answer…", "उत्तर लिखा जा रहा है…") else tr("Ask the ASHA guide", "ASHA गाइड से पूछें")) },
                 modifier = Modifier.weight(1f), minLines = 1, maxLines = 5,
                 colors = TextFieldDefaults.colors(
@@ -587,11 +589,9 @@ fun SopComposer(
                     unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                     disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent)
             )
-            if (!busy && value.isBlank()) TextButton(onClick = onMic, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp)) {
-                Text("🎤", fontSize = 20.sp)
-            }
+            if (!busy) DictationMicButton(field.controller, hindi, modifier = Modifier.size(48.dp)) { field.start() }
             val sendColor = if (busy || canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-            Surface(onClick = { if (busy) onStop() else if (canSend) onSend() }, enabled = busy || canSend,
+            Surface(onClick = { if (busy) onStop() else if (canSend) { field.controller.cancel(); onSend() } }, enabled = busy || canSend,
                 shape = androidx.compose.foundation.shape.CircleShape, color = sendColor,
                 contentColor = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(4.dp).size(40.dp)) {
                 Box(contentAlignment = Alignment.Center) {
@@ -599,5 +599,7 @@ fun SopComposer(
                 }
             }
         }
+    }
+    DictationStatusLine(field.controller, hindi, Modifier.padding(start = 16.dp, top = 2.dp))
     }
 }
