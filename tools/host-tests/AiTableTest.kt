@@ -56,11 +56,11 @@ fun main() {
     a(pdf.lines().any { it.contains("Feature") && it.contains("Phone (offline)") && it.contains("Groq cloud (online)") && it.contains("Safety check") }, "PDF header has all 4 columns")
     a(rows.all { pdf.contains(it.feature) }, "PDF names all 10 features")
     a(pdf.contains("▶") && pdf.contains("Guide v2") && pdf.contains("68 official guides"), "PDF marks active + guide count")
-    a(pdf.contains("Fixed government rules, not AI") && pdf.contains("Privacy:") && pdf.contains("Built with Muse Code."), "PDF rules + privacy + footer")
+    a(pdf.contains("Fixed government rules, not AI") && pdf.contains("Privacy:") && !pdf.contains("Muse Code"), "PDF rules + privacy, no Muse Code credit + footer")
     val pdfOff = ArogyaAiTable.pdfText(ArogyaAiTable.rows(full.copy(online = false), false), full.copy(online = false), 68, "Guide v2", false)
     a(pdfOff.contains("[unavailable]") && pdfOff.contains("offline"), "PDF shows unavailable + offline state")
     val pdfHi = ArogyaAiTable.pdfText(hi, full, 68, "Guide v2", true)
-    a(pdfHi.contains("सुरक्षा जाँच") && pdfHi.contains("Muse Code से बनाया गया।"), "Hindi PDF complete")
+    a(pdfHi.contains("सुरक्षा जाँच") && pdfHi.contains("गोपनीयता") && !pdfHi.contains("Muse Code"), "Hindi PDF complete")
     println("AiTableTest: $ap passed, $af failed")
     if (af > 0) kotlin.system.exitProcess(1)
 }

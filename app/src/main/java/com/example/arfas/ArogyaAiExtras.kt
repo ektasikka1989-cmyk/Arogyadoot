@@ -596,9 +596,8 @@ object ArogyaAiTable {
         b.appendLine()
         b.appendLine(tr("Fixed government rules, not AI: danger signs, schedules, vaccine due dates, incentives, next visit date.",
             "तय सरकारी नियम, AI नहीं: खतरे के लक्षण, शेड्यूल, टीकों की तारीख़ें, प्रोत्साहन, अगली विज़िट की तारीख़।"))
-        b.appendLine(tr("Privacy: on this phone nothing leaves it; the cloud only receives text with names removed.",
+        b.append(tr("Privacy: on this phone nothing leaves it; the cloud only receives text with names removed.",
             "गोपनीयता: इस फ़ोन की जानकारी फ़ोन से बाहर नहीं जाती; क्लाउड को सिर्फ़ बिना नाम का पाठ मिलता है।"))
-        b.append(tr("Built with Muse Code.", "Muse Code से बनाया गया।"))
         return b.toString()
     }
 }

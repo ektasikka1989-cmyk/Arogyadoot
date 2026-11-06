@@ -890,7 +890,6 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                     Text(tr("Thank you", "धन्यवाद"), style = MaterialTheme.typography.titleMedium)
                     Text(tr("${ticks.size} AI steps ran live: ${phoneTicks.size} on this phone, ${cloudTicks.size} online (Groq).",
                         "${ticks.size} AI चरण लाइव चले: ${phoneTicks.size} इसी फ़ोन पर, ${cloudTicks.size} ऑनलाइन (Groq)।"))
-                    Text(tr("Built with Muse Code.", "Muse Code से बनाया गया।"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.weight(1f))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(onClick = { go(n - 1) }) { Text(tr("◀ Back", "◀ पीछे")) }
@@ -1641,8 +1640,6 @@ private fun DemoSceneBody(sceneId: String, hindi: Boolean, tr: (String, String) 
                 Text(tr("⚙ = fixed government rule, not AI · names never leave the phone for card and register reading.",
                     "⚙ = तय सरकारी नियम, AI नहीं · कार्ड और रजिस्टर पढ़ते समय नाम फ़ोन से बाहर नहीं जाते।"),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(tr("App built and optimised with Muse Code.", "ऐप Muse Code से बनाया और बेहतर किया गया।"),
-                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             }
             else -> {
                 // Item 11, last slide: what AI did on this visit, the by-hand estimate, today's measured

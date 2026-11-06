@@ -119,8 +119,6 @@ fun ArogyaAiPage(hindi: Boolean, ai: ArogyaVisitAi?, onOpenLibrary: () -> Unit, 
             Text(tr("Privacy: on this phone nothing leaves it; the cloud only receives text with names removed.",
                 "गोपनीयता: इस फ़ोन की जानकारी फ़ोन से बाहर नहीं जाती; क्लाउड को सिर्फ़ बिना नाम का पाठ मिलता है।"),
                 style = MaterialTheme.typography.bodySmall)
-            Text(tr("Built with Muse Code.", "Muse Code से बनाया गया।"), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     shareMsg = tr("Making the PDF…", "PDF बना रहे हैं…")

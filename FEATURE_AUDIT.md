@@ -61,7 +61,7 @@ Legend: **Code** = call path traced in source today · **Host** = host test pass
 ## Open items
 
 1. **Device testing:** follow `PHONE_AUDIT.md` (the emulator here can't run).
-2. **"Built with Muse Code"** appears in the AI table PDF, the demo end screen, the demo summary and the registry about line. It's a credit, not a feature; keep or remove?
+2. "Built with Muse Code" credit lines: **removed** (AI table PDF, demo end screen, demo summary, registry about line), as you asked.
 3. Unreachable Meta/Llama code (MetaVisionEngine, LlamaCppCore, Meta-zip installer) is still in the source. It's harmless, but could be deleted in a separate clean-up commit.
 4. Gradle is set to 2 GB of memory, which makes builds take 25–47 minutes on this PC. Raising `org.gradle.jvmargs` would help; that's a build-config change, so it needs your OK.
 
