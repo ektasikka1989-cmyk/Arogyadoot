@@ -462,6 +462,8 @@ fun SettingsDialog(
     onAnswerPolicyChanged: ((AnswerPolicy) -> Unit)? = null,
     onlineBackup: Boolean = false,
     onOnlineBackupChanged: ((Boolean) -> Unit)? = null,
+    photosOnline: Boolean = false,
+    onPhotosOnlineChanged: ((Boolean) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var groqKeyInput by remember { mutableStateOf("") }
@@ -545,7 +547,7 @@ fun SettingsDialog(
                     }
 
                     // ── 3. Online AI ──
-                    SettingsCard("Online AI (optional)", "Groq · Qwen3.8 27B. Needs your Groq API key (gsk_…). The key is stored encrypted on this phone; names and phone numbers are masked before anything is sent.") {
+                    SettingsCard("Online AI (optional)", "Groq · Qwen3.8 27B. Needs your Groq API key (gsk_…). The key is stored encrypted on this phone. Phone and Aadhaar numbers are removed from text before it is sent; photos are sent only if you allow it below.") {
                         SettingsStatus(groqStatusText, ok = groqKeyConfigured && groqStatusText.contains("Connected", true), warn = groqKeyConfigured)
                         OutlinedTextField(
                             value = groqKeyInput,
@@ -579,6 +581,11 @@ fun SettingsDialog(
                             "If the phone's answer fails its checks, Groq answers from the same guide passages (those passages are sent online).",
                             checked = onlineBackup
                         ) { on -> onOnlineBackupChanged?.invoke(on) }
+                        SettingsSwitchRow(
+                            "Send photos online",
+                            "Off: photos attached to a question are read only on this phone. On: they may be sent to Groq when the phone cannot read them. Card, register and patient photos are never sent.",
+                            checked = photosOnline
+                        ) { on -> onPhotosOnlineChanged?.invoke(on) }
                         Text("Voice input is always transcribed on this phone (Whisper, Hindi and English); nothing is sent online.",
                             color = SetMuted, fontSize = 11.sp, lineHeight = 15.sp)
                     }

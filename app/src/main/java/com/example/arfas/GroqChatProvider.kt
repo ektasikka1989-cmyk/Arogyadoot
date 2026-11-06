@@ -47,6 +47,13 @@ enum class GroqProviderStatus { READY, NO_KEY, AUTH_FAILED, RATE_LIMITED, NETWOR
 class GroqChatProvider(apiKey: String) {
     companion object {
         private const val TAG = "MetaLlamaProvider"
+
+        /**
+         * Privacy gate for every image sent online (Settings → "Send photos online", off by default).
+         * Set from AnswerPolicyStore by AndroBaselineRuntime. When false, no pixels leave the phone:
+         * vision calls return "" (the caller falls back to the phone) and image parts are stripped.
+         */
+        @Volatile @JvmStatic var photosOnlineAllowed: Boolean = false
         
         // Official Meta Llama API Models (https://api.llama.com/compat/v1/chat/completions)
         private const val PRIMARY_TEXT_MODEL = "Llama-4-Scout-17B-16E-Instruct-FP8"      // Meta Llama API, free 10 RPM 250K TPM
@@ -1346,6 +1353,7 @@ $candidateText
             return ""
         }
         if (authFailed) return ""
+        if (!photosOnlineAllowed) { Log.i(TAG, "VISION_CLOUD_BLOCKED reason=photos_online_off"); return "" }
 
         val prepared = prepareVisionImage(bitmap, detail)
         val jpeg = prepared.jpeg
@@ -1480,6 +1488,7 @@ $candidateText
             return ""
         }
         if (authFailed) return ""
+        if (!photosOnlineAllowed) { Log.i(TAG, "VISION_CLOUD_BLOCKED reason=photos_online_off"); return "" }
         val usable = bitmaps.filter { !it.isRecycled && it.width > 0 && it.height > 0 }.take(if (isGroqKey) GROQ_MAX_IMAGES else 5)
         if (usable.isEmpty()) return ""
 
@@ -1880,7 +1889,7 @@ $candidateText
                 val kept = org.json.JSONArray()
                 for (j in 0 until content.length()) {
                     val part = content.optJSONObject(j) ?: continue
-                    if (part.optString("type") == "image_url" && ++images > GROQ_MAX_IMAGES) continue
+                    if (part.optString("type") == "image_url" && (!photosOnlineAllowed || ++images > GROQ_MAX_IMAGES)) continue
                     kept.put(part)
                 }
                 messages.getJSONObject(i).put("content", kept)

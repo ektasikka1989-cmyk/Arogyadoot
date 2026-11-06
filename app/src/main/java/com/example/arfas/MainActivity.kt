@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
     private var metaKeySaved by mutableStateOf(false)
     private var answerPolicy by mutableStateOf(AnswerPolicy.LOCAL_FIRST)
     private var onlineBackup by mutableStateOf(false)
+    private var photosOnline by mutableStateOf(false)
     private var onlineVoice by mutableStateOf(false)
     private var knowledgeModeEnabled by mutableStateOf(false)
     private var knowledgePreselected by mutableStateOf(false)
@@ -337,6 +338,7 @@ class MainActivity : ComponentActivity() {
         androRuntime = runtimeGraph.runtime
         answerPolicy = androRuntime.answerPolicy()
         onlineBackup = androRuntime.onlineBackup()
+        photosOnline = androRuntime.photosOnline()
         onlineVoice = androRuntime.onlineVoice()
         phase1Features = runtimeGraph.phase1Features
         groqKeyStore = runtimeGraph.groqKeyStore
@@ -709,6 +711,11 @@ class MainActivity : ComponentActivity() {
                             onAnswerPolicyChanged = { policy ->
                                 answerPolicy = policy
                                 androRuntime.setAnswerPolicy(policy)
+                            },
+                            photosOnline = photosOnline,
+                            onPhotosOnlineChanged = { enabled ->
+                                photosOnline = enabled
+                                androRuntime.setPhotosOnline(enabled)
                             },
                             onlineBackup = onlineBackup,
                             onOnlineBackupChanged = { enabled ->

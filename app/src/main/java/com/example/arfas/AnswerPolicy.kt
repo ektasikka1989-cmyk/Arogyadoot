@@ -46,11 +46,23 @@ class AnswerPolicyStore(context: Context) {
         prefs.edit().putBoolean(KEY_ONLINE_VOICE, enabled).apply()
     }
 
+    /**
+     * Photos attached to a question may be sent to the online AI (Groq vision). Off by default:
+     * a photo can show a patient's face, name or card, so pixels leave the phone only after the
+     * user turns this on. Card, register and person photos are never sent (ArogyaPhotoVision).
+     */
+    fun photosOnline(): Boolean = prefs.getBoolean(KEY_PHOTOS_ONLINE, false)
+
+    fun setPhotosOnline(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_PHOTOS_ONLINE, enabled).apply()
+    }
+
     companion object {
         private const val PREFS = "fixsight_answer_policy"
         private const val KEY_ONLINE_VOICE = "meta_online_voice"
         private const val KEY_MODE = "mode"
         private const val KEY_ONLINE_BACKUP = "kb_online_backup"
+        private const val KEY_PHOTOS_ONLINE = "photos_online"
     }
 }
 

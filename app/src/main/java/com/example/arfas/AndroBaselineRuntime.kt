@@ -249,6 +249,12 @@ class AndroBaselineRuntime(
     fun answerPolicy(): AnswerPolicy = answerPolicyStore.get()
     fun onlineBackup(): Boolean = answerPolicyStore.onlineBackup()
     fun setOnlineBackup(enabled: Boolean) = answerPolicyStore.setOnlineBackup(enabled)
+    fun photosOnline(): Boolean = answerPolicyStore.photosOnline()
+    fun setPhotosOnline(enabled: Boolean) {
+        answerPolicyStore.setPhotosOnline(enabled)
+        GroqChatProvider.photosOnlineAllowed = enabled
+    }
+    init { GroqChatProvider.photosOnlineAllowed = answerPolicyStore.photosOnline() }
     fun onlineVoice(): Boolean = answerPolicyStore.onlineVoice()
     fun setOnlineVoice(enabled: Boolean) = answerPolicyStore.setOnlineVoice(enabled)
 
@@ -4394,11 +4400,14 @@ class AndroBaselineRuntime(
                     }
                     parts.joinToString("\n\n").take(14_000)
                 } else ""
-                val cloudEvidence = when {
+                val cloudEvidenceRaw = when {
                     attachmentCloudEvidence.isBlank() -> evidence
                     selectedKnowledgeProvider?.isSelected() == true -> evidence
                     else -> attachmentCloudEvidence
                 }
+                // Text read from a user's photo/PDF can hold phone, Aadhaar or e-mail details:
+                // they are removed before the evidence leaves the phone.
+                val cloudEvidence = if (turnAttachments.isNotEmpty()) ArogyaOnlinePolicy.scrubGeneric(cloudEvidenceRaw) else cloudEvidenceRaw
                 val originalFallbackBitmaps = turnAttachments
                     .flatMap { it.visionBitmaps }
                     .filter { !it.isRecycled && it.width > 0 && it.height > 0 }
@@ -7216,7 +7225,8 @@ class AndroBaselineRuntime(
             ).orEmpty()
             if (part.isNotBlank()) parts += part
         }
-        val baseEvidence = parts.joinToString("\n\n").ifBlank { fallbackEvidence }.take(18_000)
+        // Identifiers in attachment text (phone, Aadhaar, e-mail) never leave the phone.
+        val baseEvidence = ArogyaOnlinePolicy.scrubGeneric(parts.joinToString("\n\n").ifBlank { fallbackEvidence }.take(18_000))
         val coverageNote = buildString {
             append("[Attachment escalation: ").append(decision.category).append("]\n")
             append("Reason: ").append(decision.reason).append(".\n")

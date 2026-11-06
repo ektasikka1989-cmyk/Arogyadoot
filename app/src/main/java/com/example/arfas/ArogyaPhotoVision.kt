@@ -44,6 +44,12 @@ object ArogyaPhotoVision {
      */
     suspend fun transcribe(context: Context, bmp: Bitmap, lines: List<ArogyaTableOcr.Line>, kind: ArogyaPhotoText.Kind): String? = withContext(Dispatchers.IO) {
         val t = System.currentTimeMillis()
+        // Card, register and person photos carry names, phone numbers and faces: they never leave the phone.
+        // (Only Aadhaar boxes could be blacked out, so masking was not enough.) Medicine labels may go online.
+        if (kind != ArogyaPhotoText.Kind.MEDICINE) {
+            Log.i(TAG, "AROGYA_PHOTO_VISION kind=$kind skipped=identifiable_local_only")
+            return@withContext null
+        }
         val hidden = if (kind == ArogyaPhotoText.Kind.MEDICINE) emptyList() else ArogyaPhotoText.hiddenBoxes(lines)
         val safe = blackout(bmp, hidden)
         val scale = 1600f / maxOf(safe.width, safe.height)

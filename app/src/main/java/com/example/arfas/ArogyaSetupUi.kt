@@ -611,8 +611,8 @@ private fun KeyPage(hindi: Boolean, saved: Boolean, onChanged: () -> Unit) {
                 else { ok = false; result = tr("This phone could not store the key securely. Try again; if it keeps failing, restart the phone.", "यह फ़ोन key सुरक्षित सेव नहीं कर पाया। फिर कोशिश करें; बार-बार हो तो फ़ोन रीस्टार्ट करें।") }
             }) {
                 Text(tr("Save without testing", "बिना जाँचे सेव करें")) }
-            Text(tr("🔒 Stored encrypted on this phone only. Names, phone numbers and Aadhaar are removed before anything is sent online.",
-                "🔒 सिर्फ़ इसी फ़ोन पर सुरक्षित (एन्क्रिप्टेड)। ऑनलाइन भेजने से पहले नाम, फ़ोन नंबर और आधार हटाए जाते हैं।"),
+            Text(tr("🔒 Stored encrypted on this phone only. Before text is sent online, the visit's names and any phone or Aadhaar numbers are removed. Card, register and patient photos never leave the phone.",
+                "🔒 सिर्फ़ इसी फ़ोन पर सुरक्षित (एन्क्रिप्टेड)। ऑनलाइन भेजने से पहले विज़िट के नाम और फ़ोन/आधार नंबर हटाए जाते हैं। कार्ड, रजिस्टर और मरीज़ की फ़ोटो फ़ोन से बाहर नहीं जाती।"),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
