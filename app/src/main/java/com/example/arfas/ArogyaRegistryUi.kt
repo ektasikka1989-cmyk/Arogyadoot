@@ -703,8 +703,7 @@ private fun McpCardDialog(hindi: Boolean, b: Beneficiary, data: RegistryData, vi
     }
     val shoot = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> val u = shotUri; shotUri = null; if (u != null) { if (ok) readUri(u, true) else runCatching { context.contentResolver.delete(u, null, null) } } }
     val camPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { g ->
-        if (g) { val u = runCatching { context.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, android.content.ContentValues().apply {
-            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "mcp_${System.currentTimeMillis()}.jpg"); put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg") }) }.getOrNull()
+        if (g) { val u = ArogyaCameraFiles.newPhotoUri(context, "mcp")
             if (u != null) { shotUri = u; ArogyaPhotoGuard.hold(context); runCatching { shoot.launch(u) } } }
     }
     val pickCard = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) readUri(u, false) }

@@ -767,9 +767,7 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
     }
     val camPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { g ->
         if (g) {
-            val u = runCatching { context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "demo_${System.currentTimeMillis()}.jpg")
-                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg") }) }.getOrNull()
+            val u = ArogyaCameraFiles.newPhotoUri(context, "demo")
             if (u != null) { shotUri = u; ArogyaPhotoGuard.hold(context); runCatching { shoot.launch(u) } }
         }
     }

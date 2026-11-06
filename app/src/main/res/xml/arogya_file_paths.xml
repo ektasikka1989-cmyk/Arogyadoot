@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shared through FileProvider (authority ${applicationId}.files) only one URI at a time:
+     camera captures (private cache) and exports on Android 7–9 (app-specific Downloads). -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+    <external-files-path name="exports" path="Download/" />
+</paths>

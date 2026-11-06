@@ -378,8 +378,7 @@ fun ArogyaVisitScreen(
     }
     fun launchPhoto() {
         // Full-resolution photo (the preview thumbnail is too small to read a card).
-        val uri=runCatching { context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME,"arogya_${System.currentTimeMillis()}.jpg"); put(MediaStore.Images.Media.MIME_TYPE,"image/jpeg") }) }.getOrNull()
+        val uri=ArogyaCameraFiles.newPhotoUri(context,"arogya")
         if(uri==null) { toast("Camera unavailable. Choose a photo instead."); return }
         photoUri=uri
         ArogyaPhotoGuard.hold(context); runCatching { takePhoto.launch(uri) }.onFailure { deleteTemp(uri); photoUri=null; toast("Camera unavailable. Choose a photo instead.") }

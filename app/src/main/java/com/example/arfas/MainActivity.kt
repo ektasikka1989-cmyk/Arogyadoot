@@ -1253,16 +1253,11 @@ class MainActivity : ComponentActivity() {
 
     private fun createQuickPhotoUri(): Uri? {
         return try {
-            // Use a normal MediaStore row rather than an IS_PENDING row. Some Samsung
-            // Camera builds crash when ACTION_IMAGE_CAPTURE is given a pending output URI.
-            // ActivityResultContracts.TakePicture() still grants temporary write access,
-            // and we delete this temporary row after stageUri() has cached the source.
-            val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "fixsight_${System.currentTimeMillis()}.jpg")
-                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            }
-            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                ?: return null
+            // Private cache file shared through FileProvider (not the public Gallery): no backup
+            // upload, nothing left behind, and no storage permission needed on Android 7–9.
+            // ActivityResultContracts.TakePicture() grants the camera app temporary write access,
+            // and we delete this file after stageUri() has cached the source.
+            val uri = ArogyaCameraFiles.newPhotoUri(this, "fixsight") ?: return null
 
             // Fail before launching an external camera if the target cannot actually be
             // opened for writing on this device/provider implementation.
