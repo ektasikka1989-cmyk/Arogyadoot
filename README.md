@@ -1,254 +1,212 @@
-<p align="center"><img src="tools/icon/pramaan_icon_1024.png" alt="ArogyaDoot icon" width="120"></p>
+# ArogyaDoot
 
-<h1 align="center">ArogyaDoot</h1>
+**An offline-first Android field assistant for community health workers.**
 
-<p align="center"><strong>An offline-first AI co-worker for India's ASHA community health workers.</strong><br>
-Ask an official SOP. See the exact source and page. Turn a home visit into accountable follow-up — even without a mobile signal.</p>
+ArogyaDoot helps Accredited Social Health Activists (ASHAs) find relevant guidance in health programme documents, organize household visits, capture field observations, and plan follow-up work. It combines an on-device knowledge base with AI-assisted search and drafting, while keeping the health worker in control of every record and action.
 
-<p align="center">
-  <img alt="Android" src="https://img.shields.io/badge/Android-7.0%2B%20arm64-3DDC84">
-  <img alt="Offline first" src="https://img.shields.io/badge/offline--first-yes-168A45">
-  <img alt="Llama 3.2 on device" src="https://img.shields.io/badge/Meta-Llama%203.2%20on%20device-0969DA">
-  <img alt="Meta Model API" src="https://img.shields.io/badge/Meta-Muse%20Spark%20%C2%B7%20Muse%20Voice%20%C2%B7%20SAM%203.1-0969DA">
-  <img alt="Licence" src="https://img.shields.io/badge/code-MIT-lightgrey">
-</p>
+> **Development status:** Active prototype. This repository documents an evolving Android application. Features and model integrations must be verified on the target device before field use. ArogyaDoot is an assistive workflow tool, not a medical device or a substitute for clinical judgment.
 
-> **Prototype — fictional records only.** ArogyaDoot supports trained frontline workers; it is not a diagnostic device, does not replace clinical judgment, and is not approved for live patient records. The demo people and records are synthetic.
+## Verification status
 
-| Explore | Link or status |
-|---|---|
-| 🎬 **Three-minute demo** | [▶ Demo video — 3 minutes](https://www.youtube.com/shorts/ZJPV7phtfXA) (recorded on the Pramaan build this project was forked from; same workflows) |
-| 📱 **Android APK** | Build locally — [install and test](#try-the-prototype) (~700 MB) |
-| 📚 **Models and setup** | [MODELS.md](MODELS.md) · **[Model pack, primary link](https://pub-c8d63c87f3ff45c6919a4bdeb91cb247.r2.dev/Pramaan_Meta_Models.zip)** · [Model pack, standby link](https://huggingface.co/datasets/EktaSikka/Pramaan_Meta_Models/resolve/main/Pramaan_Meta_Models.zip?download=true) (approximately 3.3 GB) |
-| 🔒 **Data handling** | [PRIVACY.md](PRIVACY.md) — what is stored, what leaves the phone and when |
-| 🧬 **Origin** | Forked 5 Nov 2026 from [Pramaan](https://github.com/ektasikka1989-cmyk/Pramaan) (Meta Global AI Developer Hackathon 2026 entry) as an independent app (`com.arogyadoot.app`) and repository |
+The current AI engine (offline Gemma 3n + optional Groq Qwen cloud) is **code-complete and build-verified**: `gradlew :app:assembleDebug` succeeds and the APK installs as `com.arogyadoot.app` / `ArogyaDoot`. The following are **not yet proven on a device** and must not be described as working until they are:
 
-## The problem: one frontline worker, hundreds of decisions
+- Downloading the Gemma bundle from the owner URL, loading the `.litertlm` file, and running text inference through the LiteRT runtime on a phone (including load time and RAM behavior on a 6 GB device).
+- Offline image understanding through Gemma vision.
+- The Groq model id `qwen/qwen3.8-27b` existing on a given account (confirm via the authenticated Groq Models API), and end-to-end cloud text generation, streaming, Hindi/Hinglish handling, and error behavior.
+- Cloud photo reading (whether the Groq model consumes the `image_url` parts the app sends). If it does not, cloud vision will be marked unavailable rather than worked around.
+- Live microphone dictation runs (speech appears inline in the field; host-tested cursor logic only so far).
 
-India's National Health Mission relies on about **ten lakh (one million) ASHAs** (Accredited Social Health Activists). The commonly cited planning norm is approximately **one ASHA per 1,000 rural residents**, although actual workloads vary: she tracks every pregnancy, newborn and young child in her area and connects families to the ANM and the health centre. For families depending on her, a missed immunisation follow-up, an unrecorded pregnancy visit or a delayed referral can matter. Across lakhs of workers, small improvements in everyday work could benefit **many lakhs of people**; this is the potential reach, **not a measured outcome** of ArogyaDoot.
+Speech recognition is on-device Whisper only; cloud transcription is retired. Drug-kit counting is the on-phone counter or tap-to-count; cloud counting is retired. Details: `GEMMA_MIGRATION_REPORT.md`, `GROQ_QWEN_INTEGRATION_REPORT.md`, `REGRESSION_REPORT.md`, `VISION_VERIFICATION.md`, `VOICE_INPUT_REGRESSION.md`, `EMULATOR_MEMORY_RCA.md`.
 
-Her challenge is not simply answering a medical question:
+## What ArogyaDoot does
 
-1. **Guidelines keep growing and changing.** ASHAs work with hundreds of pages of training modules, SOPs, programme instructions and updates, often in different languages. Finding the applicable paragraph during a visit is difficult; checking whether an action agrees with it is harder.
-2. **Work is fragmented.** A single home visit can involve a paper visit form, the family's MCP card, multiple registers, stock records and future appointments. Duplicate writing makes missed entries and follow-ups more likely.
-3. **The family needs an explanation.** The worker must convert technical guidance into understandable Hindi or another local language, while making clear when a clinician or ANM is needed.
-4. **Handoffs need evidence and accountability.** An ANM or PHC needs a usable summary of what was observed, done, referred and left pending — not a disconnected pile of notes. A record of completed and due actions helps the worker review her own work too.
-5. **Connectivity cannot be assumed.** In a village without a signal, a cloud-only chatbot cannot reliably support a visit.
+### SOP guidance with evidence
 
-**ArogyaDoot's answer:** a source-citing **Ask SOP** assistant connected to a visit workflow, rather than a general chatbot — an **accountable fieldwork co-worker**. It helps the ASHA find guidance, inspect the evidence, capture a visit, review suggested entries, update records, track pending work, and prepare a summary for the ANM or PHC. The worker remains responsible for confirmation and escalation.
+- Search an installed knowledge base of health guidelines and standard operating procedures (SOPs).
+- Ask questions in plain language, including Hindi or mixed Hindi-English where supported by the active models and retrieval index.
+- Inspect source references and retrieved passages alongside AI-assisted answers.
+- Continue local retrieval without an internet connection after the required models and knowledge base have been installed.
 
-## How ArogyaDoot helps
+### Household visit workflow
 
-| | |
-|---|---|
-| 🗣 **Speak once, records update together** | One voice note (Hindi, English or mixed) fills the visit form for that person and visit — MCP card ANC / PNC / newborn pages, HBNC home visit (Annexure 9), HBYC, sick child, family planning. One confirmed save updates the MCP card, registers, drug-kit stock and next due date. Each value shows the words it came from. |
-| 📚 **Answers from the official guides** | Questions are answered from government ASHA modules stored on the phone, with the document, page and a one-tap PDF. |
-| 📷 **Paper records to digital** | Photos of a registration slip, register page, MCP card or medicine strip are read and shown for confirmation. Doubtful values are flagged ("Mobile has 9 digits — check it"), unreadable fields are listed, and unrelated photos are reported as the wrong document. |
-| 🚨 **Danger signs by fixed rules** | Newborn, pregnancy, mother and sick-child danger signs are checked by rules taken from the official guides (not by an AI model), leading to a referral and a ready WhatsApp message for the ANM. |
-| 💊 **Registers and drug kit** | Village, pregnancy (ANC), immunization and couple registers; stock register with low-stock alerts, refill request, medicine-strip scan and SAM 3.1 counting; monthly summary. |
+- Organize household and visit information.
+- Record field observations and visit notes.
+- Plan and review follow-up actions.
+- Prepare reports or shareable summaries using available export functions.
 
-## The signature feature: Ask SOP — guidance with proof
+### Assisted data entry
 
-Ask a question in **Hindi, English or Hinglish** — for example, *“What newborn danger signs require urgent referral?”* ArogyaDoot searches its locally stored government-guide knowledge base and presents:
+- Dictate text into supported fields using on-device speech recognition (Whisper). There is no cloud transcription path.
+- Capture information from documents and registers using on-phone OCR (ML Kit, Latin + Devanagari) and geometry-aware table processing.
+- Review and correct extracted fields, particularly handwriting and table columns, before saving.
 
-- a concise, task-relevant response drawn from the **local knowledge base of 68 official documents** (5,389 passages) stored on the phone;
-- the **source document, specific page and supporting passage** so the ASHA can check what the guidance actually says;
-- access to the underlying PDF when available, highlighted supporting passages showing the exact sentences the answer came from, plus follow-up questions;
-- an optional **Check online** route for eligible cloud use, clearly distinguished from the offline source answer.
+### Local and online AI
 
-This is more than a citation pasted beneath an AI reply: the intended workflow is **ask → inspect source → decide with professional judgment → record action → review follow-up**. A citation makes verification possible; it **does not guarantee that an answer is clinically correct**. Current local content must be updated when official guidance changes.
+- **Offline:** Gemma 3n E2B using the Google LiteRT-LM runtime, subject to compatible Android hardware and successful local model initialization. Device verification is still pending (see above).
+- **Online (optional):** Groq-hosted Qwen 3.8 27B, configured by the user with their own Groq API key. The model id is pending confirmation against the Groq account. A Together AI / Muse Glimmer preset remains selectable with its own key.
+- **Retrieval:** The application retrieves knowledge-base evidence before generating source-grounded explanations.
 
-### The 68-document official-guidance knowledge base
+The online provider is optional. A missing or invalid Groq API key must not prevent use of available offline functions.
 
-ArogyaDoot's demonstration knowledge base contains **68 official health-worker reference documents** as displayed in the app. The documents are indexed locally for retrieval. The **Ask SOP** workflow searches relevant passages, re-ranks evidence, generates an answer with **Meta Llama 3.2 3B** offline, and displays the **specific document, page and supporting excerpt**, with the underlying document available to open. Source traceability is the central design feature: the worker can verify what a guideline says even without mobile data. The document collection is a prototype snapshot and should not be mistaken for a guarantee that all official guidance is current.
+## Typical workflow
 
-## See ArogyaDoot working on a real Android phone
+1. Open or create a household visit.
+2. Ask a question about an approved guideline or SOP.
+3. Review the retrieved source passage and the assistant's explanation.
+4. Record an observation or action, correcting any dictated or OCR-extracted text.
+5. Save the visit and plan the next follow-up.
 
-Screenshots below are from the working prototype, using fictional demonstration records. (Some were captured on the Pramaan build; the screens are the same apart from the brand name.) The most distinctive capability is **Ask SOP: an offline answer with an inspectable official document, page number, highlighted supporting passage and a button to open the source PDF.** This allows the ASHA to check the evidence rather than trusting a free-standing AI answer.
-
-| ASHA dashboard: due and overdue visits | Household and patient records |
-|---|---|
-| <img src="docs/screenshots/01-dashboard.jpg" alt="ASHA dashboard with upcoming and overdue visits" width="320"> | <img src="docs/screenshots/02-people.jpg" alt="People grouped by household" width="320"> |
-
-### Ask SOP — answer, page citation and highlighted original passage
-
-The demonstration asks *“What should be applied on the baby's cord stump?”* The local model creates a structured answer, then shows the retrieved evidence including **Integrated ASHA Training Module — Part B, p.18** and a second official source. Opening the citation reveals the exact highlighted lines. The user can inspect the original PDF.
-
-| Ask the question | Offline answer and named source | Highlighted passage from the official guide |
-|---|---|---|
-| <img src="docs/screenshots/03-ask-sop-question.jpg" alt="Ask SOP question" width="270"> | <img src="docs/screenshots/04-offline-sop-answer.jpg" alt="Offline SOP answer with named source and page" width="270"> | <img src="docs/screenshots/05-source-evidence.jpg" alt="Highlighted supporting passage from official document" width="270"> |
-
-Additional retrieved evidence is visible in the [second-source screenshot](docs/screenshots/06-second-source.jpg).
-**Citations support verification; they do not guarantee that every generated statement is correct.** The ASHA must review the guidance and escalate concerning findings to the appropriate health professional.
-
-| Offline MCP card, exportable as PDF | One-time model setup, with manual ZIP import |
-|---|---|
-| <img src="docs/screenshots/07-mcp-card.jpg" alt="Generated MCP antenatal record PDF preview" width="320"> | <img src="docs/screenshots/08-model-setup.jpg" alt="Offline model setup and download" width="320"> |
-
-| Feature-to-model explanation inside the app | Illustrative task timings |
-|---|---|
-| <img src="docs/screenshots/09-meta-tools.jpg" alt="AI technologies used by workflow" width="320"> | <img src="docs/screenshots/10-workflow-timing.jpg" alt="Illustrative time comparisons" width="320"> |
-
-The in-app manual timings are **estimates**, not controlled measurements of time saved. App response times were measured on a test device and are not performance guarantees. The ≈43-minute potential saving is illustrative: no field study has validated this productivity claim, and actual results depend on the task, worker and device.
-
-## From one visit to an accountable workflow
-
-| At the doorstep | What ArogyaDoot helps do | What stays traceable |
-|---|---|---|
-| **Plan** | See due ANC, HBNC, HBYC, immunisation and missed visits | Person, visit type, due date, pending tasks |
-| **Capture** | Speak a Hindi/English note; read a slip or MCP card photo; suggest fields for the relevant form | Proposed values and their supporting note or extracted text |
-| **Verify** | Ask SOP with document/page citation; review fixed-rule danger-sign prompts | Source reference, worker review, referral decision |
-| **Explain** | Prepare family-friendly instructions in accessible language | Guidance the worker chooses to communicate |
-| **Record** | Confirm and save to linked visit forms, digital MCP-card sections, registers and drug-kit stock | Completed entries, quantities and next due date |
-| **Coordinate** | Prepare a referral or visit summary for an **ANM/PHC**, including a WhatsApp message where applicable | A shareable handoff; **sending is user-controlled**, not automatic government-system integration |
-| **Follow up** | Review upcoming visits, unresolved referrals, stock shortages, refill requests and monthly summaries | What is done, due, or still needs attention |
-
-ArogyaDoot includes document-based adaptations and application-specific fields. It is **not an officially endorsed government record system**. See the [form-by-form comparison](docs/forms_verification.md).
-
-## Three connected demonstration journeys
-
-The built-in **Home → Demo** presents fictional end-to-end examples. Each journey should be tested on the released APK before being described as fully verified on-device. Each screen shows its aim, runs the step live, and after every action lists what changed, with a button to open the real card, register, stock register or visit summary.
-
-| Scenario | Journey and outcome |
-|---|---|
-| **Pregnancy — Sarita, 10 weeks** | Read a registration slip → create village/pregnancy entries → capture ANC observations by voice → review suggested MCP/ANC fields → **Ask SOP** about pregnancy danger signs with a cited page → prepare a family explanation → confirm the record and next visit. |
-| **Newborn — Baby of Neha, day 7** | Read the MCP card → capture an HBNC visit → flag reported fever/poor feeding for urgent assessment → consult the cited newborn guide → prepare an ANM referral message → review linked HBNC, MCP and follow-up entries. |
-| **Sick child — Rohan, diarrhoea** | Capture symptoms → check danger signs and the relevant SOP → explain ORS guidance from the source → record worker-confirmed ORS/zinc stock usage where appropriate → trigger low-stock/refill workflow. |
-
-Other supported workflow areas include family planning, routine immunisation tracking, child growth records, village and pregnancy registers, repeat/missed visits, paper-to-digital OCR, medicine-strip scanning, stock counting, monthly reports, incentive estimates and daily practice. Feature behaviour and limitations are documented in the [handover](docs/HANDOVER.md) and [known gaps](docs/GAP_ANALYSIS.md).
-
-## Meta models make this practical
-
-ArogyaDoot combines **on-device Meta Llama** with the **Meta Model API models**, using each for a different part of the ASHA's work.
-
-| Model | Role | Connectivity |
-|---|---|---|
-| **Llama 3.2 3B Instruct (quantised)** | Locally grounded answers over retrieved SOP passages, draft form fields, family explanations and referral text | **On phone**, after one-time model installation |
-| **Muse Spark 1.3** | Optional cloud reasoning and writing over the same retrieved evidence; also a vision route for difficult photographed documents | **Online**, with a working Meta Model API key |
-| **Muse Voice Transcribe** | Optional Hindi/English or mixed-language speech transcription | **Online**, with a working key |
-| **SAM 3.1** | Optional object segmentation/counting for photographed drug-kit items, subject to worker confirmation | **Online**, with a working key |
-| **Muse Code** | Agentic coding assistant used to build the app (development tool, not a runtime model) | **Dev-time** |
-
-The app also uses **Whisper** for local speech recognition, **ML Kit** for local OCR, and **Android TextToSpeech** for reading aloud, and local search/re-ranking models to retrieve SOP passages. These are supporting components, not all Meta models. **Local first** and **Cloud first** selection, fallback indicators and actual cloud availability must be verified in the installed build. Offline capability refers to functionality **after the required local model/guide setup**; it is not a claim that every feature works before setup.
-
-### How Meta models are used
-
-| Meta model | Where it runs | Role in the visit | Code |
-|---|---|---|---|
-| **Llama 3.2 3B Instruct** (open weights, Q4_K_M) | On the phone (llama.cpp) | Answers from the guides, voice note → form, explanations, ANM message, daily practice, help reading slips — without internet | `LocalModelManager.kt`, `LlamaCppCore.kt`, `src/main/cpp/` |
-| **Muse Spark 1.3** | Meta Model API | The same tasks with higher quality when Cloud first is on, checked by the same grounding rules | `ArogyaVisitAi.route()`, `PocketRagEngine.kt` |
-| **Muse Spark 1.3 — vision** | Meta Model API | Reads whole photos (handwriting, any layout); Aadhaar numbers found on the phone are blacked out before sending | `ArogyaPhotoVision.kt`, `ArogyaPhotoText.kt` |
-| **Muse Voice Transcribe** | Meta Model API | Hindi / English / mixed voice notes | `ArogyaCloud.transcribe`, `MetaModelApi.kt` |
-| **SAM 3.1** | Meta Model API | Counts drug-kit items from a photo; the ASHA confirms the count | `SamCountDialog` (`ArogyaCloudUi.kt`) |
-
-**One setting for every AI step.** *Local first* uses the phone and the cloud only if the phone cannot answer; photos and audio never go online by themselves. *Cloud first* uses Meta's models and falls back to the phone with no signal, after 25 seconds, or if an answer fails its checks. The fallback is shown on the answer's label, for example *"Muse Spark — not used: no internet → Llama 3.2 on the phone"*.
-
-**Availability.** Offline: Meta Llama 3.2 3B runs on-device after the one-time model installation — local AI needs no cloud account. Online: Muse Spark 1.3, Muse Voice Transcribe and SAM 3.1 are optional integrations requiring supported API access, internet connectivity and service availability.
-
-### Feature-to-AI model map: offline and online
-
-**Meta technologies are highlighted in bold.** The table differentiates AI generation, document search, conventional OCR, Android services and fixed government-derived rules. Cloud features require a configured service and internet.
-
-| Feature | 📴 On the phone | ☁ Online / cloud |
-|---|---|---|
-| Speech to text | Whisper | **Meta Muse Voice Transcribe** |
-| Visit form from a voice note | Whisper + **Meta Llama 3.2 3B** + fixed-rule backup | **Meta Muse Voice** + **Meta Muse Spark 1.3** |
-| **Ask SOP: guide search, cited answer and original PDF** | Multilingual E5 retrieval + reranker + **Meta Llama 3.2 3B** | Retrieved official passages + **Meta Muse Spark 1.3** |
-| ANM message draft and family explanation | **Meta Llama 3.2 3B** | **Meta Muse Spark 1.3** |
-| Reading slips and MCP cards | Google ML Kit + rules + **Meta Llama 3.2 3B** | Sensitive identifiers stay local for applicable workflows |
-| Reading medicine strips | Google ML Kit + rules + **Meta Llama 3.2 3B** | **Meta Muse Spark 1.3** where configured |
-| Danger signs, schedules, stock, incentives | Fixed rules | Same (never AI) |
-| Registers, MCP card, PDF, WhatsApp text | ✅ | ✅ |
-| Drug-kit counting | By hand | **Meta SAM 3.1** when configured |
-| Daily learning and practice | **Meta Llama 3.2 3B** | **Meta Muse Spark 1.3** |
-| Read answers aloud | Android TextToSpeech | Android TextToSpeech |
-
-The application was developed and refined with **Meta Muse Code**. Model names describe the app's intended integrated paths; availability of online features depends on API credentials and service access.
-
-### How long does a response take?
-
-**Offline answers on the phone typically take 1–3 minutes, sometimes longer depending on the device and question.** One Ask SOP example took **225 seconds** (3 min 45 sec). **Cloud responses are generally faster when connected**, but speed varies with network and service conditions. Rule-based schedules, record viewing and PDF operations do not necessarily incur LLM generation time.
+## System overview
 
 ```mermaid
-flowchart LR
-    A["Voice note"] --> B{"Speech to text<br/>Muse Voice ☁ / Whisper 📴"}
-    P["Photo of slip or card"] --> Q{"Read the photo<br/>ML Kit + rules 📴 / Muse Spark ☁"}
-    B --> C{"Fill the form<br/>Muse Spark ☁ / Llama 3.2 📴"}
-    C --> D["Grounding check<br/>+ fixed-rule backup"]
-    D --> E["Danger-sign rules"]
-    E --> F["ASHA reviews and confirms"]
-    Q --> F
-    F --> G["One save: form · MCP card · registers · stock · next due date"]
+flowchart TD
+    A[Android field interface] --> B[Visit and follow-up workflows]
+    A --> C[Knowledge retrieval]
+    C --> D[Source passages and citations]
+    D --> E[Offline Gemma 3n E2B]
+    D --> F[Optional Groq Qwen]
+    E --> A
+    F --> A
+    A --> G[OCR and speech input]
 ```
 
-## Why offline changes the situation
+The AI model explains or structures information. The application maintains the source evidence and structured visit records. The health worker remains responsible for reviewing outputs.
 
-In a no-signal area, the worker should still be able to **find locally installed guidance and citations, capture the visit, review records, see due work and prepare the next action**. This does not eliminate the need for clinical referral or connectivity when a message must be sent. Offline records are not silently synchronised with any government portal.
+## Technology
 
-## A platform that could also serve ANMs
+| Layer | Technology |
+| --- | --- |
+| Mobile application | Android, Kotlin, Gradle |
+| Offline generative AI | Gemma 3n E2B, LiteRT-LM (`litertlm-android:0.16.1`) |
+| Optional online AI | Groq API, `qwen/qwen3.8-27b` |
+| Retrieval | Local knowledge-base indexing and evidence retrieval |
+| Document recognition | ML Kit OCR and geometry-aware table processing |
+| Speech | On-device Whisper speech recognition; Android TTS for read-aloud |
+| Local persistence | Android application storage and existing local repositories/databases |
 
-The same architecture — **role-specific knowledge base + cited guidance + forms + schedules + accountable handoffs** — could be adapted for **Auxiliary Nurse Midwives (ANMs)** and other frontline roles. An ANM version would need **more than swapping PDFs**: its own validated knowledge base, scope-of-practice rules, workflows, permissions, forms, training and clinical/privacy review. This is a **future extension**, not a completed ANM deployment.
+The project may retain compatibility-sensitive internal names inherited from its earlier code foundation. The Android package identifier is **`com.arogyadoot.app`**. The APK still packages the retired llama.cpp native runtime for rollback; it is not auto-selected (loads only under an explicit `LLAMA_ONLY` force in Advanced settings).
 
-## Safety, privacy and responsible use
+## Getting started
 
-- **Human review:** AI-generated form values are suggestions. The ASHA must verify source text, captured observations and actions before saving. Doubtful values are flagged, never silently corrected.
-- **Grounding:** a form value is kept only if its evidence is in the ASHA's words (or the document's text) and its numbers appear in that evidence; fixed rules fill vitals and medicines the model misses. Guide answers are checked against the retrieved passages. Fields that could not be read are shown as "not captured" rather than guessed.
-- **Clinical boundaries:** Rule-based danger-sign prompts can miss information not captured in a note. They do not replace examination, judgement or urgent referral protocols. Clinical content has not been independently reviewed by a clinician for this prototype.
-- **Source boundaries:** Retrieved government material may be old or incomplete; cited pages allow inspection but do not establish current approval.
-- **Fictional-data prototype:** Do not enter identifiable real patient information in this build.
-- **Cloud disclosure:** If enabled, Meta Model API may receive selected text, audio, images and retrieved passages. Identifier filtering and photo redaction are risk-reduction mechanisms, **not guarantees of anonymity**. See [PRIVACY.md](PRIVACY.md).
-- **Records stay on the phone**, encrypted, with an optional password-protected backup file the ASHA saves where she chooses.
-- **No official integration claimed:** ANM/PHC handoff is a worker-controlled summary/message, not direct write access to RCH or government systems.
+### Requirements
 
-## Try the prototype
+- Android Studio with a compatible Android SDK and build tools.
+- JDK and Android Gradle Plugin versions specified by the checked-in Gradle files (currently AGP 9.2.1, Kotlin 2.0.21, JDK 17+).
+- The Android NDK/CMake toolchain specified by the project for native dependencies (currently NDK 26.1.10909125, CMake 3.22.1).
+- An ARM64 Android device for native model testing (the app builds for `arm64-v8a` only). Emulator compatibility depends on its ABI, memory allocation, graphics backend, and native libraries.
+- Sufficient device storage and RAM for the chosen local model.
 
-**Requirements:** Android 7.0+ (arm64); APK ≈ 700 MB; offline model pack ≈ 3.3 GB, installed once; Wi-Fi recommended; at least **7 GB free storage** during setup; about **6 GB RAM** recommended. Download and installation time varies with device and network.
+The project has been configured with a minimum Android SDK level of 24 and compile/target SDK 36. Check the current Gradle configuration for the authoritative version requirements.
 
-1. **Build the APK:** run `gradlew.bat :app:assembleDebug` (5–10 minutes), then install `app\build\outputs\apk\debug\app-debug.apk` on the phone and allow installation ("install unknown apps"). Or run `_work\run\build_install.bat`, which also pushes the guide database. Verify the installed build on-device before relying on it.
-2. **Setup:** Install the offline model pack and guide database through the in-app setup flow (model pack: the **primary Cloudflare R2 link** is tried first, the **Hugging Face standby link** only if it fails — see above). A Meta Model API key is optional for online model features; availability and billing are determined by Meta. The setup wizard has three steps, each of which can be skipped: offline AI models (~3.3 GB, Wi-Fi recommended, or choose a ZIP already on the phone), health guide (installed from inside the app), and Meta API key ("Create a key" opens [dev.meta.ai](https://dev.meta.ai/); paste and tap **Test and save**). After installation, grant microphone access for voice input and test speech playback — **Android does not require a separate speaker permission**.
-3. **Demo:** Open **Home → Demo** with fictional data. First test installed local guidance and an Ask SOP citation in airplane mode; then test any configured cloud pathway separately. Tap the ✨ label on any answer to see which model produced it.
-4. **Proof:** Check the cited PDF/page, confirm changes in the linked record and inspect the pending visit/referral/stock summary.
-
-For sample input images and expectations, see [synthetic test-photo prompts](docs/TEST_PHOTO_PROMPTS.md). Performance measurements and remaining gaps are in [benchmark notes](docs/benchmark/final.md) and [GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md).
-
-**Why the APK is ~700 MB:** it carries the assets that let the app work offline — speech recognition (Whisper), the multilingual search and re-ranking models that find the right page in the guides, the official guide database and the native AI runtimes (llama.cpp, ONNX Runtime, ML Kit). Only the 3.3 GB language model pack is downloaded separately, so it can be fetched on Wi-Fi.
-
-## Architecture, testing and source
-
-- Android application with llama.cpp on-device inference, Whisper speech-to-text, ML Kit OCR, SQLite-based guide retrieval, multilingual embeddings/re-ranking, rule-backed forms and optional Meta Model API calls.
-- One router for every AI action (`ArogyaVisitAi.route()`): Local first / Cloud first, time limits, automatic fallback with a recorded reason.
-- Setup uses Android DownloadManager (background, resume, Wi-Fi only) and a streaming zip installer.
-- The repository includes [form verification](docs/forms_verification.md), [verified-QA material](docs/verified_qa/), [host tests](tools/host-tests/) and a [developer handover](docs/HANDOVER.md). Host-test results do **not** prove complete Android or clinical validation.
-- The supplied source may require separately licensed, large local assets to produce an equivalent APK; see [MODELS.md](MODELS.md).
-
-```
-app/src/main/java/com/example/arfas/   Arogya*.kt = ArogyaDoot's code; the rest = on-device AI platform (llama.cpp, RAG, Whisper, OCR, Meta API)
-app/src/main/cpp/                      llama.cpp JNI bridge
-app/src/main/assets/                   guide database, document templates, growth tables
-docs/                                  product and code guide (HANDOVER), forms evidence, verified Q&A, benchmarks
-tools/                                 host tests, icon script, demo photo generator
-```
-
-Developer guide: [`docs/HANDOVER.md`](docs/HANDOVER.md) · documentation index: [`docs/README.md`](docs/README.md).
+### Build from source
 
 ```bash
-git clone https://github.com/<owner>/Arogyadoot.git
+git clone https://github.com/ektasikka1989-cmyk/Arogyadoot.git
 cd Arogyadoot
-./gradlew :app:assembleDebug
 ```
 
-(Replace `<owner>` with the publishing GitHub account once the repository is created — see `MIGRATION_REPORT.md`.)
+On Windows:
 
-Requirements and detailed build guidance: Android Studio, Android SDK 36, JDK 17, NDK 26.1.10909125 and CMake; see the [handover](docs/HANDOVER.md). Build success should be confirmed in the target environment.
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
 
-## Project history and current status
+The debug APK is normally generated at:
 
-ArogyaDoot was forked on 5 Nov 2026 from **Pramaan** (built 26 October–4 November 2026 around existing local inference and retrieval foundations, with ASHA-oriented visit planning, linked forms/MCP/registers, the Ask SOP citation experience, speech and photo capture, danger-sign and follow-up rules, stock/referral/report workflows, the Local/Cloud routing layer, Meta model integrations, setup and tests). The fork changed only the application identity and branding — new app ID `com.arogyadoot.app`, user-visible strings, and project documentation — with no behavior changes. [Development batch reports](docs/batch_reports/) and the [migration report](MIGRATION_REPORT.md) document the work.
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
 
-**Current status:** prototype. The rebrand builds cleanly (see [BUILD_VERIFICATION.md](BUILD_VERIFICATION.md)); side-by-side installation next to Pramaan still needs a device check. Expanded field, accessibility, clinical and privacy validation are future work. Planned but not implemented: JUnit conversion of host tests, two-model cross-check, ANM adaptation (needs its own validated knowledge base and review — see above).
+To install with Android Debug Bridge (ADB):
 
-## Sources, credits and status
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-Content is drawn from ASHA/NHM/MoHFW and related official publications; see [forms evidence](docs/forms_verification.md) and the source information supplied in the guide database. Each guide answer cites its document and page. The documentation may not be the latest version for every programme or state. ArogyaDoot is not affiliated with or endorsed by MoHFW, NHM, or Meta.
+An upgrade install preserves app data only when the application ID and signing certificate are compatible. **Do not uninstall or clear application data if existing field records or downloaded models must be retained.**
 
-ArogyaDoot application code: [MIT License](LICENSE), subject to third-party notices. **Built with Llama.** Llama 3.2 has a separate [Meta Llama Community License](https://www.llama.com/llama3_2/license/), Copyright © Meta Platforms, Inc. Other components and model weights retain their respective licences (whisper.cpp / Whisper: MIT · ONNX Runtime: MIT · Sherpa-ONNX: Apache-2.0 · multilingual-e5-small: MIT · mMiniLMv2 re-ranker: Apache-2.0 · Google ML Kit: Google's terms); see [MODELS.md](MODELS.md).
+### First-run setup
+
+1. Grant only the permissions required for the feature you intend to use.
+2. Download the offline Gemma model through the app's model setup screen.
+3. Install or attach the supported SOP knowledge base, if not already present (the guide database ships with the app; if it is missing, place `ASHA_Health_Guide_v2.db` in Downloads and tap Retry).
+4. Wait for model and knowledge-base readiness checks.
+5. Optionally enter a personal Groq API key in AI Settings and test the connection.
+6. Try an offline SOP question and verify that its cited passage opens correctly.
+
+#### Offline model
+
+The configured model artifact is:
+
+`gemma-3n-E2B-it-int4.litertlm`
+
+[Gemma model download](https://huggingface.co/datasets/EktaSikka/Gemma/resolve/main/gemma-3n-E2B-it-int4.litertlm?download=true)
+
+Download the model using the application's installer. Large model files are intentionally excluded from Git. The installer validates the exact file name and expected size (about 2 GB) and rejects HTML error pages; the model itself loads on first use. On-device load and inference are still pending verification.
+
+#### Optional Groq configuration
+
+- Provider: Groq
+- Model: `qwen/qwen3.8-27b` (confirm availability on your account via the Groq Models API)
+- API endpoint: `https://api.groq.com/openai/v1`
+
+Use your own Groq API key. Never add keys to source files, Gradle configuration, issue reports, screenshots, or Git commits. Model availability, usage limits, and pricing are controlled by Groq and may change.
+
+## Privacy and responsible use
+
+- Use synthetic records when demonstrating or testing the software.
+- Obtain appropriate consent and organizational permission before collecting real health information.
+- Avoid transmitting identifiable patient data to cloud AI services unless an approved workflow and explicit consent permit it.
+- Text sent to the cloud passes through identifier scrubbers, and detected Aadhaar-number areas are blacked out on the phone before a photo is sent. These are risk-reduction mechanisms, not guarantees of de-identification.
+- Voice audio never leaves the phone: transcription is on-device Whisper only.
+- Treat AI answers as assistance in locating and understanding approved sources, not as independently validated clinical instructions.
+- Verify the original guideline, its applicability, and the current local care protocol before acting.
+- Review dictated text and OCR-extracted values before saving. Handwritten Hindi text and complex register columns remain challenging.
+- Protect the Android device, local records, backups, and any exported reports.
+
+## Current limitations
+
+- AI answers can be incomplete or incorrect. Citation presence alone does not prove medical correctness.
+- Handwriting recognition and register row/column mapping require continued testing.
+- Offline generative inference is sensitive to device RAM, accelerator support, and model size.
+- Some native dependencies require validation for Android devices using 16 KB memory pages.
+- Online features depend on network connectivity, API-key validity, and provider availability.
+- Formal clinical efficacy and field time-saving benefits have not been established.
+- The Gemma offline path and the Groq online path have not yet been exercised end to end on a device; cloud photo reading in particular is unproven.
+- `MODELS.md`, `PRIVACY.md`, and the third-party note in `LICENSE` still describe the retired Llama/Meta engine and must be updated before any release notes quote them.
+
+## Development and verification
+
+Before submitting a change:
+
+1. Build the Android application.
+2. Run relevant automated tests.
+3. Test model initialization and inference on a representative physical Android device.
+4. Check SOP retrieval and source correctness.
+5. Test visit save/reopen, voice input, and document extraction.
+6. Confirm that no secrets, patient records, large models, generated APKs, or diagnostic dumps are staged.
+
+Build success establishes packaging and compilation, not full functionality. Report tests as passed, failed, or not run.
+
+## Repository organization
+
+The precise folder structure may change as modules evolve. Key areas include the Android `app` module, speech/native support modules, Gradle configuration, documentation, and project-specific test scripts. See `docs/HANDOVER.md`, `AGENTS.md`, and the current verification reports where present.
+
+## Reporting issues
+
+When reporting a problem, include:
+
+- Application version or commit hash.
+- Android version, device model, RAM, and CPU ABI.
+- Reproduction steps and expected/actual behavior.
+- Relevant redacted logs or screenshots, if available.
+
+**Never include an API key, personal health information, or unredacted patient documents.**
+
+## Project status and licensing
+
+ArogyaDoot is under active development. Application code is under the MIT License — see [LICENSE](LICENSE). Models, datasets, and third-party libraries keep their own licenses; review them before redistributing or deploying.
+
+---
+
+**ArogyaDoot** · Built by Team AVM: Ekta Sikka, Vaibhav Sikka, and Aryan Kalra.
