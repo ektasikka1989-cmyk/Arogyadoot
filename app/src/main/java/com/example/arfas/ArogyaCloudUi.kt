@@ -89,6 +89,8 @@ object ArogyaCloud {
     fun togetherKey(c: Context) = ArogyaKeyVault(c.applicationContext, "together").get()
     /** The Groq key saved in ArogyaDoot's settings (GroqKeyStore). */
     fun groqKey(c: Context) = runCatching { GroqKeyStore(c.applicationContext).groqKey() }.getOrDefault("")
+    /** Online answers can run now: validated internet + a saved Groq key. (MetaOnline.ready() needs the retired Meta key.) */
+    fun groqReady(c: Context): Boolean = MetaOnline.hasInternet(c) && groqKey(c).isNotBlank()
     fun keyFor(c: Context, ep: ArogyaModelEndpoint) = when (ep.keyFor) {
         "together" -> togetherKey(c)
         "groq" -> groqKey(c)

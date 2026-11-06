@@ -25,7 +25,7 @@ fun main() {
     a(!noKeys[0].cloudOk && noKeys[0].cloud == "—", "voice has no cloud column: '${noKeys[0].cloud}'")
     a(!noKeys[6].cloudOk && noKeys[6].active == 0 && noKeys[6].phoneOk, "count without cloud falls back to the phone counter")
     val noVision = ArogyaAiTable.rows(full.copy(metaKey = false, visionOk = false), false)
-    a(!noVision[6].phoneOk && noVision[6].phone.contains("models not installed") && noVision[6].active == -1, "count with neither engine: '${noVision[6].phone}'")
+    a(!noVision[6].phoneOk && noVision[6].phone.contains("vision not ready") && noVision[6].active == -1, "count with neither engine: '${noVision[6].phone}'")
     a(noKeys[1].active == 0, "cloud down -> phone highlighted as the active column")
     val off = ArogyaAiTable.rows(full.copy(online = false), false)
     a(!off[1].cloudOk && off[1].cloud.contains("(offline)"), "cloud text offline: '${off[1].cloud}'")
@@ -40,7 +40,7 @@ fun main() {
     val glimmerShown = ArogyaAiTable.rows(full.copy(cloudText = "Muse Glimmer 30B (Together AI)"), false)
     a(glimmerShown[1].cloud == "Muse Glimmer 30B (Together AI)", "Glimmer shown with Together key")
     // 5. Count row has both engines; read-aloud is phone-only; check-online is cloud-only.
-    a(rows[6].phone == "MobileSAM + DINOv2 (estimate)" && rows[6].cloud == "—" && !rows[6].cloudOk, "count row engines: '${rows[6].phone}' / '${rows[6].cloud}'")
+    a(rows[6].phone == "Gemma 3n vision (estimate) + taps" && rows[6].cloud == "—" && !rows[6].cloudOk, "count row engines: '${rows[6].phone}' / '${rows[6].cloud}'")
     a(rows[9].cloud == "—" && rows[9].active == 0, "read-aloud is phone-only, phone active")
     a(rows[4].cloud == "—" && !rows[4].cloudOk && rows[4].active == 0 && rows[4].safety.contains("never go online"), "card photo is phone-only, names never online")
     a(rows[3].phone == "—" && !rows[3].phoneOk && rows[3].cloud == "Qwen3.8 27B — Groq + official GoI websites (allowlist)" && rows[3].cloudOk,

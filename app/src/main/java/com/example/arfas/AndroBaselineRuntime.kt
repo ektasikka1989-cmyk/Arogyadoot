@@ -1307,8 +1307,8 @@ class AndroBaselineRuntime(
         val answer = when {
             frame == null -> if (hindi) "कैमरा से फोटो नहीं मिली। वस्तु को कैमरे के सामने रखकर फिर से कहें।"
                 else "I couldn't get a camera frame. Hold the item in front of the camera and say it again."
-            !metaVision.has(MetaModelStore.Component.DINOV2) -> if (hindi) "याद रखने के लिए DINOv2 मॉडल (ONNX) इंस्टॉल करना होगा।"
-                else "To remember items I need the DINOv2 model (ONNX) installed in Settings."
+            !metaVision.has(MetaModelStore.Component.DINOV2) -> if (hindi) "चीज़ों को फ़ोटो से याद रखना इस संस्करण में उपलब्ध नहीं है। आप उसे नाम से पूछ सकती हैं।"
+                else "Remembering items from the camera is not available in this version. You can ask about the item by name instead."
             metaVision.remember(label, frame) -> if (hindi) "याद रख लिया: \"$label\"। अगली बार कैमरे में दिखने पर मैं इसे पहचान लूँगा।"
                 else "Saved. I'll recognise \"$label\" the next time it is in front of the camera. (Teach it 2–3 times from different angles for better recognition.)"
             else -> if (hindi) "इसे याद नहीं रख पाया। फिर से कोशिश करें।" else "I couldn't save that item. Please try again."

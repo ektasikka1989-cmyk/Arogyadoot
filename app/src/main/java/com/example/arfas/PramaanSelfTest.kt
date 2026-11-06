@@ -90,15 +90,15 @@ object PramaanSelfTest {
 
             // ── Model files + engine ─────────────────────────────────────────────
             val mfm = runtime.modelFileManager
-            mfm.metaStatus().forEach { g -> add(Check("Models", g.name, g.ready, 0, g.detail)) }
-            mfm.metaFile(MetaModelStore.Component.LLAMA)?.let { f ->
-                val ok = LlamaFileCheck.isComplete(f)
-                add(Check("Models", "Llama file complete", ok, 0, if (ok) "${f.name} ${f.length() / 1_000_000} MB" else LlamaFileCheck.lastReason))
-            }
+            // Gemma 3n is the only on-phone model (the Meta models and Llama are retired, so they are not checked).
+            val gemmaFile = mfm.gemmaModelFile()
+            add(Check("Models", "Gemma 3n file", gemmaFile != null, 0,
+                gemmaFile?.let { "${it.name} ${it.length() / 1_000_000} MB" } ?: "not installed — install it in Setup"))
             val lm = runtime.localModelManager
-            add(Check("Llama", "loaded", lm?.isReady == true, 0,
+            add(Check("Gemma", "loaded", lm?.isReady == true, 0,
                 if (lm?.isReady == true) "${lm.engineName} • ${lm.loadedModelFileName} • ctx ${lm.resolvedModelContextTokens}" else (lm?.lastLoadError ?: "no local model manager")))
-            lm?.llamaSystemInfo?.takeIf { it.isNotBlank() }?.let { add(Check("Llama", "CPU features", true, 0, it.take(160))) }
+            add(Check("Gemma", "vision ready", lm?.isReadyForVision == true, 0,
+                if (lm?.isReadyForVision == true) "photos, cards and handwriting can be read on the phone" else "vision executor not available — photos use ML Kit text only"))
 
             // ── Voice components ─────────────────────────────────────────────────
             val whisperDir = File(context.filesDir, "whisper")
@@ -144,14 +144,15 @@ object PramaanSelfTest {
             // ── Camera models directly ───────────────────────────────────────────
             val photo = orsPacketImage()
             val visStart = System.currentTimeMillis()
-            val obs = runCatching { withTimeoutOrNull(60_000) { runtime.metaVision.observe("what is written on this packet", photo) } }.getOrNull()
+            val ocrText = runCatching { withTimeoutOrNull(60_000) { MLKitProcessor().let { p -> try { p.recognizeText(photo) } finally { runCatching { p.close() } } } } }.getOrNull()
             val visMs = System.currentTimeMillis() - visStart
-            if (obs == null) {
-                add(Check("Camera", "Meta vision + OCR", false, visMs, "observe failed or timed out"))
-            } else {
-                add(Check("Camera", "OCR reads printed text", obs.text.contains("ORS", ignoreCase = true), visMs, "read: \"${obs.text.replace('\n', ' ').take(120)}\""))
-                add(Check("Camera", "Meta models used", obs.modelsUsed.isNotEmpty(), 0,
-                    "used ${obs.modelsUsed.joinToString()}" + if (obs.modelsMissing.isNotEmpty()) "; missing ${obs.modelsMissing.joinToString()}" else ""))
+            add(Check("Camera", "OCR reads printed text", ocrText?.contains("ORS", ignoreCase = true) == true, visMs,
+                if (ocrText == null) "OCR failed or timed out" else "read: \"${ocrText.replace('\n', ' ').take(120)}\""))
+            if (lm?.isReadyForVision == true) {
+                val gStart = System.currentTimeMillis()
+                val seen = runCatching { withTimeoutOrNull(90_000) { ArogyaLocalVision.describe(lm, photo) } }.getOrNull()
+                add(Check("Camera", "Gemma looks at a photo", !seen.isNullOrBlank(), System.currentTimeMillis() - gStart,
+                    seen?.replace('\n', ' ')?.take(120) ?: "no description"))
             }
 
             // ── Live camera turn (frame passed like the camera does) ─────────────
@@ -194,13 +195,13 @@ object PramaanSelfTest {
                 runCatching { am2.releaseTurnAttachments(claimed.map { it.id }, consumed = true) }
             }
 
-            // ── Online Meta AI (optional) ────────────────────────────────────────
+            // ── Online AI: Groq (optional) ────────────────────────────────────────
             if (runtime.isGroqKeyConfigured()) {
                 val t0 = System.currentTimeMillis()
                 val ok = runCatching { withTimeoutOrNull(30_000) { runtime.validateGroqConnection() } == true }.getOrDefault(false)
-                add(Check("Online", "Meta API key works", ok, System.currentTimeMillis() - t0, runtime.groqProviderStatus().name))
+                add(Check("Online", "Groq key works", ok, System.currentTimeMillis() - t0, runtime.groqProviderStatus().name))
             } else {
-                add(Check("Online", "Meta API key", false, 0, "not set (online features off — optional)"))
+                add(Check("Online", "Groq key", false, 0, "not set (online features off — optional)"))
             }
 
             // Leave the user in a clean chat with their KB setting restored.

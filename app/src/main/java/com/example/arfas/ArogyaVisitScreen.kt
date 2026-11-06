@@ -917,12 +917,13 @@ fun ArogyaVisitScreen(
                 // answer lands in its visit's thread and raises the "saved answer" badge.
                 fun runSavedChecks() {
                     if(savedBusy || aiBusy) return
-                    if(ArogyaOnlineQueue.list(context).isEmpty() || !MetaOnline.ready(context)) return
+                    // Groq readiness (the old MetaOnline.ready() needed the retired Meta key, so saved questions were never checked).
+                    if(ArogyaOnlineQueue.list(context).isEmpty() || !ArogyaCloud.groqReady(context)) return
                     savedBusy=true
                     scope.launch {
                         try {
                             for(q in ArogyaOnlineQueue.list(context)) {
-                                if(!MetaOnline.ready(context)) break
+                                if(!ArogyaCloud.groqReady(context)) break
                                 try {
                                     val visit=queue.state.value.visits.firstOrNull {it.id==q.visitId} ?: sopVisit
                                     val result=onRunAi(ArogyaAiRequest(ArogyaAiTask.EXPLAIN,visit,q.asked,hindi,"","",true))

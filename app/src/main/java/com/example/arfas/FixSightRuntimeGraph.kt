@@ -186,7 +186,7 @@ class FixSightRuntimeGraph private constructor(context: Context) {
                 val standby = runtime.modelFileManager.gemmaModelFile()?.takeIf { it.name != file.name }
                     ?: return@withLock false
                 Log.w(TAG, "RUNTIME_GRAPH_STANDBY_GEMMA from=${file.name} to=${standby.name}")
-                onProgress?.invoke("Meta Llama did not load — starting Gemma instead")
+                onProgress?.invoke("The model did not load — trying the installed Gemma file")
                 runCatching { lm.unload() }
                 if (lm.permanentlyDisabled && (!lm.engineNeedsReload || !lm.prepareControlledReloadAfterQuarantine())) return@withLock false
                 val standbyOk = lm.loadModel(standby.absolutePath) { progress -> onProgress?.invoke(progress) }

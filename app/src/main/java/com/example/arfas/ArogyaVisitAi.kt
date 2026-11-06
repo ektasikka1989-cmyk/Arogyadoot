@@ -159,10 +159,8 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
     /** The on-phone Gemma model (its vision is used for photo descriptions and kit-count estimates). */
     fun localModel(): LocalModelManager? = runtime.localModelManager
 
-    /** True when the on-phone counter can run (DINOv2 + both SAM files installed). */
-    fun visionOk(): Boolean = runtime.metaVision.has(MetaModelStore.Component.DINOV2) &&
-        runtime.metaVision.has(MetaModelStore.Component.SAM_ENCODER) &&
-        runtime.metaVision.has(MetaModelStore.Component.SAM_DECODER)
+    /** True when the on-phone counting estimate can run: Gemma's vision is ready (the DINOv2/SAM counter is retired). */
+    fun visionOk(): Boolean = runtime.localModelManager?.isReadyForVision == true
 
     /** Structured twin of modelStatus() for the AI table: short loaded file name ("" when none) + ready flag. */
     fun modelInfo(): Pair<String, Boolean> {

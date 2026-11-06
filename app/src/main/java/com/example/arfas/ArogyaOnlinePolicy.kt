@@ -97,7 +97,7 @@ object ArogyaOnlinePolicy {
             }
         }
         if(!searched) return null
-        compose(buffer.toString(),cites,root.optString("model","Meta Muse Spark"),kb)
+        compose(buffer.toString(),cites,root.optString("model","Qwen3.8 27B (Groq)"),kb)
     }.getOrNull()
 
     /** Groq must expose both completed search execution and structured citation metadata.

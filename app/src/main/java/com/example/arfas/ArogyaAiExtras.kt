@@ -442,8 +442,8 @@ object ArogyaAiCatalog {
             "Qwen3.8 27B (Groq)", "Alibaba (open weights), via Groq", false, "Cloud, when online and a key is saved"),
         ArogyaAiFeature("Speak instead of typing — online", "Retired in this version: voice notes always use Whisper on the phone.",
             "—", "—", false, "Retired"),
-        ArogyaAiFeature("Count drug kit", "Counts items in a photo as numbered dots she fixes by tapping; the ASHA confirms the number before it goes in the register",
-            "MobileSAM + DINOv2 on the phone (estimate); tap-to-count always works", "Meta (open weights)", true, "On phone, offline"),
+        ArogyaAiFeature("Count drug kit", "Estimates how many items are in the photo; the ASHA taps each item, and her taps are the number that goes in the register",
+            "Gemma 3n vision on the phone (estimate); tap-to-count always works", "Google (open weights)", false, "On phone, offline"),
         ArogyaAiFeature("Scan medicine", "Reads a strip/box label and pulls out name, batch, expiry and quantity; only text on the label is kept, and the ASHA confirms the stock entry",
             "ML Kit text recognition + on-phone rules and model fill", "Google", false, "On phone, offline"),
         ArogyaAiFeature("Reading aloud", "Reads answers and the demo to the ASHA in Hindi or English",
@@ -556,8 +556,8 @@ object ArogyaAiTable {
                 }
                 2 -> {
                     val (box, ok) = "—" to false // cloud counting (SAM) retired
-                    val phoneBox = if (s.visionOk) tr("MobileSAM + DINOv2 (estimate)", "MobileSAM + DINOv2 (अनुमान)")
-                        else tr("MobileSAM + DINOv2 (models not installed)", "MobileSAM + DINOv2 (मॉडल नहीं हैं)")
+                    val phoneBox = if (s.visionOk) tr("Gemma 3n vision (estimate) + taps", "Gemma 3n दृष्टि (अनुमान) + दबाना")
+                        else tr("Tap to count (Gemma vision not ready)", "दबाकर गिनें (Gemma दृष्टि तैयार नहीं)")
                     val active = if (s.cloudFirst && ok) 1 else if (s.visionOk) 0 else -1
                     AiTableRow(d.icon, feature, does, phoneBox, box, s.visionOk, ok, active, safety)
                 }
