@@ -77,6 +77,8 @@ class GroqChatProvider(apiKey: String) {
         /** Groq engine (Settings → Online AI): Qwen3.8 27B for chat, knowledge answers and photos. */
         private const val GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
         const val GROQ_QWEN_MODEL = "qwen/qwen3.8-27b"
+        /** Output ceiling for guide answers online (the app's own budget decides below this). */
+        const val MAX_KB_OUTPUT_TOKENS = 4_096
         /** Qwen3.8 27B on Groq reads at most 3 images per request. */
         private const val GROQ_MAX_IMAGES = 3
         private val GROQ_MODEL_NAMES = mapOf(
@@ -149,7 +151,8 @@ class GroqChatProvider(apiKey: String) {
      */
     private val isGroqKey = this.apiKey.startsWith("gsk_")
     /** The model answering online, for the Settings screen. */
-    val engineLabel: String get() = when { apiKey.isBlank() -> "none"; isGroqKey -> "Groq · Qwen3.8 27B"; else -> "Meta · Muse Spark" }
+    // An old Meta key ("LLM|…") is not used by ArogyaDoot any more: say so instead of naming a retired model.
+    val engineLabel: String get() = when { apiKey.isBlank() -> "none"; isGroqKey -> "Groq · Qwen3.8 27B"; else -> "Unsupported key – add a Groq key" }
     private val endpoint = if (isGroqKey) GROQ_ENDPOINT else ENDPOINT
     /** Live web search: Groq's search models, or Muse Spark's web_search tool on the Meta Model API. */
     val webSearchAvailable: Boolean get() = apiKey.isNotBlank()
@@ -823,7 +826,9 @@ $candidateText
                     put("content", currentQuery.trim().take(8_000))
                 })
             })
-            put("max_tokens", maxOutputTokens.coerceIn(384, 1_280))
+            // 8 Nov 2026: up to 4,096 (was 1,280): full five-part, list, "More detail" and Hindi answers
+            // (Devanagari needs ~2.5x the tokens) were cut online.
+            put("max_tokens", maxOutputTokens.coerceIn(384, MAX_KB_OUTPUT_TOKENS))
             put("temperature", 0.15)
             put("top_p", 0.35)
             put("reasoning_effort", "none")
@@ -883,7 +888,7 @@ $candidateText
                     put("content", currentQuery.trim().take(8_000))
                 })
             })
-            put("max_tokens", maxOutputTokens.coerceIn(512, 1_280))
+            put("max_tokens", maxOutputTokens.coerceIn(512, MAX_KB_OUTPUT_TOKENS))
             put("temperature", 0.12)
             put("top_p", 0.35)
             put("reasoning_effort", "none")

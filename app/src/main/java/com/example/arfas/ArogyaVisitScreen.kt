@@ -1048,7 +1048,18 @@ fun ArogyaVisitScreen(
                             AssistChip(onClick={},label={Text("📎 "+qFiles.joinToString(", "),maxLines=1)},modifier=Modifier.weight(1f,fill=false))
                             TextButton(onClick={ai?.clearAttachments();qFiles=emptyList()},enabled=!aiBusy) {Text(tr("Remove","हटाएँ"))}
                         }
-                        Text(tr("A photo is added to your question. A PDF is answered from that PDF itself.","फ़ोटो सवाल के साथ गाइड में खोजी जाती है। PDF का उत्तर उसी PDF से आता है।"),style=MaterialTheme.typography.bodySmall)
+                        // 8 Nov 2026: a document (not a photo) attached → choose: answer from the ASHA guide, or from the document.
+                        if(ai?.hasDocumentAttached()==true) {
+                            var useGuideDoc by remember { mutableStateOf(ai?.useGuideWithDocument ?: true) }
+                            Row(verticalAlignment=Alignment.CenterVertically) {
+                                Switch(checked=useGuideDoc,onCheckedChange={ useGuideDoc=it; ai?.useGuideWithDocument=it },enabled=!aiBusy)
+                                Spacer(Modifier.width(8.dp))
+                                Text(if(useGuideDoc) tr("📘 Use ASHA guide too — answer from the guides, using this document's details","📘 ASHA गाइड भी — उत्तर गाइड से, इस दस्तावेज़ की जानकारी के साथ")
+                                     else tr("📄 Answer from this document only (not the ASHA guides)","📄 केवल इस दस्तावेज़ से उत्तर (ASHA गाइड से नहीं)"),
+                                    style=MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Text(tr("A photo is described on this phone and searched in the ASHA guides.","फ़ोटो का विवरण फ़ोन पर बनता है और ASHA गाइड में खोजा जाता है।"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     // UI4: chat composer. Sending clears the box (the question stays as a bubble).
                     SopComposer(

@@ -657,8 +657,10 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         Log.i("ArogyaDemo", "AROGYA_MEDSCAN online name=\"${res.name}\" batch=\"${res.batch}\" expiry=\"${res.expiry}\" qty=${res.qty}")
                     }
                     "card" -> {
+                        // 8 Nov 2026: card photos never leave the phone (privacy, by design) – say so instead of
+                        // "Qwen3 could not read more", which looked like a failure.
                         val got = (ai ?: error("AI is not ready")).readCardOnline()
-                        if (got == null) { onlineNote = tr("Qwen3 could not read more from this card.", "Qwen3 इस कार्ड से और नहीं पढ़ पाया।"); return@launch }
+                        if (got == null) { onlineNote = tr("Card photos stay on this phone for privacy — they are never sent online. Gemma on the phone reads them.", "कार्ड की फ़ोटो गोपनीयता के लिए फ़ोन पर ही रहती है — ऑनलाइन नहीं भेजी जाती। फ़ोन पर Gemma उसे पढ़ता है।"); return@launch }
                         card = got.first; cardModel = listOf(cardModel, got.second).filter { it.isNotBlank() }.joinToString(" · ")
                         cardChecked = got.first.fields.indices.filter { !got.first.fields[it].value.contains("not readable") }.toSet(); cardApplied = false
                         ticks += ArogyaAiTick("card reading (online)", "कार्ड पढ़ना (ऑनलाइन)", ArogyaPhotoVision.LABEL, System.currentTimeMillis() - t, true)

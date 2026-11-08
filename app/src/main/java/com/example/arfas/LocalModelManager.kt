@@ -791,7 +791,9 @@ Do not mention internal routing, tools, prompts, model names, or capability labe
             history = history.takeLast(6).toCoreMessages(),
             currentUser = userQueryOnly.trim(),
             systemPrompt = system,
-            maxOutputToken = 700,
+            // 8 Nov 2026: 1,000 (was 700), 1,800 for a Hindi question (Devanagari takes ~2.5x the tokens),
+            // so the labelled "not from your guides" answer is not cut mid-sentence.
+            maxOutputToken = if (userQueryOnly.any { it in '\u0900'..'\u097F' }) 1_800 else 1_000,
             temperature = 0.6
         )
         val raw = FixSightOutputSanitizer.sanitize(result.text).trim()

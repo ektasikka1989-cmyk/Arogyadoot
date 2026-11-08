@@ -19,11 +19,13 @@ object ArogyaBudget {
 
     /** Feature to (phone base, cloud base). */
     private val BASES = mapOf(
-        "ask_sop_fact" to (600 to 1200),
-        "ask_sop_procedure" to (800 to 1600),
-        "ask_sop_list" to (800 to 1600),
-        "ask_sop_urgent" to (800 to 1600),
-        "ask_sop_detail" to (1000 to 2400),
+        // 8 Nov 2026: Ask answers are not shortened on the phone (quality over speed, user's choice):
+        // the phone gets the cloud ceilings. Was fact 600, procedure/list/urgent 800, detail 1000.
+        "ask_sop_fact" to (1200 to 1200),
+        "ask_sop_procedure" to (1600 to 1600),
+        "ask_sop_list" to (1600 to 1600),
+        "ask_sop_urgent" to (1600 to 1600),
+        "ask_sop_detail" to (2400 to 2400),
         "check_online" to (800 to 1600),
         "family_explain" to (450 to 900),
         "anm_message" to (450 to 900),

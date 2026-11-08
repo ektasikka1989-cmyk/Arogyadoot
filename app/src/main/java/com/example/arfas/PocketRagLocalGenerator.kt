@@ -50,7 +50,14 @@ class PocketRagLocalGenerator(
         Log.i(TAG, "POCKET_RAG_LOCAL_GEN_MS total=${System.currentTimeMillis() - t0} firstToken=$firstTokenMs chars=${clean.length} recovery=$recoveryMode")
         // The decoder's loop guard stopped a repeating generation. Its text is broken, not a
         // shorter answer: it is never shown; the engine retries once and otherwise fails safely.
-        if (result.stopReason.contains("loop_guard")) throw PocketRagDegenerateOutput("decoder_loop_guard")
+        if (result.stopReason.contains("loop_guard")) {
+            // Keep the answer written before the loop (it then goes through every check like any
+            // draft) instead of discarding it and spending a full second generation (~60 s).
+            val kept = if (ArogyaFlags.loopKeepBefore) KbReplyText.keepBeforeLoop(clean) else null
+            Log.w(TAG, "POCKET_RAG_LOOP_KEEP_BEFORE kept=${kept != null} before=${clean.length} after=${kept?.length ?: 0}")
+            if (kept != null) return kept
+            throw PocketRagDegenerateOutput("decoder_loop_guard")
+        }
         return clean.takeIf { result.completed && it.isNotBlank() }
     }
 }

@@ -14,7 +14,8 @@ object ArogyaLocalVision {
     private const val TAG = "ArogyaLocalVision"
     const val LABEL = "Gemma 3n (on this phone): looked at the photo"
 
-    private const val DESCRIBE_PROMPT =
+    /** Also used for the online (Groq) description of an attached photo, so both read it the same way. */
+    const val DESCRIBE_PROMPT =
         "List what is visible in this photo as short factual lines: what it shows (body part, object, document or medicine), " +
             "colour, size and shape, marks, swelling, wounds, rash or discharge, and any readable text. " +
             "Do not diagnose and do not give advice. Write 'unclear' for anything you cannot see well."
@@ -26,7 +27,7 @@ object ArogyaLocalVision {
     fun ready(lm: LocalModelManager?): Boolean = lm?.isReadyForVision == true
 
     /** Factual description of a photo for the grounded answer, or null when vision is unavailable or fails. */
-    suspend fun describe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, DESCRIBE_PROMPT, 320, "describe")
+    suspend fun describe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, DESCRIBE_PROMPT, 480, "describe")
 
     /**
      * Gemma's estimate of how many [item] are in a kit photo, or null. Only a hint shown to the ASHA:
@@ -39,7 +40,7 @@ object ArogyaLocalVision {
     }
 
     /** Transcription of a card/register photo (fallback when OCR read nothing), or null. */
-    suspend fun transcribe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, TRANSCRIBE_PROMPT, 700, "transcribe")
+    suspend fun transcribe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, TRANSCRIBE_PROMPT, 1600, "transcribe")
 
     /**
      * The photo's text read by Gemma on the phone with the same prompt the cloud reader used
@@ -47,7 +48,7 @@ object ArogyaLocalVision {
      * Handwriting is where this matters: ML Kit reads handwritten Hindi badly. Null when unavailable.
      */
     suspend fun readPhoto(lm: LocalModelManager?, bitmap: Bitmap, kind: ArogyaPhotoText.Kind): String? =
-        run(lm, bitmap, ArogyaPhotoText.SYSTEM + "\n" + ArogyaPhotoText.prompt(kind), 900, "read_${kind.name.lowercase()}")
+        run(lm, bitmap, ArogyaPhotoText.SYSTEM + "\n" + ArogyaPhotoText.prompt(kind), 1600, "read_${kind.name.lowercase()}")
             ?.let { ArogyaPhotoText.clean(it) }
 
     private suspend fun run(lm: LocalModelManager?, bitmap: Bitmap, prompt: String, maxTokens: Int, what: String): String? {
@@ -55,8 +56,10 @@ object ArogyaLocalVision {
         val t = System.currentTimeMillis()
         val r = runCatching {
             VisionWorkCoordinator.withVisionWork("arogya_local_vision_$what") {
+                // 8 Nov 2026: greedy (temperature 0) – copying a card or describing a photo must not vary
+                // run to run; the vision default was the chat temperature 0.8.
                 lm.inferVisionImage(bitmap = bitmap, userQueryOnly = prompt, history = emptyList(),
-                    maxOutputToken = maxTokens, taskRole = VisionTaskRole.OBSERVER)
+                    maxOutputToken = maxTokens, taskRole = VisionTaskRole.OBSERVER, temperature = 0.0)
             }
         }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
         val text = r?.takeIf { it.completed }?.text?.trim().orEmpty()

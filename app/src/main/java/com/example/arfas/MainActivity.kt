@@ -296,6 +296,15 @@ class MainActivity : ComponentActivity() {
         ArogyaNetWatch.register(applicationContext)
         // Load the speech model once at app start and keep it loaded, so the first mic tap is
         // instant. Short delay so the first screen draws first. Safe to call repeatedly.
+        // Guide vocabulary for question spelling correction (ArogyaQuestionNormalizer). Until it is
+        // loaded only the safe fixes run (SMS spellings, Hinglish), never guide-word corrections.
+        lifecycleScope.launch(Dispatchers.IO) {
+            val n = runCatching {
+                assets.open("guide/vocab_en.txt").bufferedReader().useLines { ArogyaQuestionNormalizer.loadVocabulary(it) }
+                ArogyaQuestionNormalizer.vocabulary.size
+            }.getOrDefault(-1)
+            Log.i(TAG, "AROGYA_QUESTION_VOCAB words=$n")
+        }
         lifecycleScope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(2000)
             val ok = runCatching { AndroWhisperRecognizer.shared(applicationContext).ensureInitialized() }.getOrDefault(false)

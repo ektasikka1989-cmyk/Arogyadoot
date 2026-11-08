@@ -118,15 +118,19 @@ object ArogyaHindiTerms {
 
     /** True when the question has Devanagari or reads as Hinglish. */
     fun needsViews(question: String): Boolean =
-        question.any { it.code in 0x0900..0x097F } || CoreHealthFacts.isHinglish(question)
+        question.any { it.code in 0x0900..0x097F } || CoreHealthFacts.isHinglish(question) ||
+            runCatching { ArogyaQuestionNormalizer.normalize(question).hinglishEnglish.isNotEmpty() }.getOrDefault(false)
 
     /**
      * English search views for a Hindi/Hinglish question (at most [maxWords] terms
      * in one view). Empty when nothing matched — the normal path is unchanged.
      */
     fun views(question: String, maxWords: Int = 12): List<String> {
-        val q = " ${question.lowercase(java.util.Locale.ROOT)} "
+        // Canonical Hinglish spellings first ("bukhaar"/"bukar" → "bukhar"), so the keys below match.
+        val norm = runCatching { ArogyaQuestionNormalizer.normalize(question) }.getOrNull()
+        val q = " ${(norm?.text ?: question).lowercase(java.util.Locale.ROOT)} "
         val found = LinkedHashSet<String>()
+        norm?.hinglishEnglish?.forEach { en -> en.split(' ').forEach { found += it } }
         for ((key, en) in TERMS) {
             if (key in q) en.split(' ').forEach { found += it }
             if (found.size >= maxWords) break

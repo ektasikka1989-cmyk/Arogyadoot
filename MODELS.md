@@ -17,7 +17,7 @@ downloads the on-phone Meta models from Hugging Face and installs them; nothing 
 | `growth/who_wfa.json` | WHO weight-for-age table for the growth chart | ✅ yes | WHO Child Growth Standards |
 | `semantic/model.onnx`, `semantic/tokenizer.json` | multilingual-e5-small: meaning-based guide search (English, Hindi, Hinglish) | ❌ (too large) | [intfloat/multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small) (MIT), exported to ONNX |
 | `reranker/model.onnx`, `reranker/parity.json` | mMiniLMv2 cross-encoder: re-ranks the top passages | ❌ (too large) | [cross-encoder/mmarco-mMiniLMv2-L12-H384-v1](https://huggingface.co/cross-encoder/mmarco-mMiniLMv2-L12-H384-v1) (Apache-2.0), exported to ONNX |
-| `voice/tts/*`, `voice/asr/*` (optional) | Sherpa-ONNX offline voices | ❌ (too large) | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) models (Apache-2.0) |
+| `voice/tts/*` (optional) | Sherpa-ONNX offline voices (the unused English `voice/asr/*` model was removed 8 Nov 2026) | ❌ (too large) | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) models (Apache-2.0) |
 | `voice/stt/whisper/model.bin` | **Whisper**: offline speech to text (Hindi / English), bundled in the released APK | ❌ (too large) | [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) (MIT) |
 
 ## 2. Downloaded by the setup wizard (Hugging Face)

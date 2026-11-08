@@ -81,7 +81,11 @@ class AndroGenerationLoopGuard {
         val text = window.toString()
         val tailLimit = text.length
         var unitLen = MIN_UNIT_CHARS
-        while (unitLen <= MAX_UNIT_CHARS && unitLen * MIN_UNIT_REPEATS <= tailLimit) {
+        // 8 Nov 2026: a sentence-length unit (>= LONG_UNIT_CHARS) needs only LONG_UNIT_REPEATS copies.
+        // With 8 copies required, a 65–96 char sentence could never fit the window, so Gemma's
+        // "[S4]. Checking baby's fever …" loop ran for a minute (37 copies) before the post-check.
+        while (unitLen <= MAX_UNIT_CHARS && unitLen * (if (unitLen >= LONG_UNIT_CHARS) LONG_UNIT_REPEATS else MIN_UNIT_REPEATS) <= tailLimit) {
+            val needed = if (unitLen >= LONG_UNIT_CHARS) LONG_UNIT_REPEATS else MIN_UNIT_REPEATS
             val unit = text.substring(tailLimit - unitLen)
             if (!unit.isBlank()) {
                 var repeats = 1
@@ -91,7 +95,7 @@ class AndroGenerationLoopGuard {
                     pos -= unitLen
                 }
                 val coveredChars = repeats * unitLen
-                if (repeats >= MIN_UNIT_REPEATS && coveredChars >= MIN_LOOP_CHARS) {
+                if (repeats >= needed && coveredChars >= MIN_LOOP_CHARS) {
                     return "phrase '${unit.take(48)}' repeated $repeats times consecutively"
                 }
             }
@@ -130,7 +134,11 @@ class AndroGenerationLoopGuard {
         const val MIN_LOOP_CHARS = 64
 
         /** Bounded rolling window kept for the cycle scan. */
-        const val WINDOW_CHARS = 512
+        const val WINDOW_CHARS = 1024
+
+        /** A unit this long is a sentence; LONG_UNIT_REPEATS consecutive copies are a loop. */
+        const val LONG_UNIT_CHARS = 24
+        const val LONG_UNIT_REPEATS = 4
 
         /** Run the (slightly heavier) cycle scan at most this often. */
         const val SCAN_INTERVAL_CHARS = 16

@@ -69,6 +69,8 @@ class GenericKnowledgeContextProvider(
         const val PHONE_EVIDENCE_CAP_CHARS = 4_000
         /** Set per turn by the Ask path: true only while an offline (phone-model) turn runs. */
         @Volatile @JvmStatic var phoneEvidenceCap: Boolean = false
+        /** Set per Ask turn in a visit: the visit's age group ("newborn, 7 days old"); "" otherwise. */
+        @Volatile @JvmStatic var visitAgeHint: String = ""
     }
 
     data class LookupState(
@@ -390,9 +392,17 @@ class GenericKnowledgeContextProvider(
         if (unknownWords.isNotEmpty()) Log.i(TAG, "KB_UNKNOWN_WORDS ${unknownWords.take(6).joinToString(",")}")
         // Hindi/Hinglish questions also search English dictionary terms (the question itself
         // is untouched, so the answer stays in Hindi).
-        val hindiViews = if (ArogyaFlags.hindiRewrite && ArogyaHindiTerms.needsViews(resolvedRetrievalQuery))
+        val languageViews = if (ArogyaFlags.hindiRewrite && ArogyaHindiTerms.needsViews(resolvedRetrievalQuery))
             runCatching { ArogyaHindiTerms.views(resolvedRetrievalQuery) }.getOrDefault(emptyList()) else emptyList()
-        if (hindiViews.isNotEmpty()) Log.i(TAG, "KB_HINDI_VIEWS ${hindiViews.joinToString(" | ").take(160)}")
+        if (languageViews.isNotEmpty()) Log.i(TAG, "KB_HINDI_VIEWS ${languageViews.joinToString(" | ").take(160)}")
+        // Age group of a baby/child question searched too, so adult passages do not answer it.
+        val ageViews = if (ArogyaFlags.babyAgeView) runCatching { ArogyaClinicalText.ageViewsWithVisit(resolvedRetrievalQuery, visitAgeHint) }.getOrDefault(emptyList()) else emptyList()
+        if (ageViews.isNotEmpty()) Log.i(TAG, "KB_AGE_VIEW ${ageViews.joinToString(" | ").take(160)}")
+        // Typos fixed ("a baby is havong h9gh fever" → "a baby is having high fever"): one more search view.
+        val cleaned = runCatching { ArogyaQuestionNormalizer.normalize(resolvedRetrievalQuery) }.getOrNull()
+        val spellingViews = if (cleaned != null && cleaned.changed) listOf(cleaned.text) else emptyList()
+        if (spellingViews.isNotEmpty()) Log.i(TAG, "KB_SPELLING_VIEW fixes=${cleaned?.fixes?.size ?: 0}")
+        val hindiViews = (languageViews + ageViews + spellingViews).distinct()
         if (rewriter != null && GenericKbQuestionRewrite.worthRewritingForSearch(resolvedRetrievalQuery, unknownWords.size)) {
             val rw = rewrite()
             currentRewrite = rw

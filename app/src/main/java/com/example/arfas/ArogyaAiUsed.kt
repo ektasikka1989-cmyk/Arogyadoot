@@ -56,6 +56,8 @@ object ArogyaAiUsed {
 object ArogyaCloudOutcome {
     /** "Qwen3.8 27B (Groq) • online — not used: <reason>", or null when the cloud answer was used / not tried. */
     fun why(outcome: String, engineLabel: String, providerStatus: String = ""): String? {
+        // An old Meta key no longer reaches here in the app (its label is "Unsupported key – add a Groq key");
+        // the legacy label is kept so saved answers and the AI-used panel still read it as one step.
         val model = if (engineLabel.contains("Muse")) "Muse Spark 1.3 (Meta) • online" else if (engineLabel == "none" || engineLabel.isBlank()) "Cloud model • online" else "$engineLabel • online"
         val reason = when {
             outcome == "ok" -> return null

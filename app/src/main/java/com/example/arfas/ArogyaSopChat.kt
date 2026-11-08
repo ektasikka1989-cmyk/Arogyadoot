@@ -3,6 +3,7 @@ package com.example.arfas
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -204,19 +205,43 @@ fun SopStreamingCard(
 ) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     // UI4: the question bubble and the ■ stop button live in the chat screen.
+    // 8 Nov: honest, animated stages while the phone works (an offline answer takes 1–2 minutes).
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "sopWait")
+    val glow by pulse.animateFloat(0.25f, 0.6f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800),
+            androidx.compose.animation.core.RepeatMode.Reverse), label = "glow")
+    val cursorOn by pulse.animateFloat(0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(500),
+            androidx.compose.animation.core.RepeatMode.Reverse), label = "cursor")
+    val waiting = draft.isBlank() && !checking
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            if (checking) tr("Rewriting from the guide…", "गाइड से फिर लिखा जा रहा है…")
-            else tr("✍️ Writing… · checking against the guide", "✍️ लिखा जा रहा है… · गाइड से मिलाया जा रहा है"),
+            when {
+                checking -> tr("Rewriting from the guide…", "गाइड से फिर लिखा जा रहा है…")
+                waiting && secs < 12 -> tr("🔎 Searching the ASHA guides…", "🔎 ASHA गाइड में खोज रहे हैं…")
+                waiting && secs < 25 -> tr("📖 Reading the matching guide pages…", "📖 मिलते हुए गाइड पन्ने पढ़ रहे हैं…")
+                waiting -> tr("🧠 Preparing the answer from the guide…", "🧠 गाइड से उत्तर तैयार हो रहा है…")
+                else -> tr("✍️ Writing the answer · every line is checked against the guide", "✍️ उत्तर लिखा जा रहा है · हर पंक्ति गाइड से मिलाई जाएगी")
+            },
             style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.primary
         )
+        if (waiting) {
+            // Placeholder lines that gently pulse until the first words arrive.
+            listOf(1f, 0.92f, 0.75f, 0.5f).forEach { w ->
+                androidx.compose.foundation.layout.Box(
+                    Modifier.fillMaxWidth(w).height(14.dp)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = glow * 0.35f),
+                            androidx.compose.foundation.shape.RoundedCornerShape(7.dp))
+                )
+            }
+        }
         if (draft.isNotBlank()) {
             if (checking) Text(ArogyaMarkdown.strip(draft),
                 style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp, lineHeight = 25.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
-            else SopAnswerText(ArogyaAnswerFormat.stripCitationMarkers(draft), emptyList(), emptySet()) {}
+            else SopAnswerText(ArogyaAnswerFormat.stripCitationMarkers(draft) + if (cursorOn > 0.5f) " ▍" else "  ", emptyList(), emptySet()) {}
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (draft.isNotBlank() && !checking) TextButton(onClick = { onSpeakSoFar(draft) }) {
@@ -380,8 +405,16 @@ fun SopAnswerCard(
                 TextButton(onClick = { onFamily(false) }, enabled = !familyBusy && !busy, contentPadding = small) { Text(tr("👪 English", "👪 English")) }
                 AiBadge("Explain to family")
             }
-            if (!hasOnline && !result.online && !ArogyaOnlinePolicy.localOnly(question))
-                TextButton(onClick = onCheckOnline, enabled = !busy && pending == 0 && asked.isNotBlank(), contentPadding = small) { Text(tr("☁ Check online", "☁ ऑनलाइन जाँचें")) }
+            if (!hasOnline && !result.online && !ArogyaOnlinePolicy.localOnly(question)) {
+                // Not from the guides (tier 3): Check online is the recommended next step, so it is a
+                // filled, coloured button instead of a plain text action.
+                if (result.tier == 3) Button(onClick = onCheckOnline, enabled = !busy && pending == 0 && asked.isNotBlank(),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)) {
+                    Text(tr("☁ Check online", "☁ ऑनलाइन जाँचें"), fontWeight = FontWeight.Bold)
+                }
+                else TextButton(onClick = onCheckOnline, enabled = !busy && pending == 0 && asked.isNotBlank(), contentPadding = small) { Text(tr("☁ Check online", "☁ ऑनलाइन जाँचें")) }
+            }
             if (!result.sourceOnly && !result.storedCopy)
                 TextButton(onClick = onMoreDetail, enabled = !busy && pending == 0 && asked.isNotBlank(), contentPadding = small) { Text(tr("➕ More detail", "➕ और विस्तार")) }
             TextButton(onClick = { shareOpen = true }, contentPadding = small) { Text(tr("↗ Share", "↗ भेजें")) }

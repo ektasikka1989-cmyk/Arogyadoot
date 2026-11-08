@@ -158,14 +158,17 @@ object KbReplyText {
 
     fun removeRepeatedSentences(text: String): String {
         val stutter = Regex("(?i)(?<![\\p{L}\\p{M}])(\\p{L}[\\p{L}\\p{M}]*)(?:\\s+\\1)+(?![\\p{L}\\p{M}])")
-        val splitter = Regex("(?<=[.!?।])\\s+")
+        val splitter = TRIM_SPLIT
         fun words(piece: String) = Regex("[\\p{L}\\p{N}]+").findAll(piece.lowercase()).map { it.value }.toSet()
         fun near(a: Set<String>, b: Set<String>) = a.intersect(b).size.toDouble() / minOf(a.size, b.size) >= NEAR_DUPLICATE
         val lines = text.split('\n').map { line -> splitter.split(stutter.replace(line) { it.groupValues[1] }) }
         // Only a degenerate loop repeats one sentence MIN_LOOP_OCCURRENCES or more times; similar
         // but legitimate sentences (two parallel steps) are left alone.
         val sets = lines.flatten().map(::words).filter { it.size >= MIN_DEDUPE_WORDS }
-        val looping = sets.any { a -> sets.count { b -> near(a, b) } >= MIN_LOOP_OCCURRENCES }
+        // A loop = one sentence plus MIN_LOOP_OCCURRENCES more near-copies. A normal structured answer
+        // restates its key action two or three times (answer, "What to do", summary); counting the
+        // sentence itself made that a "loop" and cut a third of a good answer (8 Nov phone log).
+        val looping = sets.any { a -> sets.count { b -> b !== a && near(a, b) } >= MIN_LOOP_OCCURRENCES }
         val kept = ArrayList<Set<String>>()
         val out = StringBuilder()
         for ((index, pieces) in lines.withIndex()) {
@@ -181,7 +184,8 @@ object KbReplyText {
                 if (!duplicate) kept += w
                 !duplicate
             }
-            val joined = keptPieces.joinToString(" ").trimEnd()
+            // A step number whose text was dropped ("What to do: 1.") is removed too.
+            val joined = keptPieces.filterNot { ORPHAN_STEP.matches(it.trim()) }.joinToString(" ").trimEnd()
             if (joined.isNotBlank() || text.split('\n')[index].isBlank()) out.append(joined).append('\n')
         }
         return out.toString().replace(Regex("\n{3,}"), "\n\n").trim()
@@ -215,6 +219,101 @@ object KbReplyText {
     }
 
     private const val TERMINAL = ".!?।:)]\"'”"
+
+    /**
+     * Sentence boundary: after . ! ? । and whitespace, but not after a lone letter ("e. g.",
+     * "i. e.", initials) — the guide writes "fever e. g. malaria", which was cut to "fever e.".
+     */
+    private val TRIM_SPLIT = Regex("(?<=[.!?।])(?<![\\s(]\\p{L}\\.)(?<!^\\p{L}\\.)(?<!(?:^|[\\s:])\\d\\.)\\s+")
+
+    /**
+     * A draft the decoder's loop guard stopped: the answer before the loop is usually good (it is
+     * what the ASHA watched being written). Keeps whole sentences up to the loop; null when too
+     * little is left to be an answer (then the caller regenerates as before).
+     */
+    fun keepBeforeLoop(text: String): String? {
+        // Cut right after the first copy of the repeating unit (found anywhere; the decode may stop
+        // in the middle of a copy, which an exact-tail match misses).
+        val base = loopUnit(text)?.let { unit ->
+            val words = unit.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val m = Regex(words.joinToString("\\s+") { Regex.escape(it) }).find(text)
+            if (m != null) text.substring(0, m.range.last + 1) else null
+        } ?: text
+        var t = removeRepeatedSentences(trimRepeatedTail(base)).trim()
+        if (t.isEmpty()) return null
+        if (t.last() !in TERMINAL) {
+            val end = Regex("[.!?।](?=\\s|$)").findAll(t).map { it.range.first }.lastOrNull() ?: return null
+            t = t.substring(0, end + 1).trim()
+        }
+        // A citation left on its own after the cut ("… often [S2]. [S4].") is dropped.
+        t = t.replace(Regex("(?<=[.!?।])\\s*\\[S?\\d+(?:\\s*,\\s*S?\\d+)*]\\.?$"), "").trim()
+        val sentences = t.split(TRIM_SPLIT).count { Regex("[\\p{L}]{2,}").containsMatchIn(it) }
+        if (t.length < MIN_KEPT_CHARS || sentences < MIN_KEPT_SENTENCES) return null
+        if (degenerateRepetition(t) != null) return null
+        return t
+    }
+    private const val MIN_KEPT_CHARS = 160
+    /** A piece that is only a step number ("1."): its step text was dropped. Never a number ending a sentence. */
+    private val ORPHAN_STEP = Regex("^\\d{1,2}[.)]$")
+
+    /**
+     * Safety: removes answer sentences that state, without any negation, an action the evidence
+     * forbids ("Do not cover with a blanket" → answer "… and cover with a blanket"). A forbidden
+     * action that the evidence also states positively somewhere (e.g. "cover the baby" for warmth)
+     * is not used. Returns the text and the number of sentences removed. English evidence only.
+     */
+    fun dropFlippedProhibitions(answer: String, evidence: String): Pair<String, Int> {
+        fun content(t: String) = Regex("[a-z]{3,}").findAll(t.lowercase()).map { it.value }.filter { it !in FLIP_STOP }.toSet()
+        val evClauses = evidence.split(Regex("[.;!?\\n]|,\\s|\\s(?:and|or|but)\\s"))
+        val forbidden = PROHIBIT.findAll(evidence).mapNotNull { m ->
+            val action = m.groupValues[1].split(PROHIBIT_END).first()
+            content(action).takeIf { it.size >= 2 }
+        }.distinct().filter { words ->
+            evClauses.none { c -> !NEGATION.containsMatchIn(c) && content(c).containsAll(words) }
+        }.toList()
+        if (forbidden.isEmpty()) return answer to 0
+        var removed = 0
+        // Lines under "Common mistakes to avoid" name the forbidden action on purpose: never removed.
+        var inMistakes = false
+        val out = answer.split('\n').joinToString("\n") { line ->
+            val head = line.trim().lowercase().removePrefix("**")
+            if (MISTAKES_LABEL.containsMatchIn(head)) inMistakes = true
+            else if (OTHER_LABEL.containsMatchIn(head)) inMistakes = false
+            if (inMistakes) return@joinToString line
+            line.split(TRIM_SPLIT).filter { sentence ->
+                val flipped = sentence.split(Regex(",|;|\\s(?:and|or|then)\\s")).any { clause ->
+                    !NEGATION.containsMatchIn(clause) && forbidden.any { content(clause).containsAll(it) }
+                }
+                if (flipped) removed++
+                !flipped
+            }.joinToString(" ")
+        }
+        return (if (removed == 0) answer else out.replace(Regex("\n{3,}"), "\n\n").trim()) to removed
+    }
+    private val PROHIBIT = Regex("(?i)\\b(?:do not|don't|never|should not|must not|avoid)\\s+([^.;!?\\n]{3,80})")
+    private val PROHIBIT_END = Regex("(?i)\\s(?:as|because|since|which|so that|till|until|unless|if|when|or else|even)\\s")
+    private val NEGATION = Regex("(?i)\\b(?:no|not|never|don't|avoid|without|nahi|nahin|mat)\\b|नहीं|मत ")
+    private val FLIP_STOP = setOf("the", "with", "and", "for", "any", "them", "this", "that", "from", "into", "your", "her", "his",
+        "their", "its", "are", "was", "were", "has", "have", "had", "very", "more", "less", "too", "also", "only", "all", "should", "must",
+        "can", "will", "child", "baby", "person", "patient", "mother", "woman")
+    private const val MIN_KEPT_SENTENCES = 2
+    private val MISTAKES_LABEL = Regex("^(?:common mistakes|mistakes to avoid|आम गलतियाँ|आम गलतिया)")
+    private val OTHER_LABEL = Regex("^(?:answer|why it matters|what to do|when to tell|उत्तर|क्यों ज़रूरी|क्यों जरूरी|क्या करें|anm को कब)\\s*:")
+
+    /**
+     * A question part that only asks for action or advice ("what should I do", "क्या करें") and
+     * names no topic. It is never "not covered" by the guide on its own.
+     */
+    fun isGenericAsk(part: String): Boolean {
+        val t = part.lowercase().replace(Regex("[^\\p{L}\\p{M}\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+        if (t.isEmpty()) return true
+        return GENERIC_ASK.matches(t)
+    }
+    private val GENERIC_ASK = Regex(
+        "(?:(?:so |and |then |now )?(?:what|how)(?: should| can| do| must| shall| to)?(?: i| we| you| the asha| asha)?(?: do| treat| manage| handle| proceed| help)?(?: now| next| first| then)?(?: about it| about this| for it| for this)?)" +
+        "|(?:(?:ab |to )?(?:kya|kaise) (?:karein|karen|kare|karna|karna chahiye|karu|karoon|karun)(?: chahiye)?)" +
+        "|(?:(?:अब |तो )?(?:क्या|कैसे) (?:करें|करे|करना|करूँ|करूं|करना चाहिए|करें\\?)(?: चाहिए)?)"
+    )
     /**
      * The user's reply to the app's own "Type "continue" to see the rest" note: [previousAnswer]
      * carries that note and the reply is the word it asked for (punctuation and case ignored).
@@ -239,6 +338,26 @@ object KbReplyText {
      * characters, is a decoder loop. Table rows are exempt ('|' or tab in the unit): identical cells
      * are legitimate there. Also flags a long draft whose words are almost all the same few words.
      */
+    /** The repeating unit of a degenerate loop (whitespace-normalised), or null. */
+    fun loopUnit(text: String): String? {
+        val t = text.replace(Regex("\\s+"), " ").trim()
+        val n = t.length
+        if (n < MIN_LOOP_SPAN_CHARS) return null
+        for (u in MIN_LOOP_UNIT_CHARS..minOf(MAX_LOOP_UNIT_CHARS, n / MIN_LOOP_REPEATS)) {
+            var i = 0
+            while (i + u * MIN_LOOP_REPEATS <= n) {
+                var repeats = 1
+                while (i + (repeats + 1) * u <= n && t.regionMatches(i, t, i + repeats * u, u)) repeats++
+                if (repeats >= MIN_LOOP_REPEATS && repeats * u >= MIN_LOOP_SPAN_CHARS) {
+                    val unit = t.substring(i, i + u)
+                    if (unit.any { it.isLetter() } && '|' !in unit && '\t' !in unit && unit.trim().length >= 8) return unit
+                }
+                i += if (repeats > 1) (repeats - 1) * u else 1
+            }
+        }
+        return null
+    }
+
     fun degenerateRepetition(text: String): String? {
         val t = text.replace(Regex("\\s+"), " ").trim()
         val n = t.length

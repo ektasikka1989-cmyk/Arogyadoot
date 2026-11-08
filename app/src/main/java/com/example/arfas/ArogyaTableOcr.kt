@@ -80,11 +80,11 @@ object ArogyaTableOcr {
             "name" in keys && keys.size >= 3
         }
         if (header < 0) return rs.flatMap { cells(it) }
-        val headCells = cells(rs[header])
+        val headCells = headerCells(rs[header])
         val heads = headCells.sortedBy { it.left }
         if (heads.map { headerKey(it.text) }.filter { it.isNotBlank() }.distinct().size < 3) return rs.flatMap { cells(it) }
         return rs.flatMapIndexed { index, row ->
-            if (index <= header) cells(row) else {
+            if (index < header) cells(row) else if (index == header) headCells else {
                 // Assign by the *start* of a word, not its centre. A long surname may extend
                 // toward the next column, while the next column starts at its header's x.
                 row.groupBy { word -> heads.indexOfLast { it.left <= word.left }.coerceAtLeast(0) }
@@ -95,6 +95,27 @@ object ArogyaTableOcr {
                     }
             }
         }
+    }
+
+    /**
+     * The header row as cells, like [cells], but a serial-number heading ("S.No", "Sr. No", "क्रम") never
+     * merges with the heading after it. On a narrow register "S.No" and "Name" sit closer than one letter
+     * apart: merged, the serial column vanished, "1" joined the name ("1 Pooja Kumari") and the person was
+     * dropped as an implausible name. Two-word headings ("Mobile No.", "Husband Name") still merge.
+     */
+    private fun headerCells(words: List<Line>): List<Line> {
+        val ws = words.filter { it.text.isNotBlank() }.sortedBy { it.left }
+        if (ws.isEmpty()) return emptyList()
+        val h = ws.map { it.h }.sorted()[ws.size / 2]
+        val out = ArrayList<Line>()
+        var cur = ws[0]
+        for (w in ws.drop(1)) {
+            val close = w.left - cur.right <= h * 0.9
+            cur = if (close && !isSerial(cur.text)) Line(cur.text + " " + w.text, cur.left, minOf(cur.top, w.top), w.right, maxOf(cur.bottom, w.bottom))
+            else { out += cur; w }
+        }
+        out += cur
+        return out
     }
 
     private fun norm(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "")
@@ -170,9 +191,13 @@ object ArogyaTableOcr {
         }
         return out.mapNotNull { p ->
             if (p.extra.isNotEmpty()) p.m["notes"] = p.extra.entries.joinToString("; ") { "${it.key}: ${it.value}" }
+            // A serial number that ran into the name cell ("1 Pooja Kumari") is not part of the name.
+            p.m["name"]?.let { n -> LEADING_SERIAL.replace(n, "").trim().ifBlank { n } }?.let { p.m["name"] = it }
             p.m["name"]?.takeIf { plausiblePersonName(it) }?.let { p.m }
         }
     }
+
+    private val LEADING_SERIAL = Regex("""^\d{1,3}[.)]?\s+(?=\p{L})""")
 
     // ── A table row with no heading row: each value is recognised by its form ──
     private val DATE = Regex("""^\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*\d{2,4}$""")

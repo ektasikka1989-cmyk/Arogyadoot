@@ -61,6 +61,8 @@ class AndroBaselineRuntime(
         private const val RESERVED_OUTPUT_TOKENS = 1_024
         private const val CONTEXT_SAFETY_TOKENS = 512
         private const val CLOUD_TURN_TIMEOUT_MS = 18_000L
+        /** Online photo description for the guide search (Groq vision); Gemma on the phone is used after it. */
+        private const val PHOTO_DESCRIBE_ONLINE_MS = 20_000L
         private const val EXTERNAL_CLOUD_TIMEOUT_MS = 90_000L
         /** A general (non-knowledge-base) answer for an out-of-scope question. */
         private const val GENERAL_ANSWER_TIMEOUT_MS = 60_000L
@@ -1145,6 +1147,28 @@ class AndroBaselineRuntime(
         obs.scene.firstOrNull()?.takeIf { it.score >= 0.35f && it.label != "room or background" }?.let { add("it looks like: ${it.label}") }
     }.toMutableList()
 
+    /**
+     * What an attached photo shows, for the guide search: Groq vision when [preferOnline] and photos may
+     * go online (the provider refuses otherwise), else Gemma on the phone. First useful lines only.
+     */
+    private suspend fun photoDescriptionForSearch(photo: Phase1UserAttachment, bitmap: Bitmap, preferOnline: Boolean): String {
+        fun firstLines(t: String) = t.lines().map { it.trim().trimStart('-', '*', '•').trim() }
+            .filter { it.length > 3 && !it.contains("unclear", ignoreCase = true) }.take(3).joinToString(", ")
+        if (preferOnline && GroqChatProvider.photosOnlineAllowed && canAttemptCloud()) {
+            val online = runCatching {
+                withTimeoutOrNull(PHOTO_DESCRIBE_ONLINE_MS) { groqProvider.chatVision(emptyList(), ArogyaLocalVision.DESCRIBE_PROMPT, bitmap) }
+            }.onFailure { if (it is CancellationException) throw it }.getOrNull().orEmpty()
+            Log.i(TAG, "KB_PHOTO_DESCRIBE engine=groq ok=${online.isNotBlank()} chars=${online.length}")
+            if (online.isNotBlank() && online != "NO_USEFUL_VISUAL_EVIDENCE") return firstLines(online)
+        }
+        val saved = photo.localVisualContext.substringAfter("check it]", photo.localVisualContext).trim()
+        if (saved.length >= 8) { Log.i(TAG, "KB_PHOTO_DESCRIBE engine=gemma source=attach"); return firstLines(saved) }
+        val local = runCatching { ArogyaLocalVision.describe(localModelManager, bitmap) }
+            .onFailure { if (it is CancellationException) throw it }.getOrNull().orEmpty()
+        Log.i(TAG, "KB_PHOTO_DESCRIBE engine=gemma source=now ok=${local.isNotBlank()}")
+        return firstLines(local)
+    }
+
     /** Sentence marks would split the question into extra "parts" (GenericKbQueryPlanner). */
     private fun kbFactText(text: String): String =
         text.replace(Regex("[\\n?!;।.]+"), " ").replace(Regex("\\s+"), " ").trim().take(160)
@@ -1216,9 +1240,19 @@ class AndroBaselineRuntime(
      * aside for this one turn (before, the document was silently dropped and the KB answered
      * alone). A photo keeps the KB: its vision facts join the KB question instead.
      */
+    /** Set per Ask turn from the "Use ASHA guide too" toggle (ArogyaVisitAi). On = keep the guide with a document. */
+    @Volatile var useGuideWithDocument: Boolean = true
+
     private suspend fun pauseKbForAttachedDocument(turnAttachments: List<Phase1UserAttachment>, query: String) {
         knowledgeTurnPause?.invoke(false)
         val documentAttached = turnAttachments.any { it.kind != Phase1AttachmentKind.IMAGE }
+        // 8 Nov 2026: "Use ASHA guide too" on → the guide stays selected; the document's matching
+        // lines join the guide search (kbAttachedDocumentQuery). Off → answered from the document.
+        if (documentAttached && useGuideWithDocument) {
+            lastTurnKbPausedForDocument = false
+            Log.i(TAG, "KB_KEPT_WITH_ATTACHED_DOCUMENT attachments=${turnAttachments.size}")
+            return
+        }
         // A follow-up on the document just discussed ("summarise it in Hindi", "what does page 3
         // say") stays with that document; a new question goes back to the selected KB.
         val documentFollowUp = !documentAttached && turnAttachments.isEmpty() && lastTurnKbPausedForDocument &&
@@ -1243,9 +1277,10 @@ class AndroBaselineRuntime(
         visionModeActive: Boolean,
         bitmap: Bitmap?,
         visualFrameProvider: (suspend () -> Bitmap?)?,
-        turnAttachments: List<Phase1UserAttachment>
+        turnAttachments: List<Phase1UserAttachment>,
+        preferOnline: Boolean = false
     ): String = kbCameraQuery(query, visionModeActive, bitmap, visualFrameProvider)
-        ?: kbAttachedPhotoQuery(query, turnAttachments) ?: kbAttachedDocumentQuery(query, turnAttachments) ?: query
+        ?: kbAttachedPhotoQuery(query, turnAttachments, preferOnline) ?: kbAttachedDocumentQuery(query, turnAttachments) ?: query
 
     /**
      * KB selected + a document attached (PDF, Word, slides, text): the answer still comes from the
@@ -1262,7 +1297,7 @@ class AndroBaselineRuntime(
     }
 
     /** KB selected + a photo attached: what the phone sees/reads in the photo joins the KB question. */
-    private suspend fun kbAttachedPhotoQuery(query: String, turnAttachments: List<Phase1UserAttachment>): String? {
+    private suspend fun kbAttachedPhotoQuery(query: String, turnAttachments: List<Phase1UserAttachment>, preferOnline: Boolean = false): String? {
         val photo = turnAttachments.firstOrNull { it.kind == Phase1AttachmentKind.IMAGE } ?: return null
         val bitmap = photo.visionBitmaps.firstOrNull { !it.isRecycled && it.width > 0 }
             ?: photo.decodeCloudRecoveryBitmaps(1).firstOrNull()
@@ -1272,6 +1307,14 @@ class AndroBaselineRuntime(
                 .getOrNull()
         } else null
         val parts = kbVisionFacts(obs)
+        // 8 Nov 2026: the retired Meta stack gave no photo facts, so the search saw only the photo's
+        // printed text. Now: online (Check online / Cloud first, "Photos online" on) Groq's vision model
+        // describes the photo; otherwise Gemma on the phone (the description made when it was attached,
+        // or a new one). Only what is visible – no diagnosis – joins the guide search.
+        if (obs == null && bitmap != null) {
+            val described = photoDescriptionForSearch(photo, bitmap, preferOnline)
+            if (described.isNotBlank()) parts += "photo shows: ${kbFactText(described)}"
+        }
         if (parts.none { it.startsWith("label text") } && photo.extractedText.isNotBlank()) {
             parts += "label text: \"${kbFactText(photo.extractedText)}\""
         }
@@ -1577,7 +1620,8 @@ class AndroBaselineRuntime(
 
             // KB + camera ("what is this?", "ye kya hai"): the Meta vision facts join the question,
             // so the guideline search uses the label text the camera read.
-            val kbQuery = if (anyKnowledgePackSelectedAtTurnStart) kbTurnQuery(query, visionModeActive, bitmap, visualFrameProvider, turnAttachments) else query
+            val kbQuery = if (anyKnowledgePackSelectedAtTurnStart) kbTurnQuery(query, visionModeActive, bitmap, visualFrameProvider, turnAttachments,
+                preferOnline = forceExternalInformation || effectivePolicy() == AnswerPolicy.CLOUD_FIRST) else query
             // Item 4 "More detail": the cached packet answers, so no new search runs (a cache
             // miss still searches and answers normally; handlePocketRagTurn logs the fallback).
             val detailHit = moreDetail && detailPacketFor(kbQuery) != null
@@ -7566,6 +7610,10 @@ class AndroBaselineRuntime(
 
     /** General answer for a question the knowledge base does not cover (labelled; null if unsure). */
     private suspend fun kbGeneralAnswer(query: String, started: Long, topics: List<String>, otherPackNote: String? = null, knowledgeName: String = "", sessionKey: String = ""): TurnResult? {
+        // 8 Nov 2026: ArogyaDoot answers only from the guides. An answer from the model's own
+        // knowledge (even labelled) is not given for health questions: the "not found" card with
+        // the nearest guide topics is shown instead. ArogyaFlags.kbGeneralAnswer = true restores it.
+        if (!ArogyaFlags.kbGeneralAnswer) { Log.i(TAG, "KB_GENERAL_ANSWER_OFF"); return null }
         val lm = localModelManager ?: return null
         if (!lm.isReady || lm.permanentlyDisabled) return null
         val history = plainChatHistory(query, pocketRagSessions.context(sessionKey).flatMapIndexed { i, t ->

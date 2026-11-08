@@ -41,6 +41,9 @@ object ArogyaCapture {
         val cleaned=output.replace("```json","").replace("```","")
         val items=runCatching { JSONObject("{"+cleaned.substringAfter('{').substringBeforeLast('}')+"}").optJSONArray("items") }.getOrNull()
             ?: runCatching { org.json.JSONArray("["+cleaned.substringAfter('[').substringBeforeLast(']')+"]") }.getOrNull()
+            // 8 Nov 2026: a reply cut mid-JSON (output limit) keeps every complete {"id":…,"category":…} item.
+            ?: runCatching { org.json.JSONArray("["+Regex("\\{[^{}]*\\}").findAll(cleaned.substringAfter('[', cleaned)).joinToString(",") { it.value }+"]") }
+                .getOrNull()?.takeIf { it.length()>0 }?.also { android.util.Log.w("ArogyaCapture","CAPTURE_PARSE_REPAIRED items=${it.length()}") }
         if(items==null) { android.util.Log.w("ArogyaCapture","CAPTURE_PARSE_FAIL reason=no_json chars=${output.length}"); return null }
         val selected=linkedMapOf<Int,String>(); var skipped=0
         for(i in 0 until minOf(items.length(),32)) {

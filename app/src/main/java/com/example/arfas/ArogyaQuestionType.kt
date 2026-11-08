@@ -14,12 +14,13 @@ object ArogyaQuestionType {
         "तुरंत", "खतरा", "खतरे", "आपात", "गंभीर", "दौरा", "झटके", "नहीं रो रहा", "सांस न",
         "saans nahi", "nahi ro raha", "bleeding heavily", "bahut khoon", "बहुत खून",
         "no movement", "koi harkat", "हरकत न", "unconscious", "behosh", "बेहोश",
+        "jhatke", "jhatka",
         "convulsion", "fits", "daura"
     )
     private val PROCEDURE = listOf(
         "how ", "how to", "kaise", "कैसे", "step", "method", "tarika", "तरीका",
         "vidhi", "विधि", "procedure", "process", "prepare", "banana", "banaye",
-        "बनाएं", "बनायें", "count", "ginti", "गिनती", "ginna", "गिनना", "weigh",
+        "बनाएं", "बनायें", "count", "ginti", "गिनती", "ginna", "गिनना", "weigh ", "weighing",
         "taul", "तौल", "vajan", "वजन कैसे", "wash", "dhona", "धोना", "saaf",
         "साफ कैसे", "dilana", "दिलाना", "karna chahiye", "karen", "check karein",
         "जांच", "demonstrat", "samjhayen", "समझाएं"
@@ -37,13 +38,26 @@ object ArogyaQuestionType {
         "danger sign", "danger signs", "खतरे के लक्षण", "खतरे के संकेत",
         "khatre ke lakshan", "khatre ke sanket"
     )
+    /**
+     * "What should I do" asks for ACTION: the URGENT shape (most useful action first, then steps
+     * and referral conditions). Without this, "The baby is having high fever, what should I do?"
+     * fell through to FACT ("what it is, its role") and got the shortest answer (8 Nov phone run).
+     */
+    private val ACTION_ASK = listOf(
+        "what should i do", "what do i do", "what to do", "what should we do", "what can i do",
+        "what must i do", "what should the asha do", "what should asha do", "what should be done",
+        "kya karein", "kya karen", "kya kare ", "kya karna chahiye", "kya karu", "kya karoon",
+        "क्या करें", "क्या करे ", "क्या करना चाहिए", "क्या करूँ", "क्या करूं"
+    )
+
     /** "How many/much" asks for one number, never steps ("how to" still means steps). */
     private val HOW_MANY = listOf(
         "how many", "how much", "kitna", "kitni", "kitne", "कितना", "कितनी", "कितने"
     )
 
     fun kindOf(query: String): Kind {
-        val q = " ${query.lowercase(java.util.Locale.ROOT)} "
+        // The cleaned question (typos fixed, SMS spellings, canonical Hinglish): "wat shud i do" asks for action.
+        val q = " ${runCatching { ArogyaQuestionNormalizer.forMatching(query) }.getOrDefault(query).lowercase(java.util.Locale.ROOT)} "
         // Review order. Three constraints force this exact sequence (dose > list >
         // procedure > dose would be a cycle): "which methods" is a LIST even though
         // "methods" contains a procedure word, while "ORS kaise banaye" is steps even
@@ -55,6 +69,7 @@ object ArogyaQuestionType {
         if (" which " in q && " for " in q && ArogyaDoseCheck.askedGroup(query) != ArogyaDoseCheck.Group.UNKNOWN) return Kind.FACT
         if (LIST.any { it in q }) return Kind.LIST
         if (PROCEDURE.any { it in q }) return Kind.PROCEDURE
+        if (ACTION_ASK.any { it in q }) return Kind.URGENT
         if (ArogyaDoseCheck.isDoseQuestion(query)) return Kind.FACT
         return Kind.FACT
     }
@@ -100,7 +115,9 @@ object ArogyaQuestionType {
         val hindi = ArogyaBudget.langOf(query) == "hi"
         val l = if (hindi) listOf("'उत्तर:'", "'क्यों ज़रूरी:'", "'क्या करें:'", "'ANM को कब बताएँ:'", "'आम गलतियाँ:'")
         else listOf("'Answer:'", "'Why it matters:'", "'What to do:'", "'When to tell the ANM:'", "'Common mistakes to avoid:'")
-        val total = if (cloud) "eight to fourteen" else "six to ten"
+        // 8 Nov 2026: the phone asks for the same full answer as the cloud (quality over speed);
+        // "six to ten" on the phone made Gemma stop early even with a large output budget.
+        val total = if (cloud) "eight to fourteen" else "eight to fourteen"
         val shape = "Shape the answer in labelled parts, each part on its own lines starting with its label and a colon: " +
             "${l[0]} with the direct answer in two to three sentences; " +
             "${l[1]} with one to two sentences on why it matters; " +

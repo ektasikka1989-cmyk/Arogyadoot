@@ -32,4 +32,14 @@ object ArogyaFlags {
     @Volatile var llamaBatch2048 = false     // n_batch 2048 / n_ubatch 512 (else 512 / 512)
     @Volatile var llamaFlashAttn = false     // force flash attention on (else llama.cpp AUTO)
     @Volatile var salvageBeforeRecovery = false // R3-lite salvage before the recovery regeneration
+    // 8 Nov 2026 answer fixes (docs/ANSWER_FAILURE_RCA_20261108.md).
+    @Volatile var loopKeepBefore = true      // decoder loop: keep the text before the loop (else discard + regenerate)
+    @Volatile var negationFlipGuard = true   // drop an answer sentence that states what the evidence says "do not" do
+    @Volatile var checkOnlineChecks = true    // "Check online" answers: same checks/repairs as Cloud first (never discarded)
+    @Volatile var kbGeneralAnswer = true      // guide not covering the question: a general answer, shown labelled "not from the guide"
+    @Volatile var r8LabelledAnswer = true     // R8: show that answer under a clear "not from your guides" label (else only the ANM message)
+    @Volatile var proofDeleteLowScore = false // KB_PROOF deletes low-score sentences (was true: cut paraphrased parts)
+    @Volatile var liteRtGreedyTopK1 = true   // temperature 0 on Gemma/LiteRT-LM = topK 1, not a division by zero
+    @Volatile var askNoCap = true            // Ask answers use the full ceiling (not the size estimate)
+    @Volatile var babyAgeView = true         // baby/infant/child questions also search the age group's terms
 }

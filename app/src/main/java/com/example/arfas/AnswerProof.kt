@@ -161,8 +161,13 @@ object AnswerProof {
      * nothing should change.
      */
     fun prune(answer: String, result: Result): Pair<String, Result>? {
+        // 8 Nov 2026: a low match score alone no longer deletes a sentence. The answer is asked to
+        // explain in its own words ("Why it matters"), and those sentences score low against the guide's
+        // wording: deleting them left 3-line answers (16:37 run: found=2/5 removed=2). Sentences with a
+        // number the guide does not give, or the opposite meaning, are still removed.
         val drop = result.statements.filter { st ->
-            !st.supported && ((st.score != null && st.score < REMOVE_SCORE) || !st.numbersFound || st.directionConflict)
+            !st.supported && ((ArogyaFlags.proofDeleteLowScore && st.score != null && st.score < REMOVE_SCORE) ||
+                !st.numbersFound || st.directionConflict)
         }
         if (drop.isEmpty() || result.total - drop.size < maxOf(1, (result.total + 1) / 2)) return null
         var text = answer

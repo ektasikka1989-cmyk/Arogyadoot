@@ -310,13 +310,33 @@ class PocketRagQualityGate {
             .filter { it.isNotBlank() }
         if (pieces.size <= 1) return null
 
-        val kept = pieces.filter { piece ->
-            val claims = numericClaims(piece)
-            claims.none { claim -> claim in unsupported }
+        // 8 Nov 2026: line by line, so sections and numbered steps keep their lines (joining with
+        // spaces flattened the whole answer into one paragraph), and only the part holding the wrong
+        // number goes: "(1031°F)" in brackets, else its clause, else the sentence.
+        val lines = text.lines().map { line ->
+            if (numericClaims(line).none { it in unsupported }) line
+            else KbReplyText.SENTENCE_SPLIT.split(line).map { it.trim() }.filter { it.isNotBlank() }
+                .mapNotNull { piece -> repairNumericPiece(piece, unsupported) }.joinToString(" ")
         }
-        val salvaged = kept.joinToString(" ").trim()
-        if (salvaged.isBlank()) return null
+        val salvaged = lines.map { if (Regex("^\\s*\\d{1,2}[.)]\\s*$").matches(it)) "" else it }
+            .joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+        if (salvaged.isBlank() || salvaged == text) return null
         return salvaged
+    }
+
+    /** [piece] without the wrong number: drop its bracket, else its clause; null drops the sentence. */
+    private fun repairNumericPiece(piece: String, unsupported: Set<String>): String? {
+        fun bad(t: String) = numericClaims(t).any { it in unsupported }
+        if (!bad(piece)) return piece
+        var p = piece.replace(Regex("\\s*\\([^()]*\\)")) { m -> if (bad(m.value)) "" else m.value }
+        if (!bad(p)) return p.takeIf { it.split(Regex("\\s+")).size >= 4 }
+        val clauses = p.split(Regex("(?<=[,;])\\s+"))
+        if (clauses.size < 2) return null
+        val kept = clauses.filter { !bad(it) }
+        if (kept.isEmpty()) return null
+        p = kept.joinToString(" ").trim().trimEnd(',', ';').trim()
+        if (p.split(Regex("\\s+")).size < 5) return null
+        return if (p.last() in ".!?।") p else "$p."
     }
 
     private fun numericClaims(text: String): Set<String> {

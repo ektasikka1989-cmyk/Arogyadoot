@@ -601,11 +601,19 @@ internal class AndroLLMLocalInferenceCore(
         seed: Int = 0
     ): ConversationConfig {
         val fam = familyConfig
+        // 8 Nov 2026: temperature 0 means GREEDY (KB answers, classifiers). llama.cpp treated 0 as
+        // greedy; LiteRT-LM (Gemma) received 0 together with topK 40 / topP 0.95, i.e. a division
+        // by zero in its sampler. Symptoms on the phone: digits garbled in a pattern (500→5000,
+        // 101→10101, 103→1031), loops, and different answers to the same question. Greedy is
+        // expressed the way this engine understands it: topK = 1 (the single most likely token),
+        // temperature 1.0 so nothing is divided by zero. ArogyaFlags.liteRtGreedyTopK1 = false reverts.
+        val greedy = temperature <= 0.0 && ArogyaFlags.liteRtGreedyTopK1
+        if (greedy) Log.i(CORE_TAG, "ANDROLLM_SAMPLER greedy topK=1 (requested temperature=$temperature)")
         val base = ConversationConfig(
             samplerConfig = SamplerConfig(
-                topK = topK,
-                topP = topP,
-                temperature = temperature,
+                topK = if (greedy) 1 else topK,
+                topP = if (greedy) 1.0 else topP,
+                temperature = if (greedy) 1.0 else temperature,
                 seed = seed.coerceAtLeast(0)
             ),
             initialMessages = initialMessages,

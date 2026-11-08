@@ -197,7 +197,8 @@ fun main() {
 
     // ── Setup wizard plan: links, progress words, key checks, what works with what is installed ──
     val P = ArogyaSetupPlan
-    check("setup-links", P.MODELS_URL.contains("/resolve/main/Pramaan_Meta_Models.zip") && P.GUIDE_URL.contains("/resolve/main/ASHA_Health_Guide_v2.db") && P.KEY_PAGE == "https://console.groq.com/keys")
+    // 8 Nov 2026: MODELS_URL is the Cloudflare mirror since 6 Nov; the Hugging Face path is the fallback (zip retired).
+    check("setup-links", P.MODELS_URL_FALLBACK.contains("/resolve/main/Pramaan_Meta_Models.zip") && P.MODELS_URL.startsWith("https://") && P.GUIDE_URL.contains("/resolve/main/ASHA_Health_Guide_v2.db") && P.KEY_PAGE == "https://console.groq.com/keys")
     check("setup-progress", P.progressLine(1_400_000_000, 3_260_000_000, 3_100_000, false) == "1.4 GB / 3.3 GB · 3.1 MB/s · about 10 min left", P.progressLine(1_400_000_000, 3_260_000_000, 3_100_000, false))
     check("setup-key-checks", P.keyProblem("gsk_abcdefghij1234567890", false) == null && P.keyProblem("", false) != null && P.keyProblem("LLM|1234567890|abcdefghijklmnop", false)!!.contains("Meta") && P.keyProblem("short", false) != null)
     val none = ArogyaSetupPlan.Status(false, false, false); val offline = ArogyaSetupPlan.Status(true, true, false); val all = ArogyaSetupPlan.Status(true, true, true)

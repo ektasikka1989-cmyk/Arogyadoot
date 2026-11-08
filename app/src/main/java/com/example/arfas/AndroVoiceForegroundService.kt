@@ -136,10 +136,25 @@ class AndroVoiceForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    /** Android 15+: a dataSync foreground service past its daily limit must leave the foreground or the app is stopped. */
+    /**
+     * A time-limited foreground service ran out of time (Android 14 short service: this overload;
+     * Android 15+ dataSync daily limit: the two-argument overload below). The service must stop
+     * within a few seconds, or Android throws ForegroundServiceDidNotStopInTimeException and kills
+     * the app (seen on the phone 7 Nov 12:33). Detaching the notification alone is not enough.
+     */
     override fun onTimeout(startId: Int) {
         Log.w(TAG, "FOREGROUND_TIMEOUT startId=$startId")
-        runCatching { stopForeground(STOP_FOREGROUND_DETACH) }
+        stopForTimeout()
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "FOREGROUND_TIMEOUT startId=$startId type=$fgsType")
+        stopForTimeout()
+    }
+
+    private fun stopForTimeout() {
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        runCatching { stopSelf() }
     }
 
     /** Whole-session failure boundary equivalent to AndroLLM VoiceAssistantService.runLoop(). */

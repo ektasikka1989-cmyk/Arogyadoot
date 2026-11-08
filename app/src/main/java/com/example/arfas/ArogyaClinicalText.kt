@@ -145,6 +145,43 @@ object ArogyaClinicalText {
      *    passages before this).
      * The worker's original question is still what the answer model sees.
      */
+    /**
+     * Extra search view for the patient's age group, used alongside the question (the question
+     * itself is not changed). "The baby is having high fever" found only the general fever passage
+     * (adult tablet doses); the view also searches young-infant / child guidance.
+     *  - newborn words, or an age of 59 days or less → "newborn young infant";
+     *  - baby/infant words → "young infant newborn child" (age unknown: both infant groups);
+     *  - an age up to 5 years, or child words (child, बच्चा, bachcha) → "child".
+     * Empty when the question names no child at all.
+     */
+    fun ageViews(question: String): List<String> {
+        val t = normalise(runCatching { ArogyaQuestionNormalizer.normalize(question).text }.getOrDefault(question))
+        val age = ArogyaDangerSigns.textAgeDays(t)
+        val terms = when {
+            (age != null && age <= 59) || NEWBORN_WORDS.containsMatchIn(t) -> "newborn young infant"
+            age == null && BABY_WORDS.containsMatchIn(t) -> "young infant newborn child"
+            (age != null && age <= 5 * 365) || CHILD_WORDS.containsMatchIn(t) -> "child"
+            else -> return emptyList()
+        }
+        val content = Regex("[\\p{L}\\p{M}\\p{N}]+").findAll(t).map { it.value }
+            .filter { it !in FUNCTION_WORDS && it !in VIEW_STOP && it.length > 2 }.take(6).toList()
+        return listOf((content + terms.split(' ').filter { it !in content }).joinToString(" "))
+    }
+    /**
+     * 8 Nov 2026: the age view with the visit's age group ("newborn, 7 days old" from the visit record)
+     * when the question itself is about the child. A question about the mother keeps its own view, and
+     * the question text is never changed (only an extra search view is added).
+     */
+    fun ageViewsWithVisit(question: String, visitAge: String): List<String> {
+        if (visitAge.isBlank() || MOTHER_WORDS.containsMatchIn(normalise(question))) return ageViews(question)
+        return ageViews("$question $visitAge")
+    }
+    private val MOTHER_WORDS = Regex("\\bmother|\\bmaa\\b|\\bmata\\b|pregnan|garbh|\\bwoman|\\bwomen|mahila|delivery|prasav|माँ|माता|गर्भ|महिला|प्रसव|\\banc\\b|\\bpnc\\b")
+    private val NEWBORN_WORDS = Regex("new ?born|neonat|navjaa?t|नवजात")
+    private val BABY_WORDS = Regex("\\bbab(?:y|ies)\\b|\\binfant|शिशु|shishu")
+    private val CHILD_WORDS = Regex("\\bchild|\\bkids?\\b|बच्च|bachch?[aeo]|bacch?[aeo]")
+    private val VIEW_STOP = setOf("the", "what", "should", "having", "has", "have", "is", "are", "was", "my", "his", "her", "and", "for", "with", "do", "does", "can")
+
     fun retrievalQuery(question: String): String {
         val t = normalise(question)
         val englishOnly = Regex("[\\p{L}]+").findAll(t).all { w -> w.value.all { it in 'a'..'z' } } &&

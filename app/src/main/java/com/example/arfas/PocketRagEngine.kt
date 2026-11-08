@@ -95,7 +95,8 @@ class PocketRagEngine(
             if (unsupported.isEmpty()) return answer
             if (answer.contains(PocketRagQualityGate.UNSUPPORTED_PART_SENTENCE)) return answer
             val clauses = GenericKbQueryPlanner.plan(packet.query, packet.query).clauses.associateBy { it.id }
-            val lines = unsupported.mapNotNull { c -> clauses[c.clauseId]?.literal?.trim()?.takeIf { it.isNotBlank() } }
+            // "what should I do" names no topic: it is answered by the rest of the question, never "not covered".
+            val lines = unsupported.mapNotNull { c -> clauses[c.clauseId]?.literal?.trim()?.takeIf { it.isNotBlank() && !KbReplyText.isGenericAsk(it) } }
             if (lines.isEmpty()) return answer
             return answer.trimEnd() + "\n\n" + lines.joinToString("\n") { "Not covered in the selected knowledge base: \u201c$it\u201d." }
         }
@@ -223,20 +224,40 @@ class PocketRagEngine(
                     )
                 }
                 if (!cloudAnswer.isNullOrBlank()) {
-                    // Cloud First is grounded like a local answer (same checks). A "Check online" answer
-                    // may add newer information the KB does not have; the prompt makes Cloud label it.
-                    val decision = if (cloudMode == CloudMode.CLOUD_FIRST) evalGate(packet.query, cloudAnswer, cpacket, "cloud_first")
+                    // 8 Nov 2026: online answers get the phone's safety guard too (a flipped "do not").
+                    val rawOnline: String = cloudAnswer.orEmpty()
+                    val onlineAnswer: String = if (ArogyaFlags.negationFlipGuard) {
+                        val g = runCatching { KbReplyText.dropFlippedProhibitions(rawOnline, cpacket.evidenceText) }.getOrDefault(rawOnline to 0)
+                        if (g.second > 0) Log.w(TAG, "POCKET_RAG_FLIPPED_PROHIBITION removed=${g.second} stage=cloud mode=$cloudMode")
+                        g.first.ifBlank { rawOnline }
+                    } else rawOnline
+                    // Cloud First is grounded like a local answer (same checks). "Check online" now runs the same
+                    // checks too (8 Nov): a wrong number or swapped term is repaired like a phone draft; any other
+                    // objection is logged and the online answer is still shown (it is the user's explicit request).
+                    val checkOnlineGate = cloudMode != CloudMode.CLOUD_FIRST && ArogyaFlags.checkOnlineChecks
+                    val decision = if (cloudMode == CloudMode.CLOUD_FIRST || checkOnlineGate) evalGate(packet.query, onlineAnswer, cpacket, if (checkOnlineGate) "check_online" else "cloud_first")
                     else PocketRagQualityDecision(true, "cloud_verified")
-                    if (decision.acceptLocal) { lastCloudOutcome = "ok"; return acceptCloud(key, cpacket, cloudAnswer, "$reason:${decision.reason}") }
+                    if (decision.acceptLocal) { lastCloudOutcome = "ok"; return acceptCloud(key, cpacket, onlineAnswer, "$reason:${decision.reason}") }
                     // ArogyaDoot: the same repairs a phone draft gets (drop only the sentence with a number or a swapped
                     // term not in the guide) before giving up on the cloud answer.
-                    if (cloudMode == CloudMode.CLOUD_FIRST) {
+                    if (checkOnlineGate) {
                         val repaired = when {
-                            decision.reason.startsWith("unsupported_numeric_claim") -> qualityGate.salvageUnsupportedNumericSentences(packet.query, cloudAnswer, cpacket)
-                            decision.reason.startsWith("term_swap") -> qualityGate.salvageSwappedTerms(cloudAnswer, cpacket)
+                            decision.reason.startsWith("unsupported_numeric_claim") -> qualityGate.salvageUnsupportedNumericSentences(packet.query, onlineAnswer, cpacket)
+                            decision.reason.startsWith("term_swap") -> qualityGate.salvageSwappedTerms(onlineAnswer, cpacket)
                             else -> null
                         }
-                        if (!repaired.isNullOrBlank() && repaired != cloudAnswer && evalGate(packet.query, repaired, cpacket, "cloud_salvage").acceptLocal) {
+                        val use = repaired?.takeIf { it.isNotBlank() && it != onlineAnswer } ?: onlineAnswer
+                        Log.i(TAG, "POCKET_RAG_CHECK_ONLINE_GATE reason=${decision.reason} repaired=${use != onlineAnswer}")
+                        lastCloudOutcome = "ok"
+                        return acceptCloud(key, cpacket, use, "$reason:check_online:${decision.reason.substringBefore(':')}")
+                    }
+                    if (cloudMode == CloudMode.CLOUD_FIRST) {
+                        val repaired = when {
+                            decision.reason.startsWith("unsupported_numeric_claim") -> qualityGate.salvageUnsupportedNumericSentences(packet.query, onlineAnswer, cpacket)
+                            decision.reason.startsWith("term_swap") -> qualityGate.salvageSwappedTerms(onlineAnswer, cpacket)
+                            else -> null
+                        }
+                        if (!repaired.isNullOrBlank() && repaired != onlineAnswer && evalGate(packet.query, repaired, cpacket, "cloud_salvage").acceptLocal) {
                             Log.i(TAG, "POCKET_RAG_CLOUD_SALVAGE_ACCEPT reason=${decision.reason}")
                             lastCloudOutcome = "ok"
                             return acceptCloud(key, cpacket, repaired, "$reason:cloud_salvage")
@@ -587,7 +608,7 @@ class PocketRagEngine(
                 else Log.w(TAG, "POCKET_RAG_LOCAL_EXCEPTION recovery=$recoveryMode ${it.javaClass.simpleName}:${it.message}")
             }
             .getOrNull()
-        val result = if (callerTimeoutEnabled) withTimeoutOrNull(timeoutMs.coerceAtLeast(1_000L)) { call() } else call()
+        var result = if (callerTimeoutEnabled) withTimeoutOrNull(timeoutMs.coerceAtLeast(1_000L)) { call() } else call()
         
         val elapsed = System.currentTimeMillis() - started
         // No question or answer text in the log (health data); timings are the generation's own.
@@ -599,6 +620,14 @@ class PocketRagEngine(
         )
         // Glued or spaced repetition anywhere in the draft ("heinheinhein…", "है है है है …").
         if (degenerate == null && result != null) degenerate = KbReplyText.degenerateRepetition(result)
+        // 8 Nov: a looping draft keeps its sentences before the loop (then every normal check)
+        // instead of being thrown away for a second ~30–60 s generation.
+        if (degenerate != null && degenerate!!.startsWith("repeat:") && result != null && ArogyaFlags.loopKeepBefore) {
+            val draftText: String = result
+            val kept = KbReplyText.keepBeforeLoop(draftText)
+            Log.w(TAG, "POCKET_RAG_LOOP_KEEP_BEFORE stage=engine kept=${kept != null} before=${draftText.length} after=${kept?.length ?: 0}")
+            if (kept != null) { result = kept; degenerate = null }
+        }
         if (degenerate != null) {
             Log.w(TAG, "POCKET_RAG_LOCAL_DEGENERATE recovery=$recoveryMode reason=$degenerate chars=${result?.length ?: 0} elapsed=${System.currentTimeMillis() - started}ms")
             return LocalDraft(null, degenerate)
@@ -612,10 +641,15 @@ class PocketRagEngine(
         // token are at least ~2.5 for the scripts in use, so length >= budget x 2.5 marks the limit.
         val cleaned = result?.let { KbReplyText.removeRepeatedSentences(KbReplyText.trimRepeatedTail(it)) }
         val trimmed = cleaned?.let { KbReplyText.completeAtLimit(it, likelyAtLimit = it.length >= maxOutput * 5 / 2) }
-        if (trimmed != null && trimmed.length != result.length) {
-            Log.w(TAG, "POCKET_RAG_LOCAL_REPETITION_TRIMMED recovery=$recoveryMode before=${result.length} after=${trimmed.length}")
+        val resultLen = result?.length ?: 0
+        if (trimmed != null && trimmed.length != resultLen) {
+            Log.w(TAG, "POCKET_RAG_LOCAL_REPETITION_TRIMMED recovery=$recoveryMode before=$resultLen after=${trimmed.length}")
         }
-        return LocalDraft(trimmed)
+        // Safety: a sentence stating what the guide says NOT to do ("cover with a blanket") is removed.
+        val guarded = if (trimmed != null && ArogyaFlags.negationFlipGuard)
+            runCatching { KbReplyText.dropFlippedProhibitions(trimmed, packet.evidenceText) }.getOrDefault(trimmed to 0) else null
+        if (guarded != null && guarded.second > 0) Log.w(TAG, "POCKET_RAG_FLIPPED_PROHIBITION removed=${guarded.second} recovery=$recoveryMode")
+        return LocalDraft(guarded?.first ?: trimmed)
     }
 
     private fun shouldRetryLocally(decision: PocketRagQualityDecision, packet: PocketRagPacket): Boolean {
@@ -703,7 +737,9 @@ class PocketRagEngine(
                 .getOrDefault(MAX_ANSWER_TOKENS_PER_PART)
         } else MAX_ANSWER_TOKENS_PER_PART
         val ceiling = perPart * parts
-        return if (packet.detailMode) ceiling.coerceAtMost(availableOutput).coerceAtLeast(MIN_OUTPUT_TOKENS)
+        // Ask answers: the full ceiling, not the size estimate (the estimate cut Gemma's five-part
+        // answers at ~600 tokens, before "When to tell the ANM"). ArogyaFlags.askNoCap = false restores it.
+        return if (packet.detailMode || ArogyaFlags.askNoCap) ceiling.coerceAtMost(availableOutput).coerceAtLeast(MIN_OUTPUT_TOKENS)
         else desired.coerceAtMost(ceiling).coerceAtMost(availableOutput).coerceAtLeast(MIN_OUTPUT_TOKENS)
     }
 }

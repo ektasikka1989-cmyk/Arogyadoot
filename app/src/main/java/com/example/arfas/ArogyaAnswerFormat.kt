@@ -27,10 +27,21 @@ object ArogyaAnswerFormat {
         "क्या करें" to "क्या करें",
         "क्या करे" to "क्या करें",
         "anm को कब बताएं" to "ANM को कब बताएं",
+        "anm को कब बताएँ" to "ANM को कब बताएं",
+        "एएनएम को कब बताएँ" to "ANM को कब बताएं",
         "anm को कब बताये" to "ANM को कब बताएं",
         "एएनएम को कब बताएं" to "ANM को कब बताएं",
         "आम गलतियाँ" to "आम गलतियाँ",
         "आम गलतिया" to "आम गलतियाँ"
+    )
+
+    /** A numbered step after a finished sentence or a label colon, written on the same line. */
+    private val INLINE_STEP = Regex("(?<=[.!?।:\\]])[ \\t]+(?=\\d{1,2}[.)]\\s+\\p{L})")
+
+    /** A section label (not "Answer") with its colon in the middle of a line, after other text. */
+    private val MID_LINE_LABEL = Regex(
+        "(?i)(?<=\\S)[ \\t]+(?=(?:why it matters|what to do|when to tell (?:the )?anm|common mistakes(?: to avoid)?|" +
+            "क्यों ज़रूरी|क्यों जरूरी|क्या करें|(?:anm|एएनएम) को कब बता(?:एं|एँ|ये)|आम गलतियाँ|आम गलतिया)\\s*[:：])"
     )
 
     /** A line starting with a known label + colon opens a section; returns (heading, rest). */
@@ -56,7 +67,11 @@ object ArogyaAnswerFormat {
             if (b.isNotEmpty() || heading.isNotEmpty()) out += Section(heading, b)
             body.clear()
         }
-        for (raw in ArogyaMarkdown.strip(text).lines()) {
+        // Gemma often writes the next label on the same line ("… [S1]. Why it matters: …");
+        // start a new line there so the heading is recognised (Llama put labels on their own lines).
+        // Inline numbered steps ("What to do: 1. Sponge … [S1]. 2. Give …") each start their own line.
+        val lined = INLINE_STEP.replace(MID_LINE_LABEL.replace(ArogyaMarkdown.strip(text), "\n"), "\n")
+        for (raw in lined.lines()) {
             val line = raw.trim()
             if (line.isEmpty()) {
                 if (body.isNotEmpty()) body.append('\n')

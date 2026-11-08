@@ -250,6 +250,26 @@ object ArogyaAiExtras {
 
     // ── Family explanation ──
 
+    /**
+     * 8 Nov 2026: what the family hears must not name a medicine the guide answer does not name
+     * (a sentence that does is dropped). English medicine words only; the answer is the source.
+     */
+    fun dropUngroundedMedicines(text: String, source: String): String {
+        val src = source.lowercase()
+        fun has(t: String, m: String) = Regex("\\b" + Regex.escape(m) + "\\b").containsMatchIn(t)
+        val lines = text.split(Regex("(?<=[.!?।])\\s+|\\n+")).filter { it.isNotBlank() }
+        return lines.filter { s ->
+            val l = s.lowercase()
+            MEDICINES.none { m -> has(l, m) && !has(src, m) }
+        }.joinToString(" ").trim()
+    }
+    private val MEDICINES = listOf(
+        "paracetamol", "ibuprofen", "aspirin", "ors", "zinc", "ifa", "iron", "folic", "calcium", "vitamin a", "albendazole",
+        "amoxicillin", "cotrimoxazole", "gentamicin", "ampicillin", "metronidazole", "antibiotic", "antibiotics",
+        "misoprostol", "oxytocin", "magnesium sulphate", "chloroquine", "artesunate", "primaquine",
+        "gentian violet", "chlorhexidine", "iodine", "injection", "syrup", "tablet", "tablets", "ointment"
+    )
+
     fun familyPrompt(answer: String, quote: String, hindi: Boolean): String = """
         You help an ASHA health worker explain advice to a family at home.
         Rewrite the GUIDE ANSWER below as 5 to 8 short, warm sentences spoken to "you" (the mother and family)${if (hindi) ", in simple spoken Hindi (Devanagari script)" else ", in simple English"}.

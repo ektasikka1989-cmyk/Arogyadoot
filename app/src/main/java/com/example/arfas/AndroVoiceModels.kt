@@ -1,10 +1,8 @@
 package com.example.arfas
 
 object AndroVoiceModels {
-    const val ASR_ENCODER = "voice/asr/encoder.onnx"
-    const val ASR_DECODER = "voice/asr/decoder.onnx"
-    const val ASR_JOINER = "voice/asr/joiner.onnx"
-    const val ASR_TOKENS = "voice/asr/tokens.txt"
+    // The English-only streaming ASR model (voice/asr, 252 MB) was removed on 8 Nov 2026:
+    // nothing loaded it. Dictation uses Whisper (voice/stt/whisper).
 
     const val TTS_MODEL = "voice/tts/model.onnx"
     const val TTS_TOKENS = "voice/tts/tokens.txt"

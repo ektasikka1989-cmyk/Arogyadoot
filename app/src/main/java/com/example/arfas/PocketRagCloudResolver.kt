@@ -39,6 +39,10 @@ class PocketRagCloudResolver(
             appendLine(sources)
             appendLine("</source_details>")
             appendLine("<user_question>${packet.query}</user_question>")
+            // Typed fast on a phone: the cleaned reading too (8 Nov 2026), as the phone model gets it.
+            runCatching { ArogyaQuestionNormalizer.normalize(packet.query) }.getOrNull()?.takeIf { it.changed }?.let { n ->
+                appendLine("<question_cleaned>${n.text.trim()}</question_cleaned>")
+            }
             if (packet.followUpOf.isNotBlank()) {
                 appendLine("<previous_question>${packet.followUpOf.take(400)}</previous_question>")
                 appendLine("The user's question follows up the previous question; resolve 'it', 'continue', 'the second one' etc. against it.")
@@ -54,6 +58,10 @@ class PocketRagCloudResolver(
                     "Cite evidence with its source IDs like [S1]. Use only the evidence: never fill a gap from your own memory " +
                     "(for example, never guess what an abbreviation stands for). If the evidence does not state the answer, " +
                     "reply with exactly $NOT_IN_EVIDENCE and nothing else; the app then searches the web instead.")
+                // 8 Nov 2026: the checked answer has the same five-part shape and full length as Cloud first.
+                if (ArogyaFlags.r2LengthPrompt) {
+                    runCatching { appendLine(packet.lengthLineOverride.ifBlank { ArogyaQuestionType.lengthLine(ArogyaQuestionType.kindOf(packet.query), packet.query, cloud = true) }) }
+                }
             } else {
                 appendLine("Use only the selected KB evidence above as factual authority. Synthesize the best complete conversational answer, citing source IDs like [S1]. If the evidence cannot establish part of the request, say so rather than using outside knowledge.")
                 if (ArogyaFlags.r2LengthPrompt) {

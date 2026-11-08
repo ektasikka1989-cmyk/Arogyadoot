@@ -34,7 +34,7 @@ object PocketRagPromptBuilder {
      */
     private const val SYSTEM =
         "You are ArogyaDoot. Answer only from the KNOWLEDGE EVIDENCE (passages from the documents the user selected). " +
-            "Always start directly with the answer itself (no heading or label); when the question asks what to do, start with the most urgent action the evidence gives. " +
+            "Start directly with the answer: no title, and no headings except the part labels asked for below (each label at the start of its own line); when the question asks what to do, start with the most urgent action the evidence gives. " +
             "Combine what every relevant passage says (several documents often cover one topic); do not rely on a single passage. " +
             "Never write 'according to the evidence', 'the document says' or 'the passage mentions', and never start a sentence with a source ID. " +
             "Copy names, numbers, doses, percentages, limits and rule numbers exactly as the evidence writes them; " +
@@ -56,7 +56,7 @@ object PocketRagPromptBuilder {
         " LENGTH: a fact, definition or yes/no: Answer (two to three sentences), Why it matters " +
             "(one to two), What to do (steps from the evidence), When to tell the ANM (only if the " +
             "evidence gives conditions), Common mistakes to avoid (only if the evidence gives them); " +
-            "six to ten sentences on the phone, eight to fourteen from the cloud; types or a list: " +
+            "eight to fourteen sentences; types or a list: " +
             "one line per item for every item in the evidence, each with a one-line explanation; " +
             "a procedure, comparison, or a question asking to explain or give detail: every numbered " +
             "step in order plus what to watch for; urgent: the most useful action first, then the " +
@@ -67,7 +67,7 @@ object PocketRagPromptBuilder {
         "Answer completely in your own words: cover every point the material gives on this question " +
             "(for a \"what is\" question: what it is, its role or purpose, and its key details; for a comparison or a " +
             "\"difference between\" question: first what each one is, then how they differ), with the most " +
-            "useful action first, in six to ten sentences or a complete list. The app already shows one quoted " +
+            "useful action first, in eight to fourteen sentences or a complete list. The app already shows one quoted " +
             "line above your answer, so do not just repeat that line."
 
     private const val RECOVERY_ADDON =
@@ -139,6 +139,10 @@ object PocketRagPromptBuilder {
             }
             appendLine(KbReplyText.scriptInstruction(packet.query))
             append("Current question: ").append(packet.query)
+            // Typed fast on a phone: give the model the cleaned reading too (the original stays above).
+            runCatching { ArogyaQuestionNormalizer.normalize(packet.query) }.getOrNull()?.takeIf { it.changed }?.let { n ->
+                append("\n(The question was typed quickly; it reads: ").append(n.text.trim()).append(")")
+            }
             // Last line the model reads (a 3B model follows the latest instruction best): a complete
             // answer, not one copied sentence. The app shows the key quote above the answer already.
             // R2: the line matches the question type (else the legacy one-size line).
