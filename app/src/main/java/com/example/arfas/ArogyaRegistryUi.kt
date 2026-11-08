@@ -565,7 +565,7 @@ internal fun MicField(value: String, onValue: (String) -> Unit, label: String,
         OutlinedTextField(field.tfv, { field.onUserEdit(it) }, label = { Text(label) }, singleLine = singleLine,
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = { DictationMicButton(field.controller, hindi) { field.start() } })
-        DictationStatusLine(field.controller, hindi)
+        DictationStatusLine(field, hindi)
     }
 }
 

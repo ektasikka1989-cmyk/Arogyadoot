@@ -76,6 +76,15 @@ class WhisperContext private constructor(private var ptr: Long) {
         WhisperTranscription(segments)
     }
 
+    /** Hindi/Urdu/English probabilities for [samples] (first 30 s); "" on failure. */
+    suspend fun detectLanguage(
+        samples: FloatArray,
+        numThreads: Int = WhisperCpuConfig.preferredThreadCount
+    ): String = withContext(dispatcher) {
+        require(isReady) { "whisper context released" }
+        whisperDetectLanguage(ptr, samples, numThreads)
+    }
+
     suspend fun systemInfo(): String = withContext(dispatcher) {
         require(isReady) { "whisper context released" }
         whisperSystemInfo()

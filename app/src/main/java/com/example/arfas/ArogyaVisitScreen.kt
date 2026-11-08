@@ -1433,7 +1433,7 @@ private fun ArogyaField(label: String,value: String,enabled: Boolean,lines: Int=
     Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(value=field.tfv,onValueChange={field.onUserEdit(it)},label={Text(label)},enabled=enabled,modifier=Modifier.fillMaxWidth(),minLines=lines,singleLine=lines==1,
             trailingIcon={ DictationMicButton(field.controller,hindi,enabled=enabled) { field.start() } })
-        DictationStatusLine(field.controller,hindi)
+        DictationStatusLine(field,hindi)
     }
 }
 

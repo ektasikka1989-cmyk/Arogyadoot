@@ -589,9 +589,10 @@ fun SopComposer(
                     unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                     disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent)
             )
-            if (!busy) DictationMicButton(field.controller, hindi, modifier = Modifier.size(48.dp)) { field.start() }
+            val recording = field.controller.isActive
+            if (!busy && !recording) DictationMicButton(field.controller, hindi, modifier = Modifier.size(48.dp)) { field.start() }
             val sendColor = if (busy || canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-            Surface(onClick = { if (busy) onStop() else if (canSend) { field.controller.cancel(); onSend() } }, enabled = busy || canSend,
+            if (!recording) Surface(onClick = { if (busy) onStop() else if (canSend) { field.controller.cancel(); onSend() } }, enabled = busy || canSend,
                 shape = androidx.compose.foundation.shape.CircleShape, color = sendColor,
                 contentColor = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(4.dp).size(40.dp)) {
                 Box(contentAlignment = Alignment.Center) {
@@ -600,6 +601,6 @@ fun SopComposer(
             }
         }
     }
-    DictationStatusLine(field.controller, hindi, Modifier.padding(start = 16.dp, top = 2.dp))
+    DictationStatusLine(field, hindi, Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
     }
 }

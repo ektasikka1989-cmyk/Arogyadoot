@@ -41,6 +41,9 @@ external fun whisperFull(
     noContext: Boolean
 ): Int
 
+/** Hindi/Urdu/English probabilities: "hi=0.41 ur=0.39 en=0.12 top=hi", or "" on failure. */
+external fun whisperDetectLanguage(ptr: Long, audio: FloatArray, numThreads: Int): String
+
 external fun whisperSegmentCount(ptr: Long): Int
 external fun whisperSegmentText(ptr: Long, index: Int): String
 external fun whisperSegmentT0(ptr: Long, index: Int): Long

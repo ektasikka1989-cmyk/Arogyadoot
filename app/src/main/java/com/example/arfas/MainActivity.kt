@@ -294,6 +294,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ArogyaNetWatch.register(applicationContext)
+        // Load the speech model once at app start and keep it loaded, so the first mic tap is
+        // instant. Short delay so the first screen draws first. Safe to call repeatedly.
+        lifecycleScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(2000)
+            val ok = runCatching { AndroWhisperRecognizer.shared(applicationContext).ensureInitialized() }.getOrDefault(false)
+            Log.i(TAG, "AROGYA_DICTATION_WARM ready=$ok")
+        }
         savedInstanceState?.let { showArogyaVisits = it.getBoolean("showArogyaVisits", true) }
         ARController.setContext(this)
         Log.i(TAG, "AR_CAPABILITY offlineReady=${ARController.isArCoreReadyForOfflineUse()}")

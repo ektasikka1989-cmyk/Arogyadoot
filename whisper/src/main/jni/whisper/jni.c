@@ -142,6 +142,43 @@ Java_io_androllm_core_whisper_WhisperLibKt_whisperFull(
     return rc;
 }
 
+// ---------------------------------------------------------------------------
+// Language detection (Hindi / Urdu / English probabilities)
+// ---------------------------------------------------------------------------
+
+// Returns "hi=0.412 ur=0.388 en=0.120 top=hi", or "" on failure. The app adds Hindi and Urdu
+// together and writes Devanagari (see ArogyaSpeechLang), so Hindi speech is never written in
+// Urdu script. Uses the first 30 s of audio, like whisper.cpp's own auto-detect.
+JNIEXPORT jstring JNICALL
+Java_io_androllm_core_whisper_WhisperLibKt_whisperDetectLanguage(
+        JNIEnv *env, jclass clazz, jlong ctx_ptr, jfloatArray audio, jint num_threads) {
+    UNUSED(clazz);
+    struct whisper_context *ctx = (struct whisper_context *) ctx_ptr;
+    jfloat *samples = (*env)->GetFloatArrayElements(env, audio, NULL);
+    const jsize sample_count = (*env)->GetArrayLength(env, audio);
+    char out[96] = {0};
+    if (samples != NULL && sample_count > 0 &&
+        whisper_pcm_to_mel(ctx, samples, sample_count, num_threads) == 0) {
+        const int n = whisper_lang_max_id() + 1;
+        float *probs = (float *) calloc((size_t) n, sizeof(float));
+        if (probs != NULL) {
+            const int top = whisper_lang_auto_detect(ctx, 0, num_threads, probs);
+            const int hi = whisper_lang_id("hi"), ur = whisper_lang_id("ur"), en = whisper_lang_id("en");
+            if (top >= 0 && hi >= 0 && ur >= 0 && en >= 0) {
+                snprintf(out, sizeof(out), "hi=%.3f ur=%.3f en=%.3f top=%s",
+                         probs[hi], probs[ur], probs[en], whisper_lang_str(top));
+            } else {
+                LOGW("language detection failed (top=%d)", top);
+            }
+            free(probs);
+        }
+    } else {
+        LOGW("language detection: mel failed");
+    }
+    if (samples != NULL) (*env)->ReleaseFloatArrayElements(env, audio, samples, JNI_ABORT);
+    return (*env)->NewStringUTF(env, out);
+}
+
 JNIEXPORT jint JNICALL
 Java_io_androllm_core_whisper_WhisperLibKt_whisperSegmentCount(
         JNIEnv *env, jclass clazz, jlong ctx_ptr) {
