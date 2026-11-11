@@ -54,7 +54,7 @@ object ArogyaDoseCheck {
         if (group == Group.UNKNOWN) return Verdict.UNCERTAIN
         val nums = ArogyaAiExtras.numbers(answer).filter { it.isNotBlank() }.distinct()
         if (nums.isEmpty()) return Verdict.NOT_DOSE
-        val ev = evidence.lowercase(java.util.Locale.ROOT)
+        val ev = ArogyaAiExtras.asciiDigits(evidence).lowercase(java.util.Locale.ROOT)
         var sawOther = false
         for (n in nums) {
             var from = 0
@@ -71,6 +71,34 @@ object ArogyaDoseCheck {
     }
 
     private fun groupWords(g: Group): List<String> = GROUP_WORDS.firstOrNull { it.first == g }?.second.orEmpty()
+
+    /**
+     * 9 Nov audit: the answer's mg amount is the TABLET STRENGTH in the evidence ("one tablet contains
+     * 20 mg", "1/2 tab of 20 mg tablet") while the same evidence also gives a different mg amount nearby
+     * (an age-banded dose such as "10 mg"). Returns that amount ("20") or null. Advisory only: the
+     * answer is never edited or withheld, it gets [strengthCaution]. A proximity check like [check]
+     * accepted "20 mg zinc for a 4-month-old" because 20 mg sits next to "infants" as the strength.
+     */
+    fun strengthRisk(answer: String, evidence: String): String? {
+        fun norm(t: String) = ArogyaAiExtras.asciiDigits(t).lowercase(java.util.Locale.ROOT).replace(Regex("(\\d),(\\d{1,2})(?=\\s*(?:mg|ml|mcg))"), "$1.$2")
+        val a = norm(answer)
+        val ev = norm(evidence)
+        val amounts = Regex("(\\d+(?:\\.\\d+)?)\\s*mg\\b").findAll(a).map { it.groupValues[1] }.toSet()
+        for (v in amounts) {
+            val q = Regex.escape(v)
+            val strength = Regex("(?:contains?|containing|of|strength)\\s+(?:[a-z]+\\s+){0,2}$q\\s*mg\\b|(?<![\\d.])$q\\s*mg\\s+(?:tablet|tab|capsule)s?\\b")
+            for (m in strength.findAll(ev)) {
+                val near = ev.substring((m.range.first - 300).coerceAtLeast(0), (m.range.last + 300).coerceAtMost(ev.length - 1) + 1)
+                val others = Regex("(?<![\\d.])(\\d+(?:\\.\\d+)?)\\s*mg\\b").findAll(near).map { it.groupValues[1] }.filter { it != v }.toSet()
+                if (others.isNotEmpty()) return v
+            }
+        }
+        return null
+    }
+
+    fun strengthCaution(mg: String, hindi: Boolean): String = if (hindi)
+        "⚠ गाइड में $mg mg गोली की ताकत है और उम्र के अनुसार खुराक अलग है — इस उम्र की खुराक ANM से पक्की करें।"
+    else "⚠ In the guide, $mg mg is the tablet strength and the dose differs by age — confirm the dose for this age with your ANM."
 
     /** Short caution appended to a mismatched dose answer (never edits the dose itself). */
     fun caution(group: Group, hindi: Boolean): String = if (hindi)

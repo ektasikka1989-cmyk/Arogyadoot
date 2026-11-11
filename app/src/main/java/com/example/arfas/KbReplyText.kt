@@ -177,6 +177,9 @@ object KbReplyText {
             val keptPieces = pieces.filter { piece ->
                 val w = words(piece)
                 if (w.size < MIN_DEDUPE_WORDS) return@filter true
+                // 8 Nov 2026: a numbered step restating the answer's key action ("2. Give the first dose …
+                // and refer") is part of "What to do", not a duplicate (outside a real loop).
+                if (!looping && STEP_START.containsMatchIn(piece)) return@filter true
                 val duplicate = kept.any { k ->
                     if (looping) near(w, k)
                     else w.intersect(k).size.toDouble() / maxOf(w.size, k.size) >= SAME_SENTENCE
@@ -280,12 +283,24 @@ object KbReplyText {
             if (MISTAKES_LABEL.containsMatchIn(head)) inMistakes = true
             else if (OTHER_LABEL.containsMatchIn(head)) inMistakes = false
             if (inMistakes) return@joinToString line
-            line.split(TRIM_SPLIT).filter { sentence ->
-                val flipped = sentence.split(Regex(",|;|\\s(?:and|or|then)\\s")).any { clause ->
-                    !NEGATION.containsMatchIn(clause) && forbidden.any { content(clause).containsAll(it) }
-                }
-                if (flipped) removed++
-                !flipped
+            line.split(TRIM_SPLIT).mapNotNull { sentence ->
+                fun isFlipped(clause: String) = !NEGATION.containsMatchIn(clause) && forbidden.any { content(clause).containsAll(it) }
+                val parts = sentence.split(CLAUSE_SPLIT)
+                if (parts.none { isFlipped(it) }) return@mapNotNull sentence
+                removed++
+                // 8 Nov 2026: drop only the flipped clause ("… with tepid water and cover with a blanket"
+                // → "… with tepid water."); a section label at the start ("What to do: 1. …") is kept.
+                // Each piece starts with its separator (", and cover …"); flipped pieces are dropped.
+                val keptText = sentence.split(CLAUSE_SEP_KEEP).filter { it.isNotBlank() && !isFlipped(it) }
+                    .joinToString("").trim().replace(Regex("^[,;\\s]*(?:(?:and|or|then)\\s+)?"), "")
+                    .trim().trimEnd(',', ';').trim()
+                val citeTail = Regex("\\s*(\\[[^\\]]*])\\s*[.!?।]?\\s*$").find(sentence)?.groupValues?.get(1)
+                val words = Regex("\\p{L}{2,}").findAll(keptText.substringAfter(':', keptText)).count()
+                if (words >= 3) {
+                    var r = keptText.replace(Regex("\\s*\\[[^\\]]*]\\s*$"), "").trimEnd('.', ' ')
+                    if (citeTail != null && !r.contains(citeTail)) r += " $citeTail"
+                    "$r."
+                } else LEADING_LABEL.find(sentence)?.value?.trim()
             }.joinToString(" ")
         }
         return (if (removed == 0) answer else out.replace(Regex("\n{3,}"), "\n\n").trim()) to removed
@@ -297,6 +312,11 @@ object KbReplyText {
         "their", "its", "are", "was", "were", "has", "have", "had", "very", "more", "less", "too", "also", "only", "all", "should", "must",
         "can", "will", "child", "baby", "person", "patient", "mother", "woman")
     private const val MIN_KEPT_SENTENCES = 2
+    private val STEP_START = Regex("^\\s*\\d{1,2}[.)]\\s")
+    private val CLAUSE_SPLIT = Regex(",|;|\\s(?:and|or|then)\\s")
+    /** Splits into clause, separator, clause, … (separators kept so the sentence can be rebuilt). */
+    private val CLAUSE_SEP_KEEP = Regex("(?=[,;])|(?=\\s(?:and|or|then)\\s)")
+    private val LEADING_LABEL = Regex("^\\s*(?:\\*\\*)?(?:answer|why it matters|what to do|when to tell (?:the )?anm|common mistakes(?: to avoid)?)\\s*:\\s*(?:\\d{1,2}[.)])?", RegexOption.IGNORE_CASE)
     private val MISTAKES_LABEL = Regex("^(?:common mistakes|mistakes to avoid|आम गलतियाँ|आम गलतिया)")
     private val OTHER_LABEL = Regex("^(?:answer|why it matters|what to do|when to tell|उत्तर|क्यों ज़रूरी|क्यों जरूरी|क्या करें|anm को कब)\\s*:")
 

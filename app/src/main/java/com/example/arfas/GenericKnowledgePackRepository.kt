@@ -34,6 +34,8 @@ class GenericKnowledgePackRepository(
     private val semanticEngine: SemanticSearchEngine
 ) {
     companion object {
+        /** Longest wait for the re-ranker's one-time device check before a search (first question after an install). */
+        const val RERANK_WAIT_MS = 12_000L
         private const val RUNNING_KEY_SEPARATOR = "\u001f"
         /**
          * A heading on at least this many distinct pages of one document is a running header. The
@@ -737,10 +739,14 @@ class GenericKnowledgePackRepository(
             table
         )
         val lexicalCurrent = lexicalRetriever.isCurrent(signature)
-        if (lexicalCurrent && corpusStatistics.isCurrent(signature)) return true
+        if (lexicalCurrent && corpusStatistics.isCurrent(signature)) {
+            if (GenericKbKeyFacts.corpusWeight == null) GenericKbKeyFacts.corpusWeight = corpusStatistics.stemWeights()
+            return true
+        }
         // Saved statistics for this exact pack: no need to re-read and re-tokenise every passage.
         if (lexicalCurrent && corpusStatistics.load(corpusStatisticsFile, signature)) {
             Log.i(TAG, "KB_CORPUS_STATS_CACHED")
+            GenericKbKeyFacts.corpusWeight = corpusStatistics.stemWeights()
             return true
         }
         val documents = ArrayList<HybridKnowledgeRetriever.Document>(current.rowCount.coerceAtLeast(16))
@@ -767,6 +773,7 @@ class GenericKnowledgePackRepository(
         }
         corpusStatistics.rebuild(signature, documents)
         corpusStatistics.save(corpusStatisticsFile)
+        GenericKbKeyFacts.corpusWeight = corpusStatistics.stemWeights()
         return if (lexicalCurrent) true else lexicalRetriever.ensureIndex(signature, documents.asSequence())
     }
 
@@ -1423,7 +1430,9 @@ class GenericKnowledgePackRepository(
 
     /** UI2: mixed-question pair scorer (one batched run); null when the re-ranker is not ready. */
     fun pairScorer(): (suspend (List<Pair<String, String>>) -> FloatArray?)? =
-        if (semanticEngine.isReady && reranker.ready()) { pairs -> reranker.scorePairs(pairs) } else null
+        if (semanticEngine.isReady && reranker.ready()) { pairs ->
+            reranker.scorePairs(if (ArogyaFlags.rerankFocus) pairs.map { (q, p) -> q to GenericKbRerankFocus.focus(q, p) } else pairs)
+        } else null
 
     /** Long forms of the abbreviations in [question], from the active pack's own text. */
     fun aliasExpansions(question: String): List<String> = phase14Profile?.expansions(question).orEmpty()
@@ -1677,7 +1686,7 @@ class GenericKnowledgePackRepository(
         }
         val texts = hits.map { (it.headingContext?.let { h -> "$h\n" } ?: "") + it.content }
         val scores = if (hits.isNotEmpty() && semanticEngine.isReady && reranker.ready()) {
-            runCatching { reranker.score(literal.trim(), texts) }.getOrNull()?.takeIf { it.size == hits.size }
+            runCatching { reranker.score(literal.trim(), if (ArogyaFlags.rerankFocus) texts.map { GenericKbRerankFocus.focus(literal.trim(), it) } else texts) }.getOrNull()?.takeIf { it.size == hits.size }
         } else null
         val order = GenericKbRetrievalPlan.lexicalFallbackOrder(hits.map { ranks[it.chunkId] ?: Int.MAX_VALUE }, scores)
         val ordered = order.map { i -> hits[i].copy(rankScore = scores?.get(i) ?: (1f / (60 + (ranks[hits[i].chunkId] ?: 60)))) }
@@ -1924,6 +1933,15 @@ class GenericKnowledgePackRepository(
     ): Phase14Result? = withContext(Dispatchers.IO) {
         val database = db ?: return@withContext null
         if (!isReady() || literal.isBlank()) return@withContext null
+        // 11 Nov 2026 (AJ): the first question after an install ran while the re-ranker's one-time device check was
+        // still going (log 14: rr=off, pairs=0) and got un-ranked passages (eye care, dust in the nose for a
+        // postpartum fever). Wait for that check, at most RERANK_WAIT_MS; later questions never wait.
+        if (semanticEngine.isReady) {
+            val t0 = System.currentTimeMillis()
+            val ok = runCatching { reranker.awaitReady(RERANK_WAIT_MS) }.getOrDefault(false)
+            val waited = System.currentTimeMillis() - t0
+            if (waited > 50) Log.i(TAG, "RERANKER_WAIT ms=$waited ready=$ok")
+        }
         // The corpus profile only enhances retrieval. A valid pack whose profile is missing, stale or
         // failed to build still answers from the portable full-text index plus chunk/source metadata.
         val profile = phase14Profile?.takeIf { it.signature == phase14Signature(status) }
@@ -2037,7 +2055,10 @@ class GenericKnowledgePackRepository(
                 val t = System.currentTimeMillis()
                 rerankCalls++
                 rerankPairs += passages.size
-                reranker.score(question, passages).also { rerankMs += System.currentTimeMillis() - t }
+                // 9 Nov 2026 (AE): the re-ranker reads ~1,000 passage characters; a long passage is scored on
+                // its sentences that answer the question (GenericKbRerankFocus), not only on its first half.
+                val scored = if (ArogyaFlags.rerankFocus) passages.map { GenericKbRerankFocus.focus(question, it) } else passages
+                reranker.score(question, scored).also { rerankMs += System.currentTimeMillis() - t }
             } else null,
             denseEnabled = dense && calibration != null,
             precedenceOf = { hit -> hit.sourceName?.let { catalog[it]?.precedence } },

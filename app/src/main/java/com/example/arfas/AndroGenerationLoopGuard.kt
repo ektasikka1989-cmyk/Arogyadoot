@@ -84,8 +84,15 @@ class AndroGenerationLoopGuard {
         // 8 Nov 2026: a sentence-length unit (>= LONG_UNIT_CHARS) needs only LONG_UNIT_REPEATS copies.
         // With 8 copies required, a 65–96 char sentence could never fit the window, so Gemma's
         // "[S4]. Checking baby's fever …" loop ran for a minute (37 copies) before the post-check.
-        while (unitLen <= MAX_UNIT_CHARS && unitLen * (if (unitLen >= LONG_UNIT_CHARS) LONG_UNIT_REPEATS else MIN_UNIT_REPEATS) <= tailLimit) {
-            val needed = if (unitLen >= LONG_UNIT_CHARS) LONG_UNIT_REPEATS else MIN_UNIT_REPEATS
+        // 11 Nov 2026 (AJ): sentences longer than 96 chars (phone 23:27: a 190-char sentence written again and
+        // again) were never checked; they now count as a loop after VERY_LONG_UNIT_REPEATS copies.
+        fun neededFor(len: Int) = when {
+            len > VERY_LONG_UNIT_CHARS -> VERY_LONG_UNIT_REPEATS
+            len >= LONG_UNIT_CHARS -> LONG_UNIT_REPEATS
+            else -> MIN_UNIT_REPEATS
+        }
+        while (unitLen <= MAX_UNIT_CHARS && unitLen * neededFor(unitLen) <= tailLimit) {
+            val needed = neededFor(unitLen)
             val unit = text.substring(tailLimit - unitLen)
             if (!unit.isBlank()) {
                 var repeats = 1
@@ -128,17 +135,20 @@ class AndroGenerationLoopGuard {
         const val MIN_UNIT_CHARS = 4
 
         /** Largest phrase unit considered (chars). */
-        const val MAX_UNIT_CHARS = 96
+        const val MAX_UNIT_CHARS = 360
 
         /** Covered tail length (chars) required to declare a phrase loop. */
         const val MIN_LOOP_CHARS = 64
 
         /** Bounded rolling window kept for the cycle scan. */
-        const val WINDOW_CHARS = 1024
+        const val WINDOW_CHARS = 1200
 
         /** A unit this long is a sentence; LONG_UNIT_REPEATS consecutive copies are a loop. */
         const val LONG_UNIT_CHARS = 24
         const val LONG_UNIT_REPEATS = 4
+        /** 11 Nov 2026 (AJ): a unit longer than this (a long sentence or two) is a loop after 3 consecutive copies. */
+        const val VERY_LONG_UNIT_CHARS = 96
+        const val VERY_LONG_UNIT_REPEATS = 3
 
         /** Run the (slightly heavier) cycle scan at most this often. */
         const val SCAN_INTERVAL_CHARS = 16

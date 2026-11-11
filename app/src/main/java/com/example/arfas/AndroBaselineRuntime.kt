@@ -78,7 +78,8 @@ class AndroBaselineRuntime(
         private const val SAM_ONLINE_TIMEOUT_MS = 20_000L
         private const val PROOF_TIMEOUT_MS = 12_000L
         /** Evidence budget for "Check online": the online model reads much more than the phone's 6k context. */
-        private const val CHECK_ONLINE_CONTEXT_TOKENS = 24_000
+        /** 8 Nov 2026: was 24,000 – passages for Check online now fit Groq's free-tier 8K tokens/minute with the answer. */
+        private const val CHECK_ONLINE_CONTEXT_TOKENS = 10_000
         private const val VISIT_NOTE_MODEL_TIMEOUT_MS = 30_000L
         private const val VISIT_NOTE_MAX_TOKENS = 320
         private const val GENERIC_KB_LOCAL_TIMEOUT_MS = 26_000L
@@ -251,6 +252,22 @@ class AndroBaselineRuntime(
     private fun effectivePolicy(): AnswerPolicy = policyOverride ?: answerPolicyStore.get()
 
     fun answerPolicy(): AnswerPolicy = answerPolicyStore.get()
+
+    /**
+     * 9 Nov 2026: guide-search rewrite of a question. Online answers chosen (or Check online pressed for this
+     * turn) and the cloud reachable: the cloud model rewrites it (the question goes to the cloud anyway), the phone
+     * model if that fails. Otherwise (offline first): the phone model only; nothing is sent.
+     */
+    suspend fun rewriteKbQuestion(question: String, aliasHints: List<String>, previous: String): GenericKbQuestionRewrite? {
+        val online = effectivePolicy() == AnswerPolicy.CLOUD_FIRST && canAttemptCloud()
+        if (online) runCatching { groqProvider.rewriteKbSearchQuestion(question, aliasHints, previous) }.getOrNull()?.let { return it }
+        val local = localModelManager
+        if (local == null || !local.isReady) {
+            Log.w(TAG, "KB_QUESTION_REWRITE_SKIPPED phoneModelReady=false online=$online (search uses the question's own words)")
+            return null
+        }
+        return local.rewriteKbSearchQuestion(question, aliasHints, previous)
+    }
     fun onlineBackup(): Boolean = answerPolicyStore.onlineBackup()
     fun setOnlineBackup(enabled: Boolean) = answerPolicyStore.setOnlineBackup(enabled)
     fun photosOnline(): Boolean = answerPolicyStore.photosOnline()
@@ -550,6 +567,7 @@ class AndroBaselineRuntime(
             val id = if (clearHistory) chatStore.startNewConversation(mode) else chatStore.currentConversationId()
             // KB follow-up memory belongs to one conversation.
             if (clearHistory) pocketRagSessions.clearAll()
+            if (clearHistory) lastAttachmentFacts = null
             lastAcceptedProviderForRouting = Provider.NONE
             lastAcceptedUserForRouting = ""
             lastAcceptedAssistantForRouting = ""
@@ -583,6 +601,7 @@ class AndroBaselineRuntime(
     /** Deletes the files a conversation kept for attachment follow-ups (source copy, extracted text). */
     suspend fun forgetConversationAttachments(conversationId: String) {
         if (conversationId.isNotBlank()) runCatching { attachmentContextProvider?.deleteConversationAttachments(conversationId) }
+        if (lastAttachmentFacts?.first == conversationId) lastAttachmentFacts = null
     }
 
     fun conversationSessions(limit: Int = 5): List<AndroConversationSession> =
@@ -825,9 +844,11 @@ class AndroBaselineRuntime(
         if (useOnline) Log.i(TAG, "CHECK_ONLINE_WIDE_EVIDENCE chars=${onlineAttachment!!.text.length}")
         // Item 4 "More detail": the cached packet for this exact question (no new search); a
         // cache miss (restart, another household) falls back to a normal searched turn.
-        val cached = if (moreDetail) detailPacketFor(query) else null
+        // 8 Nov 2026: More detail searches again with wider evidence (8 passages, set by the caller):
+        // the cached packet + greedy decoding gave a nearly identical answer. Cache kept behind the flag.
+        val cached = if (moreDetail && !ArogyaFlags.detailFreshSearch) detailPacketFor(query) else null
         if (moreDetail) Log.i(TAG, "POCKET_RAG_DETAIL cacheHit=${cached != null}")
-        val detailPacket = cached?.copy(lengthLineOverride = ArogyaQuestionType.detailLine(), detailMode = true)
+        val detailPacket = cached?.let { it.copy(lengthLineOverride = ArogyaQuestionType.detailLine(it.query), detailMode = true) }
         val assembled = if (detailPacket != null) null else assembler.assemble(
             query = query,
             selected = selection,
@@ -835,14 +856,17 @@ class AndroBaselineRuntime(
                 PocketRagAttachmentRecord(attachment.sourceId, attachment.text, attachment.attributes)
             }
         )
-        val packet = detailPacket ?: assembled
+        val packet = detailPacket ?: assembled?.let {
+            if (moreDetail) it.copy(lengthLineOverride = ArogyaQuestionType.detailLine(it.query), detailMode = true) else it
+        }
+        val isDetail = packet?.detailMode == true
         // Current/live questions the KB has nothing solid on go to a live web search (labelled).
         val liveQuestion = FreshnessTemporalGuard.requiresFreshVerification(query)
         val kbEvidenceWeak = packet == null || packet.bestRelevance == null ||
             packet.bestRelevance < PocketRagPromptBuilder.WEAK_EVIDENCE_RELEVANCE
         val earlierAnswerWasNotFound = checkOnline && pocketRagSessions.context(selection.sessionKey)
             .none { it.user.trim().equals(query.trim(), ignoreCase = true) }
-        if (detailPacket == null) {
+        if (!isDetail) {
             if ((liveQuestion && kbEvidenceWeak) || (checkOnline && earlierAnswerWasNotFound && kbEvidenceWeak)) {
                 kbLiveWebAnswer(query, started, if (liveQuestion) "live_question_weak_kb" else "check_online_not_in_kb")
                     ?.let { return it }
@@ -853,7 +877,7 @@ class AndroBaselineRuntime(
         // instead of a long knowledge-base attempt that ends in "not found". Weaker matches still
         // go through the knowledge base first (broad questions often match at -1 to 1).
         val clearlyOutside = packet == null || (packet.bestRelevance != null && packet.bestRelevance < PocketRagPromptBuilder.VERY_WEAK_EVIDENCE_RELEVANCE)
-        if (detailPacket == null && clearlyOutside && !checkOnline) {
+        if (!isDetail && clearlyOutside && !checkOnline) {
             Log.i(TAG, "KB_OUT_OF_SCOPE_GENERAL best=${packet?.bestRelevance} kb=${selection.sessionKey}")
             kbGeneralAnswer(query, started, packet?.sources?.map { KnowledgeSourcePresentation.topicLabel(it.display) }.orEmpty(), null, selection.displayName, selection.sessionKey)
                 ?.let { return it }
@@ -870,7 +894,7 @@ class AndroBaselineRuntime(
             )
         }
         // Every fresh generic-KB packet is cached for "More detail" (detail regens re-cache nothing).
-        if (detailPacket == null && selection.kind == "generic") cacheDetailPacket(query, packet)
+        if (detailPacket == null && !isDetail && selection.kind == "generic") cacheDetailPacket(query, packet)
 
         val kbEngine = PocketRagEngine(
             local = PocketRagLocalGenerator(localModelManager, onAnswerDelta),
@@ -885,7 +909,8 @@ class AndroBaselineRuntime(
             // deadline discarded healthy long answers (blank "could not answer" after 52 s).
             callerTimeoutEnabled = selection.kind != "generic",
             onDraftRejected = onAnswerAbort,
-            onlineBackupEnabled = { answerPolicyStore.onlineBackup() }
+            onlineBackupEnabled = { answerPolicyStore.onlineBackup() },
+            guideLookup = { text -> if (selection.kind == "generic") genericKnowledgeProvider?.guidePassagesFor(text).orEmpty() else emptyList() }
         )
         // Cloud takes part only by the user's choice: the Cloud First setting, or "Check online".
         val cloudMode = when {
@@ -919,11 +944,16 @@ class AndroBaselineRuntime(
         val rawResult = kbEngine.answer(packet, cloudMode, draftToVerify, cloudPacket)
         // Each answer is proven against the evidence it read: the wide packet for cloud
         // answers, the narrow one for phone answers.
-        val proofPacket = if (rawResult.provider == Provider.CLOUD) (cloudPacket ?: packet) else packet
+        val basePacket = if (rawResult.provider == Provider.CLOUD) (cloudPacket ?: packet) else packet
+        // 9 Nov 2026: guide passages that confirmed a number are proof evidence too.
+        val proofPacket = if (rawResult.extraEvidence.isEmpty()) basePacket
+            else basePacket.copy(evidenceBlocks = basePacket.evidenceBlocks + rawResult.extraEvidence, sources = basePacket.sources + rawResult.extraSources)
+        val proofStarted = System.currentTimeMillis()
         val kbResult = proveKbAnswer(
             rawResult, proofPacket, selection, genericKnowledgeProvider,
             rewrittenQuestion = attachments.firstNotNullOfOrNull { it.attributes["kb_search_rewrite"]?.takeIf { r -> r.isNotBlank() } }.orEmpty()
         )
+        Log.i(TAG, "KB_PROOF_MS ms=${System.currentTimeMillis() - proofStarted} extraEvidence=${rawResult.extraEvidence.size}")
         if (selection.kind == "generic") genericKnowledgeProvider?.commitPendingEvidenceWindow(kbResult.sourceIds.isNotEmpty())
         if (selection.kind == "anm_sop") {
             runCatching { selectedKnowledgeProvider?.onAcceptedTurn(query, kbResult.text, kbResult.provider) }
@@ -997,8 +1027,12 @@ class AndroBaselineRuntime(
         }.distinct()
         // "The document says": the cited passages' own sentence shown before the model's explanation
         // (not for the app's own extract, which already is the documents' sentences).
+        // 9 Nov 2026 (AD): no "document says" quote when none of the answer's statements was found in the passages.
         val quoteMarker = if (kbResult.accepted && selection.kind == "generic" &&
-            !kbResult.text.startsWith("Here is what the selected knowledge base says") && !kbResult.text.startsWith("चुने गए ज्ञान आधार में यह लिखा है")
+            (KbReplyText.dominantScript(kbResult.text) == KbReplyText.Script.DEVANAGARI ||
+                AnswerProof.parseMarker(kbResult.sourceIds)?.let { it.second == 0 || it.first > 0 } ?: true) &&
+            !kbResult.text.startsWith("Here is what the selected knowledge base says") && !kbResult.text.startsWith("चुने गए ज्ञान आधार में यह लिखा है") &&
+            !kbResult.text.startsWith(PocketRagEngine.EXTRACTIVE_HEADER_EN) && !kbResult.text.startsWith(PocketRagEngine.EXTRACTIVE_HEADER_HI)
         ) runCatching {
             val citedIds = kbResult.sourceIds.mapNotNull { Regex("^kbref:\\s*(S\\d+)", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1)?.uppercase() }.distinct()
             val blocks = citedIds.mapNotNull { id -> packet.evidenceBlocks.firstOrNull { it.sourceId.equals(id, ignoreCase = true) } }
@@ -1279,8 +1313,38 @@ class AndroBaselineRuntime(
         visualFrameProvider: (suspend () -> Bitmap?)?,
         turnAttachments: List<Phase1UserAttachment>,
         preferOnline: Boolean = false
-    ): String = kbCameraQuery(query, visionModeActive, bitmap, visualFrameProvider)
-        ?: kbAttachedPhotoQuery(query, turnAttachments, preferOnline) ?: kbAttachedDocumentQuery(query, turnAttachments) ?: query
+    ): String = run { lastTurnEarlierAttachment = "" }.let { kbCameraQuery(query, visionModeActive, bitmap, visualFrameProvider)
+        ?: kbAttachedPhotoQuery(query, turnAttachments, preferOnline) ?: kbAttachedDocumentQuery(query, turnAttachments)
+        ?: kbAttachmentFollowUpQuery(query, turnAttachments) ?: query }
+
+    /** "photo" / "document …" when the last answer used an attachment from an earlier question ("" = no). */
+    @Volatile var lastTurnEarlierAttachment: String = ""
+
+    /**
+     * 11 Nov 2026 (AP): what the phone read from the photo or document attached earlier in THIS conversation
+     * (photo description, label text, document lines). A follow-up without a new attachment ("what dose should
+     * I give?", "isme kya karna hai?") used to lose it: the guide search and the answer saw only the new words.
+     * Kept per conversation; replaced by the next attachment; cleared by a new conversation.
+     */
+    @Volatile private var lastAttachmentFacts: Triple<String, String, List<String>>? = null   // conversation, tag, facts
+
+    private fun rememberAttachmentFacts(tag: String, parts: List<String>) {
+        if (parts.isEmpty()) return
+        lastAttachmentFacts = Triple(runCatching { chatStore.currentConversationId() }.getOrDefault(""), tag, parts.map { it.take(400) }.take(4))
+    }
+
+    /** A follow-up (no new attachment, the question depends on the earlier turn) carries the earlier attachment's facts. */
+    private suspend fun kbAttachmentFollowUpQuery(query: String, turnAttachments: List<Phase1UserAttachment>): String? {
+        if (turnAttachments.isNotEmpty()) return null
+        val (conv, tag, parts) = lastAttachmentFacts ?: return null
+        if (conv != runCatching { chatStore.currentConversationId() }.getOrDefault("") || parts.isEmpty()) return null
+        val followUp = runCatching { semanticCapabilityProvider?.isContextDependentForKnowledgeBase(query, chatStore.recent(6)) == true }
+            .onFailure { if (it is CancellationException) throw it }.getOrDefault(false)
+        Log.i(TAG, "KB_ATTACHMENT_FOLLOW_UP tag=$tag used=$followUp")
+        if (!followUp) return null
+        lastTurnEarlierAttachment = tag
+        return kbQueryWithFacts(query, "earlier $tag", parts)
+    }
 
     /**
      * KB selected + a document attached (PDF, Word, slides, text): the answer still comes from the
@@ -1293,7 +1357,9 @@ class AndroBaselineRuntime(
         val text = kbFactText(excerpt)
         if (text.length < 12) return null
         Log.i(TAG, "KB_DOCUMENT_QUERY kind=${doc.kind} chars=${text.length}")
-        return kbQueryWithFacts(query, "document ${kbFactText(doc.displayName).take(60)}", listOf(text))
+        val tag = "document ${kbFactText(doc.displayName).take(60)}"
+        rememberAttachmentFacts(tag, listOf(text))
+        return kbQueryWithFacts(query, tag, listOf(text))
     }
 
     /** KB selected + a photo attached: what the phone sees/reads in the photo joins the KB question. */
@@ -1320,6 +1386,7 @@ class AndroBaselineRuntime(
         }
         if (parts.isEmpty()) return null
         Log.i(TAG, "KB_PHOTO_META_QUERY parts=${parts.size}")
+        rememberAttachmentFacts("photo", parts)
         return kbQueryWithFacts(query, "photo", parts)
     }
 
@@ -1624,7 +1691,8 @@ class AndroBaselineRuntime(
                 preferOnline = forceExternalInformation || effectivePolicy() == AnswerPolicy.CLOUD_FIRST) else query
             // Item 4 "More detail": the cached packet answers, so no new search runs (a cache
             // miss still searches and answers normally; handlePocketRagTurn logs the fallback).
-            val detailHit = moreDetail && detailPacketFor(kbQuery) != null
+            // 8 Nov 2026: with fresh-search detail the guide search must run (no cache skip).
+            val detailHit = moreDetail && !ArogyaFlags.detailFreshSearch && detailPacketFor(kbQuery) != null
             if (moreDetail) Log.i(TAG, "POCKET_RAG_DETAIL_RESEARCH skip=${detailHit}")
             var attachments = turnScopedAttachments + (if (detailHit) emptyList() else collectExtensionAttachments(
                 query = kbQuery,

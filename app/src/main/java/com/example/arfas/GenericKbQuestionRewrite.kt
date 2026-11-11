@@ -19,7 +19,9 @@ data class GenericKbQuestionRewrite(
     val search: String,
     val calc: String?,
     /** One search question per thing asked, when the question asks two different things. */
-    val parts: List<String> = listOf(search)
+    val parts: List<String> = listOf(search),
+    /** 9 Nov: the model's own judgement, asked only when an earlier question was given: true = continues it, false = new topic. */
+    val followsEarlier: Boolean? = null
 ) {
     companion object {
         const val MAX_OUTPUT_TOKENS = 96
@@ -46,13 +48,22 @@ data class GenericKbQuestionRewrite(
         fun mayNeedCalculation(question: String): Boolean =
             Regex("\\d[\\d,]*(?:\\.\\d+)?").findAll(question).count() >= 2
 
-        fun prompt(question: String, aliasHints: List<String>): String = buildString {
+        /**
+         * [previous]: the earlier question of this conversation (blank for the first question). 9 Nov: every
+         * question is rewritten first, so a follow-up ("aur kitne din dena hai?") must be rewritten as the
+         * complete question it means, or its search line ("For how many days should it be given?") finds
+         * any topic's "how many days" passage.
+         */
+        fun prompt(question: String, aliasHints: List<String>, previous: String = ""): String = buildString {
             appendLine("Rewrite the question for a document search. Answer with SEARCH and CALC lines only:")
             appendLine("The question may be very short, misspelled or mixed Hindi and English: understand what the user wants and write it in clear English.")
             appendLine("SEARCH: one short, complete question in formal document language (no numbers from the user's own case)")
             appendLine("If the question asks two different things, write two SEARCH lines, one for each thing.")
             appendLine("Keep the question's key words (for example limit, dose, value, age) and never add details the user did not ask about.")
             appendLine("Keep what the user asks for: 'what should I do' stays a question about what to do (not about what to give); 'how much' stays a question about an amount.")
+            // 9 Nov 2026 (AE, phone log): "महिला को पेशाब में जलन और बुखार है" (burning urination) was rewritten as
+            // burning "in the vulva". Hindi symptom and body words must keep their exact meaning.
+            appendLine("Hindi or Hinglish words: translate each one by its exact meaning; never change the body part, the symptom or the person (woman, child, newborn).")
             appendLine("CALC: the arithmetic for the amount the user describes, using only + - * / and numbers, or NONE")
             if (aliasHints.isNotEmpty()) appendLine("Terms used in these documents: " + aliasHints.joinToString("; "))
             CoreHealthFacts.hinglishHints(question).takeIf { it.isNotEmpty() }?.let { appendLine("Hindi words in this question: " + it.joinToString("; ")) }
@@ -81,15 +92,34 @@ data class GenericKbQuestionRewrite(
             appendLine("SEARCH: For how many days should IFA tablets be taken?")
             appendLine("CALC: NONE")
             appendLine()
+            if (previous.isNotBlank()) {
+                appendLine("An earlier question is shown. First write FOLLOWS: YES if the last question is incomplete without the earlier one (for example 'and the dose?', 'aur kitne din?', 'what if she also has fever?'), or FOLLOWS: NO if it names its own problem or person (a new question).")
+                appendLine("FOLLOWS: YES → write the complete question it means, naming what the earlier question was about. FOLLOWS: NO → rewrite it alone and never add anything from the earlier question.")
+                appendLine("Earlier question: zinc ki dose 4 mahine ke bacche ke liye")
+                appendLine("Question: aur kitne din tak dena hai")
+                appendLine("FOLLOWS: YES")
+                appendLine("SEARCH: For how many days should zinc be given to a young child?")
+                appendLine("CALC: NONE")
+                appendLine()
+                appendLine("Earlier question: bacche ko dast aur bukhar hai")
+                appendLine("Question: navjaat ko pehla snan kab dena chahiye")
+                appendLine("FOLLOWS: NO")
+                appendLine("SEARCH: When should a newborn be given the first bath?")
+                appendLine("CALC: NONE")
+                appendLine()
+                append("Earlier question: ").appendLine(previous.trim().replace(Regex("\\s+"), " ").take(300))
+            }
             append("Question: ").appendLine(question.trim().replace(Regex("\\s+"), " ").take(400))
             // Without this the 3B model often rewrote the examples again instead of the user's
             // question (every Hinglish question in the ASHA test came back with no rewrite).
-            append("Write only the SEARCH and CALC lines for this last question.")
+            append(if (previous.isNotBlank()) "Write only the FOLLOWS, SEARCH and CALC lines for this last question." else "Write only the SEARCH and CALC lines for this last question.")
         }
 
         /** Parses the model output; null when no usable SEARCH line. */
-        fun parse(output: String, question: String): GenericKbQuestionRewrite? {
-            val all = output.lines().map { it.trim().trim('*', '`', ' ') }
+        fun parse(output: String, question: String, previous: String = ""): GenericKbQuestionRewrite? {
+            // 9 Nov 2026 (phone log): Gemma sometimes types "\n" as two characters instead of a line break, which glued
+            // "CALC: NONE" onto the search question.
+            val all = output.replace("\\n", "\n").lines().map { it.trim().trim('*', '`', ' ') }
             // When the model repeats the examples, its rewrite of the user's question follows the
             // line that repeats that question: read only what comes after it.
             val q = question.trim().replace(Regex("\\s+"), " ").lowercase(Locale.ROOT)
@@ -101,7 +131,7 @@ data class GenericKbQuestionRewrite(
                 .distinctBy { it.lowercase(Locale.ROOT) }.take(MAX_PARTS)
             // A small model that cannot work out the question copies an example ("What advance payment
             // is required for a booking?" for a question about zinc): such lines are not rewrites.
-            .filterNot { copiesExample(it, question) }
+            .filterNot { copiesExample(it, question, previous) }
             val search = searches.firstOrNull() ?: return null
             val calcRaw = lines.firstNotNullOfOrNull { l ->
                 Regex("^calc\\s*[:\\-]\\s*(.+)$", RegexOption.IGNORE_CASE).find(l)?.groupValues?.get(1)?.trim()
@@ -109,7 +139,10 @@ data class GenericKbQuestionRewrite(
             // The expression may use only numbers the user actually wrote (no invented quantities).
             val calc = calcRaw?.takeUnless { it.uppercase(Locale.ROOT).startsWith("NONE") }
                 ?.takeIf { KbCalculator.evaluate(it) != null && numbersFromQuestion(it, question) }
-            return GenericKbQuestionRewrite(search, calc, searches)
+            val follows = if (previous.isBlank()) null else lines.firstNotNullOfOrNull { l ->
+                Regex("^follows\\s*[:\\-]\\s*(yes|no)\\b", RegexOption.IGNORE_CASE).find(l)?.groupValues?.get(1)?.lowercase(Locale.ROOT)
+            }?.let { it == "yes" }
+            return GenericKbQuestionRewrite(search, calc, searches, follows)
         }
 
         private val EXAMPLE_SEARCHES = listOf(
@@ -118,7 +151,9 @@ data class GenericKbQuestionRewrite(
             "What should be given to a child with fever?",
             "When can leave be granted, and under what conditions?",
             "Who is the competent authority to sanction leave?",
-            "What is the maximum period of leave that can be sanctioned at one time?"
+            "What is the maximum period of leave that can be sanctioned at one time?",
+            "For how many days should zinc be given to a young child?",
+            "When should a newborn be given the first bath?"
         )
 
         private fun contentWords(t: String): Set<String> =
@@ -134,9 +169,10 @@ data class GenericKbQuestionRewrite(
          * True when [search] is (nearly) one of the prompt's examples, or shares no content word with
          * a Latin-script question (a Devanagari question is checked against the examples only).
          */
-        internal fun copiesExample(search: String, question: String): Boolean {
+        internal fun copiesExample(search: String, question: String, previous: String = ""): Boolean {
             val s = contentWords(search)
-            val q = contentWords(question)
+            // A follow-up's rewrite names the earlier question's subject ("how long?" → "... zinc ..."): its words count.
+            val q = contentWords(question) + contentWords(previous)
             fun fromQuestion(word: String) = q.any { qw -> qw == word || word.startsWith(qw.take(5)) || qw.startsWith(word.take(5)) }
             // Close to an example and adding nothing the user said: a copy.
             val example = EXAMPLE_SEARCHES.any { e ->

@@ -48,6 +48,9 @@ class OpenAiCompatibleClient(private val endpoint: ArogyaModelEndpoint, private 
             .put("temperature", 0)
         // Muse Spark reasons by default; visit AI needs the fastest answer (V1 proved minimal works).
         if (ArogyaFlags.r11LowReasoning && endpoint.model.startsWith("muse-spark")) b.put("reasoning_effort", "minimal")
+        // 9 Nov 2026: Qwen on Groq thinks by default; every GroqChatProvider call already turns it off. Without it,
+        // visit-AI calls (family explanation, forms, notes) spent their tokens and time thinking.
+        if (endpoint.keyFor == "groq") b.put("reasoning_effort", "none")
         return b.toString()
     }
 

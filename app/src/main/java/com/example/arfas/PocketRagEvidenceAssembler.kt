@@ -7,6 +7,13 @@ package com.example.arfas
 class PocketRagEvidenceAssembler(
     private val contextWindowTokens: () -> Int = { 4_096 }
 ) {
+    companion object {
+        /** Set per turn with GenericKnowledgeContextProvider.phoneEvidenceCap: evidence characters for an offline phone answer, 0 = no cap. */
+        @Volatile @JvmStatic var phoneCapChars: Int = 0
+        /** Larger windows (Check online, cloud) are never capped. */
+        const val PHONE_MAX_CONTEXT = 8_192
+    }
+
     fun assemble(
         query: String,
         selected: PocketRagSelection,
@@ -23,7 +30,12 @@ class PocketRagEvidenceAssembler(
         if (eligible.isEmpty()) return null
 
         val sources = normalizeSources(selected, eligible)
-        val rawBlocks = eligible.flatMap { a -> blocksFor(a, sources) }
+        val blocks0 = eligible.flatMap { a -> blocksFor(a, sources) }
+        // 9 Nov 2026 (AH): a sentence repeated by adjacent overlapping passages is given once (repeats made Gemma loop).
+        val rawBlocks = runCatching {
+            val texts = ArogyaEvidenceDedupe.dedupe(blocks0.map { it.text })
+            blocks0.zip(texts).map { (b, t) -> b.copy(text = t) }.filter { it.text.isNotBlank() }
+        }.getOrDefault(blocks0)
         val requestedOutput = GenericKbTokenBudget.desiredOutputTokens(
             query = query,
             clauses = queryPlanClauseCount(query),
@@ -43,7 +55,12 @@ class PocketRagEvidenceAssembler(
          */
         val reservedPromptTokens = 1_050 + desiredOutput.coerceAtMost(768)
         val evidenceTokens = (contextTokens - reservedPromptTokens).coerceAtLeast(768)
-        val evidenceBudget = (evidenceTokens * 1.55f).toInt().coerceAtLeast(1_800)
+        val modelBudget = (evidenceTokens * 1.55f).toInt().coerceAtLeast(1_800)
+        // 9 Nov 2026 (AH): offline phone answers read at most [phoneCapChars] of evidence. The provider's own cap
+        // limited only its search budget; six 1,500-char windows were still packed (8,315 chars at 23:51, budget=4500),
+        // which made Gemma loop (5,464-char repeating draft) on a 4,096-token phone cache.
+        val cap = phoneCapChars
+        val evidenceBudget = if (cap > 0 && contextTokens <= PHONE_MAX_CONTEXT) minOf(modelBudget, cap) else modelBudget
         android.util.Log.d(
             "PocketRagEvidenceAssembler",
             "POCKET_RAG_EVIDENCE_BUDGET contextTokens=$contextTokens reservedPromptTokens=$reservedPromptTokens " +
@@ -83,7 +100,9 @@ class PocketRagEvidenceAssembler(
         val valueConflict = eligible.firstNotNullOfOrNull { it.attributes["kb_value_conflict"]?.trim()?.takeIf { v -> v.isNotBlank() } }.orEmpty()
         val terms = eligible.firstNotNullOfOrNull { it.attributes["kb_terms"]?.trim()?.takeIf { v -> v.isNotBlank() } }.orEmpty()
         val goldReference = eligible.firstNotNullOfOrNull { it.attributes["kb_gold_reference"]?.trim()?.takeIf { v -> v.isNotBlank() } }.orEmpty()
-        return PocketRagPacket(selected, query.trim(), chosen, sources, complete, clauseCoverage, followUpOf, bestRelevance, valueConflict, terms, goldReference)
+        val rewrite = eligible.firstNotNullOfOrNull { it.attributes["kb_search_rewrite"]?.takeIf { r -> r.isNotBlank() } }.orEmpty()
+        return PocketRagPacket(selected, query.trim(), chosen, sources, complete, clauseCoverage, followUpOf, bestRelevance, valueConflict, terms, goldReference,
+            rewrite = rewrite)
     }
 
     private fun queryPlanClauseCount(query: String): Int =

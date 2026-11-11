@@ -134,9 +134,10 @@ object KnowledgeSourcePresentation {
             val n = keys.getOrPut(ref.key) { keys.size + 1 }
             ref.id?.let { docNumber[it] = n }
         }
-        val marker = Regex("\\[\\s*(S\\d+(?:\\s*[,;]\\s*S\\d+)*)\\s*]", RegexOption.IGNORE_CASE)
+        // 8 Nov 2026: also "[S1S1]", "[S1 S2]" (Gemma writes ids without a comma); "[S1][S2]" merge below.
+        val marker = Regex("\\[\\s*(S\\d+(?:\\s*[,;]?\\s*S\\d+)*)\\s*]", RegexOption.IGNORE_CASE)
         var out = marker.replace(naturalPhrasing(answer)) { m ->
-            val numbers = m.groupValues[1].split(Regex("\\s*[,;]\\s*"))
+            val numbers = Regex("S\\d+", RegexOption.IGNORE_CASE).findAll(m.groupValues[1]).map { it.value }.toList()
                 .mapNotNull { docNumber[it.trim().uppercase()] }.distinct().sorted()
             if (numbers.isEmpty()) "" else numbers.joinToString(", ", "[", "]")
         }

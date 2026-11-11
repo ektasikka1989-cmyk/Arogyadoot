@@ -193,6 +193,45 @@ class LocalModelManager(private val context: Context) {
         get() = if (isReady) core.extendedContextTokens.takeIf { it > 0 } ?: resolvedModelContextTokens
         else resolvedModelContextTokens
 
+    /**
+     * 9 Nov 2026 (AD): the KV cache size the engine itself reported when it refused a prompt
+     * ("remaining capacity: N"). Kept per model file across launches, so the evidence of every later
+     * selected-KB answer is trimmed before generation to fit instead of failing blank. 0 = not learned.
+     */
+    @Volatile private var learnedCapacity: Int = -1
+    private fun capacityKey(): String = "kv_" + (loadedModelPath?.let { File(it).let { f -> f.name + ":" + f.length() } } ?: "none")
+    private fun capacityPrefs() = context.getSharedPreferences("arogya_kv_capacity", Context.MODE_PRIVATE)
+    /** The learned KV size (tokens), 0 when the engine never refused a prompt for its length. */
+    val learnedKbCapacityTokens: Int get() = learnedKbCapacity()
+    private fun learnedKbCapacity(): Int {
+        if (learnedCapacity < 0) learnedCapacity = runCatching { capacityPrefs().getInt(capacityKey(), 0) }.getOrDefault(0)
+        return learnedCapacity
+    }
+    /**
+     * The window a generation can really use: the opened window, or the smaller KV size the engine
+     * reported. Output budgets of the visit features (notes, forms, family words) are clamped to it.
+     */
+    val usableContextTokens: Int
+        get() = maxOf(resolvedModelContextTokens, kbContextTokens).let { c -> learnedKbCapacity().takeIf { it in 1 until c } ?: c }
+
+    /** Any generation the engine refused for its length teaches the real KV size (all features). */
+    private fun learnCapacityFrom(error: String?) {
+        if (!ArogyaKvCapacity.isCapacityError(error)) return
+        val n = ArogyaKvCapacity.reported(error) ?: return
+        if (n != learnedCapacity) noteKbCapacity(n)
+    }
+    private val MIN_LEARNED_CAPACITY = 2_048
+    fun noteKbCapacity(reported: Int) {
+        // 11 Nov 2026 (audit): the engine reports the REMAINING room. In a fresh answer that is the whole cache, but a
+        // refusal in a long chat session could report much less; that must never be remembered as the cache size.
+        // Never below the model's own default window, and nothing under MIN_LEARNED_CAPACITY is learned.
+        val tokens = maxOf(reported, resolvedModelContextTokens.takeIf { it > 0 } ?: 0)
+        if (tokens < MIN_LEARNED_CAPACITY) return
+        learnedCapacity = tokens
+        runCatching { capacityPrefs().edit().putInt(capacityKey(), tokens).apply() }
+        Log.w("LocalModelManager", "KB_CONTEXT_CAPACITY_LEARNED tokens=$tokens model=${loadedModelFileName ?: "-"}")
+    }
+
     @Volatile var permanentlyDisabled: Boolean = false
     @Volatile var isTextWarm: Boolean = false
     @Volatile var needsSessionReopen: Boolean = false
@@ -234,6 +273,7 @@ class LocalModelManager(private val context: Context) {
             preparedHistory = emptyList()
             resolvedModelContextTokens = 0
             loadedModelPath = modelPath
+            learnedCapacity = -1
             loadingStartedAtMs = System.currentTimeMillis()
             setState(State.LOADING)
             registerOomListenerOnce()
@@ -481,7 +521,28 @@ class LocalModelManager(private val context: Context) {
                 "encodedMaxSide=$maxSide jpegQuality=94 historyTurns=${history.size} maxOutput=$maxOutputToken"
         )
         core.cancelEphemeralGeneration()
-        val result = core.generateVisionEphemeral(
+        // 11 Nov 2026 (AO): every on-phone photo reading (chat, troubleshooting, ArogyaDoot screens) has a hard limit,
+        // so a photo of something unexpected can never keep the model writing for minutes. Screens with a shorter
+        // limit of their own (ArogyaLocalVision) stop earlier.
+        val result = kotlinx.coroutines.coroutineScope {
+            val watchdog = launch {
+                kotlinx.coroutines.delay(VISION_HARD_LIMIT_MS)
+                Log.w(TAG, "LOCAL_VLM_TIME_LIMIT ms=$VISION_HARD_LIMIT_MS role=$taskRole")
+                requestCancelActiveGeneration("vision_hard_limit")
+            }
+            try { generateVisionGuarded(history, userQueryOnly, bytes, visionTemperature, taskRole, maxOutputToken) }
+            finally { watchdog.cancel() }
+        }
+        Log.i(TAG, "LOCAL_VLM_END completed=${result.completed} chars=${result.text.length} error=${result.error}")
+        return result.toBaseline()
+    }
+
+    /** Longest on-phone photo reading anywhere in the app. */
+    private val VISION_HARD_LIMIT_MS = 240_000L
+
+    private suspend fun generateVisionGuarded(history: List<AndroChatMessage>, userQueryOnly: String, bytes: ByteArray,
+                                              visionTemperature: Double, taskRole: VisionTaskRole, maxOutputToken: Int) =
+        core.generateVisionEphemeral(
             history = history.takeLast(6).toCoreMessages(),
             currentUser = userQueryOnly.trim(),
             imageBytes = bytes,
@@ -494,9 +555,6 @@ class LocalModelManager(private val context: Context) {
             },
             maxOutputToken = maxOutputToken
         )
-        Log.i(TAG, "LOCAL_VLM_END completed=${result.completed} chars=${result.text.length} error=${result.error}")
-        return result.toBaseline()
-    }
 
     private fun parsePlannerJson(raw: String): JSONObject? {
         val candidate = raw.trim()
@@ -912,6 +970,8 @@ ${localDraft.trim().take(2_000)}
         systemPromptAddon: String? = null,
         /** Answer text fragments as they are written (KB answer preview). */
         onToken: ((String) -> Unit)? = null,
+        /** 11 Nov 2026 (AJ): sampling temperature for this answer (the recovery after a decoder loop); null = default. */
+        temperatureOverride: Double? = null,
         onComplete: (BaselineGenerationResult) -> Unit
     ): Flow<String> = flow {
         if (!isReady || permanentlyDisabled) {
@@ -997,7 +1057,7 @@ ${localDraft.trim().take(2_000)}
                 },
                 // Selected-KB answers: greedy decoding (see KB_ANSWER_TEMPERATURE). Other grounded
                 // turns (attachments, ANM SOP) keep their existing sampling.
-                temperature = if (knowledgePackGrounding) AndroLLMLocalInferenceCore.KB_ANSWER_TEMPERATURE
+                temperature = temperatureOverride ?: if (knowledgePackGrounding) AndroLLMLocalInferenceCore.KB_ANSWER_TEMPERATURE
                 else AndroLLMLocalInferenceCore.DEFAULT_TEMPERATURE,
                 onPartial = onToken
             )
@@ -1190,6 +1250,7 @@ ${localDraft.trim().take(2_000)}
                     onPartial = onPartial
                 )
                 Log.i(TAG, "DETACHED_GENERATION tag=$tag ms=${System.currentTimeMillis() - started} chars=${result.text.length} completed=${result.completed}")
+                learnCapacityFrom(result.error)
                 result.text.takeIf { it.isNotBlank() }
             } catch (ce: CancellationException) {
                 throw ce
@@ -1199,22 +1260,22 @@ ${localDraft.trim().take(2_000)}
             }
         }
 
-    suspend fun rewriteKbSearchQuestion(question: String, aliasHints: List<String>): GenericKbQuestionRewrite? =
+    suspend fun rewriteKbSearchQuestion(question: String, aliasHints: List<String>, previous: String = ""): GenericKbQuestionRewrite? =
         withContext(Dispatchers.IO) {
             if (!isReady || permanentlyDisabled || question.isBlank()) return@withContext null
             val started = System.currentTimeMillis()
             try {
                 val result = core.generateEphemeral(
                     history = emptyList(),
-                    currentUser = GenericKbQuestionRewrite.prompt(question, aliasHints),
+                    currentUser = GenericKbQuestionRewrite.prompt(question, aliasHints, previous),
                     systemPrompt = null,
                     maxOutputToken = GenericKbQuestionRewrite.MAX_OUTPUT_TOKENS,
                     temperature = 0.0
                 )
-                val parsed = GenericKbQuestionRewrite.parse(result.text, question)
+                val parsed = GenericKbQuestionRewrite.parse(result.text, question, previous)
                 Log.i(
                     TAG,
-                    "KB_QUESTION_REWRITE ms=${System.currentTimeMillis() - started} search=${parsed?.search?.take(160)} " +
+                    "KB_QUESTION_REWRITE ms=${System.currentTimeMillis() - started} followUp=${previous.isNotBlank()} search=${parsed?.search?.take(160)} " +
                         "calc=${parsed?.calc} raw=${result.text.replace('\n', '|').take(200)}"
                 )
                 parsed
@@ -2037,7 +2098,7 @@ ASSISTANT: ${assistantText.trim()}
         error = "LOCAL_NOT_READY"
     )
 
-    private fun AndroLLMCoreGeneration.toBaseline(): BaselineGenerationResult = BaselineGenerationResult(
+    private fun AndroLLMCoreGeneration.toBaseline(): BaselineGenerationResult = also { learnCapacityFrom(error) }.let { BaselineGenerationResult(
         text = text,
         inferenceMs = inferenceMs,
         completed = completed,
@@ -2045,7 +2106,7 @@ ASSISTANT: ${assistantText.trim()}
         tokenCountAfter = tokenCountAfter,
         error = error,
         stopReason = stopReason
-    )
+    ) }
 
     private fun List<AndroChatMessage>.toCoreMessages(): List<AndroLLMCoreMessage> =
         mapNotNull { msg ->

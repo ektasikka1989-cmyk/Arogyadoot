@@ -276,11 +276,41 @@ class PocketRagQualityGate {
     fun unsupportedNumericClaims(query: String, answer: String, evidence: String): Set<String> {
         val queryForms = numericForms(query)
         val evidenceForms = numericForms(evidence)
-        return numericClaims(answer).filterTo(linkedSetOf()) { claim ->
+        val plain = numericClaims(answer).filterTo(linkedSetOf()) { claim ->
             val forms = claimForms(claim)
             forms.none { it in queryForms || it in evidenceForms }
         }
+        // 9 Nov 2026 (phone: "If vomiting occurs, wait 1 minute" where the guide says 10 minutes): a number with a
+        // time, volume, weight or spoon unit must appear with the same unit in the evidence (or the question).
+        // Single digits were never checked, and "10" anywhere let any "10 <unit>" through.
+        val known = unitQuantities(evidence) + unitQuantities(query)
+        val withUnit = unitQuantities(answer).filterNot { it in known }.mapTo(linkedSetOf()) { it.replace(':', ' ') }
+        return plain + withUnit
     }
+
+    /** "number:unit-family" for every number written with a unit ("10 minutes", "5gm", "one litre", "24 hrs"). */
+    internal fun unitQuantities(text: String): Set<String> {
+        val t = " " + NUMBER_WORDS.entries.fold(text.lowercase()) { acc, (w, d) -> acc.replace(Regex("(?<![\\p{L}])$w(?![\\p{L}])"), d) }
+        return UNIT_QUANTITY.findAll(t).mapNotNull { m ->
+            val n = m.groupValues[1].replace(",", ".").trimEnd('0').trimEnd('.').ifBlank { "0" }.let { if (m.groupValues[1].contains('.')) it else m.groupValues[1] }
+            val family = UNIT_FAMILIES.entries.firstOrNull { (_, re) -> re.matches(m.groupValues[2]) }?.key ?: return@mapNotNull null
+            "$n:$family"
+        }.toSet()
+    }
+
+    /** Share of the wrong sentence's words the guide sentence must have to replace it. */
+    private val GUIDE_REPLACE_OVERLAP = 0.5
+
+    private val NUMBER_WORDS = mapOf("one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5", "six" to "6",
+        "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10", "twelve" to "12", "fifteen" to "15", "twenty" to "20",
+        "thirty" to "30", "half a" to "0.5", "half" to "0.5")
+    private val UNIT_QUANTITY = Regex("(?<![\\p{L}\\p{N}.,])(\\d+(?:[.,]\\d+)?)\\s*-?\\s*(minutes?|mins?|hours?|hrs?|days?|weeks?|months?|ml|millilit(?:re|er)s?|lit(?:re|er)s?|mg|gms?|grams?|g|tea\\s?spoons?(?:ful)?|spoons?(?:ful)?)(?![\\p{L}])")
+    private val UNIT_FAMILIES = linkedMapOf(
+        "minute" to Regex("minutes?|mins?"), "hour" to Regex("hours?|hrs?"), "day" to Regex("days?"),
+        "week" to Regex("weeks?"), "month" to Regex("months?"), "ml" to Regex("ml|millilit(?:re|er)s?"),
+        "litre" to Regex("lit(?:re|er)s?"), "mg" to Regex("mg"), "gram" to Regex("gms?|grams?|g"),
+        "spoon" to Regex("(?:tea\\s?)?spoons?(?:ful)?")
+    )
 
     /**
      * Deterministic local salvage used only after a bounded local rewrite also
@@ -313,10 +343,13 @@ class PocketRagQualityGate {
         // 8 Nov 2026: line by line, so sections and numbered steps keep their lines (joining with
         // spaces flattened the whole answer into one paragraph), and only the part holding the wrong
         // number goes: "(1031°F)" in brackets, else its clause, else the sentence.
+        val known = unitQuantities(packet.evidenceText) + unitQuantities(query)
+        fun badLine(t: String) = numericClaims(t).any { it in unsupported } || unitQuantities(t).any { it !in known }
+        val guide = guideSentences(packet)
         val lines = text.lines().map { line ->
-            if (numericClaims(line).none { it in unsupported }) line
+            if (!badLine(line)) line
             else KbReplyText.SENTENCE_SPLIT.split(line).map { it.trim() }.filter { it.isNotBlank() }
-                .mapNotNull { piece -> repairNumericPiece(piece, unsupported) }.joinToString(" ")
+                .mapNotNull { piece -> if (!badLine(piece)) piece else guideReplacement(piece, guide, known) ?: repairNumericPiece(piece, unsupported, known) }.joinToString(" ")
         }
         val salvaged = lines.map { if (Regex("^\\s*\\d{1,2}[.)]\\s*$").matches(it)) "" else it }
             .joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
@@ -324,9 +357,36 @@ class PocketRagQualityGate {
         return salvaged
     }
 
+    /** Evidence sentences with their source ID (for [guideReplacement]). */
+    private fun guideSentences(packet: PocketRagPacket): List<Pair<String, String>> =
+        packet.evidenceBlocks.flatMap { b ->
+            KbReplyText.SENTENCE_SPLIT.split(b.text.replace(Regex("\\s+"), " ")).map { it.trim() }
+                .filter { it.length in 25..400 }.map { it to b.sourceId }
+        }
+
+    /**
+     * 9 Nov 2026: a sentence whose number is wrong ("wait 1 minute") is replaced by the guide's own sentence on the
+     * same thing ("If the child vomits, wait for 10 minutes and then give ORS more slowly."), cited, instead of being
+     * dropped (lost content) or regenerated (another minute). The guide sentence must carry a number with the same
+     * unit and share most of the sentence's words; otherwise null (the sentence is dropped as before).
+     */
+    private fun guideReplacement(piece: String, guide: List<Pair<String, String>>, known: Set<String>): String? {
+        val units = unitQuantities(piece).map { it.substringAfter(':') }.toSet()
+        if (units.isEmpty()) return null
+        fun words(t: String) = Regex("[\\p{L}]{3,}").findAll(t.lowercase()).map { it.value.take(5) }.toSet()
+        val pw = words(piece.replace(Regex("\\[S?\\d+(?:\\s*,\\s*S?\\d+)*]"), ""))
+        if (pw.size < 3) return null
+        val best = guide.filter { (g, _) -> unitQuantities(g).any { it.substringAfter(':') in units && it in known } }
+            .maxByOrNull { (g, _) -> (words(g) intersect pw).size.toDouble() / pw.size } ?: return null
+        val overlap = (words(best.first) intersect pw).size.toDouble() / pw.size
+        if (overlap < GUIDE_REPLACE_OVERLAP) return null
+        val g = best.first.trim().let { if (it.last() in ".!?।") it else "$it." }
+        return "$g [${best.second}]"
+    }
+
     /** [piece] without the wrong number: drop its bracket, else its clause; null drops the sentence. */
-    private fun repairNumericPiece(piece: String, unsupported: Set<String>): String? {
-        fun bad(t: String) = numericClaims(t).any { it in unsupported }
+    private fun repairNumericPiece(piece: String, unsupported: Set<String>, known: Set<String>): String? {
+        fun bad(t: String) = numericClaims(t).any { it in unsupported } || unitQuantities(t).any { it !in known }
         if (!bad(piece)) return piece
         var p = piece.replace(Regex("\\s*\\([^()]*\\)")) { m -> if (bad(m.value)) "" else m.value }
         if (!bad(p)) return p.takeIf { it.split(Regex("\\s+")).size >= 4 }

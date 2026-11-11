@@ -1,0 +1,26 @@
+question	expected_rewrite	expected_evidence_regex
+My 10 month old has cough, fever and is breathing fast, what should I do?	What should be done when a child has cough and fast breathing?||What should be done when a child has fever?	cough|pneumonia;fast breath|breathing|chest indrawing;fever|temperature
+newborn baby is cold to touch and not sucking milk	What should be done when a newborn is cold?||What should be done when a newborn is not sucking or feeding well?	cold|hypotherm|warm|temperature;feed|suck|breast
+pregnant woman has fits and high BP	What should be done when a pregnant woman has convulsions?||What should be done when a pregnant woman has high blood pressure?	convuls|fits|eclampsia;blood pressure|bp|hypertens|pre-eclampsia
+bacche ko khasi aur saans lene me dikkat hai	What should be done when a child has cough and difficulty in breathing?	cough|khasi;breath|pneumonia|indrawing
+child has measles rash and red eyes	What should be done when a child has measles?	measles|rash
+गर्भवती महिला के पैरों में सूजन और सिरदर्द है	What should be done when a pregnant woman has swelling of feet?||What should be done when a pregnant woman has severe headache?	swell|oedema|edema|सूजन;headache|सिरदर्द|blood pressure|pre-eclampsia
+navjaat ki naal se khoon aa raha hai	What should be done when the umbilical cord of a newborn is bleeding?	cord|stump|umbilic;bleed|blood
+child swallowed kerosene, what to do	What should be done when a child has swallowed kerosene or poison?	kerosene|poison
+old woman has fever with chills every alternate day	What should be done when a person has fever with chills?||How is malaria tested?	fever;malaria|chill|rdt|blood smear
+बच्चे को दस्त है और आँखें धँसी हुई हैं	What should be done when a child has diarrhoea with sunken eyes?	diarrhoea|दस्त;sunken|dehydrat|धँस|धंस
+mother has heavy bleeding after delivery and feels dizzy	What should be done when a woman has heavy bleeding after delivery?||What should be done when a woman feels dizzy after delivery?	bleed|pph|haemorrhage|hemorrhage;refer|facility|transport|dizz|faint|shock
+baby has yellow eyes and palms on day 3	What should be done when a newborn has jaundice?	jaundice|yellow
+bachhe ko kaan me dard aur kaan beh raha hai	What should be done when a child has ear pain or ear discharge?	\bear\b|\bears\b|kaan
+woman has white discharge and itching	What should be done when a woman has white discharge and itching?	discharge|rti|sti|reproductive tract
+child has not passed urine for 8 hours and is very weak	What should be done when a child has not passed urine for many hours?||What should be done when a child is very weak or lethargic?	urine|dehydrat;letharg|weak|unconscious|danger
+pregnant lady feeling baby movements less	What should be done when a pregnant woman feels fewer foetal movements?	movement|foetal|fetal
+newborn breathing fast and chest is going in	What should be done when a newborn has fast breathing and chest indrawing?	breath|respirat;indrawing|chest
+दो साल के बच्चे को खून की कमी है	What should be done when a 2 year old child has anaemia?	anaemi|anemi|ifa|iron|haemoglobin|खून की कमी
+child bitten by dog, wound is bleeding	What should be done when a child is bitten by a dog?	dog|animal bite|rabies;wash|wound|soap
+baby vomits after every feed and has fever	What should be done when a baby vomits after every feed?||What should be done when a baby has fever?	vomit;fever|temperature
+young girl has heavy periods and feels weak	What should be done when a girl has heavy menstrual bleeding?||What should be done when a girl feels weak or has anaemia?	period|menstrua|bleeding;anaemi|anemi|ifa|iron|weak
+TB patient stopped taking medicines	What should be done when a TB patient stops taking medicines?	tb|tubercul;medicine|treatment|dots|drug
+bachhe ko tez bukhar hai aur gardan akad gayi hai	What should be done when a child has high fever and a stiff neck?	fever|bukhar;neck|stiff|meningit|refer|danger
+pregnant woman vomiting a lot and cannot eat	What should be done when a pregnant woman has severe vomiting?	vomit
+child is very thin and legs are swollen	What should be done when a child is very thin?||What should be done when a child has swollen legs?	malnutri|thin|wasting|sam|muac;swell|oedema|edema

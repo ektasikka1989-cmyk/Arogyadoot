@@ -1,0 +1,21 @@
+question	model_rewrite_used_in_test	expected_in_evidence
+9 month baby has fever, loose motions and is not eating, mother also has fever	What should be done when a 9 month old child has fever, diarrhoea and is not eating?|What should be done when the mother also has fever?	fever;diarrh|loose;feed|eat|breast
+pregnant woman 7 months has headache, blurred vision and swelling of face	What should be done when a pregnant woman has severe headache and blurred vision?|What should be done when a pregnant woman has swelling of the face?	pregnan;headache|blurred|vision;swell|oedema
+newborn 3 days old not feeding, cold to touch and yellow palms	What should be done when a newborn is not feeding and feels cold?|What should be done when a newborn has yellow palms and soles?	feed|suck;cold|hypotherm|temperature;jaundice|yellow
+बच्चे को दस्त, उल्टी और पेशाब कम आ रहा है	What should be done when a child has diarrhoea and vomiting?|What should be done when a child is passing very little urine?	diarrh|loose;vomit;urine|dehydrat
+2 saal ke bacche ko 4 din se khasi, tez saans aur bukhar	What should be done when a 2 year old child has cough, fast breathing and fever for four days?	cough;breath;fever
+How do I make ORS at home and how much to give a 1 year old after each stool	How is ORS prepared at home?|How much ORS should be given to a 1 year old child after each loose stool?	salt|packet;water|litre;ml|cup|glass
+How to prepare energy dense food for a malnourished 1 year old and how many times to feed	How is energy dense food prepared for a malnourished child?|How many times a day should a malnourished 1 year old child be fed?	oil|ghee|sugar|jaggery;times|meal
+mother delivered at home 1 hour ago, bleeding a lot and placenta not out	What should be done when a woman is bleeding heavily after a home delivery?|What should be done when the placenta has not come out after delivery?	bleed|haemorrhage;placenta
+प्रसव के बाद मां को बुखार है और बच्चा दूध नहीं पी रहा	What should be done when a mother has fever after delivery?|What should be done when a newborn is not breastfeeding?	fever;breast|feed|suck
+teenage girl with heavy periods, pale and breathless, what IFA dose	What should be done when an adolescent girl has heavy periods and looks pale?|What is the IFA dose for an adolescent girl with anaemia?	menstru|period;anaemi|pale|haemoglobin;ifa|iron
+child bitten by dog on face yesterday, not vaccinated	What should be done after a dog bite on the face?|When should anti-rabies vaccine be given after a dog bite?	bite;wash|soap;rabies|vaccin
+bacche ko daura pada, bukhar hai aur gardan akad gayi	What should be done when a child has convulsions with fever?|What should be done when a child has a stiff neck?	convuls|fits|seizure;fever;neck|stiff|meningitis
+low birth weight baby 1.7 kg how to keep warm and how often to feed	How should a low birth weight baby be kept warm?|How often should a low birth weight baby be fed?	warm|kangaroo|kmc|skin;feed|breast|hours
+pregnant woman has fever with chills and is in 6th month	What should be done when a pregnant woman has fever with chills?	pregnan;fever|chill|malaria
+child with swelling of both feet, thin arms and MUAC red	What should be done when a child has swelling of both feet and a red MUAC reading?	oedema|swell;muac|red;malnutrition|sam|refer
+6 mahine ke baad baby ko kya aur kitna khilana chahiye	What complementary food should be given to a child after six months and how much?	complementary|semi-solid|mashed|food;katori|bowl|spoon|amount
+woman 3 days after delivery is crying, not sleeping and not caring for baby	What should be done when a mother is very sad and not caring for her baby after delivery?	depress|sad|mental|sleep
+zinc and ORS dose for 8 month old with diarrhoea for how many days	What is the zinc dose for an 8 month old child with diarrhoea and for how many days?|How much ORS should be given to an 8 month old child?	zinc;14|fourteen|days;ors
+child has blood in stool and fever	What should be done when a child has blood in the stool and fever?	blood;stool|dysentery;fever
+नवजात सांस नहीं ले रहा और नीला पड़ गया	What should be done when a newborn is not breathing and has turned blue?	breath;blue|cyanos|resuscit

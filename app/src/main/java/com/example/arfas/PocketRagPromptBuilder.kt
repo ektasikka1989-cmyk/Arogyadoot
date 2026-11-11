@@ -149,7 +149,7 @@ object PocketRagPromptBuilder {
             // Item 4: "More detail" carries its own longer line on the packet (same passages).
             val complete = if (packet.lengthLineOverride.isNotBlank()) packet.lengthLineOverride
             else if (ArogyaFlags.r2LengthPrompt) {
-                runCatching { ArogyaQuestionType.lengthLine(ArogyaQuestionType.kindOf(packet.query), packet.query) }
+                runCatching { ArogyaQuestionType.lengthLine(packet.kind, packet.query) }
                     .getOrDefault(COMPLETE_ANSWER)
             } else COMPLETE_ANSWER
             append("\n").append(complete)

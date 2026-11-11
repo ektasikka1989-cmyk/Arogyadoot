@@ -101,6 +101,20 @@ class GenericKbReranker(
         return false
     }
 
+    /**
+     * 11 Nov 2026 (AJ): starts the device check if needed and waits for its verdict, at most [timeoutMs]
+     * (the first question after an install). Returns [ready]. Never waits once the verdict is known.
+     */
+    suspend fun awaitReady(timeoutMs: Long): Boolean {
+        if (ready()) return true
+        val end = System.currentTimeMillis() + timeoutMs
+        while (verified == null && System.currentTimeMillis() < end) {
+            kotlinx.coroutines.delay(50)
+            if (!verificationStarted.get()) ready() // a deferred check (tokenizer not loaded yet) is restarted
+        }
+        return ready()
+    }
+
     /** Suspends until the background check has finished (tests and diagnostics only). */
     internal suspend fun awaitVerdictForTest(): Boolean {
         while (verified == null) kotlinx.coroutines.delay(10)
@@ -267,9 +281,14 @@ class GenericKbReranker(
                 // The fast cores (see LlamaCppCore.threadsFor): 4 on a 4 big + 4 little phone, 6 on a
                 // phone whose cores are all fast. Re-ranking runs before the answer model starts.
                 val threads = LlamaCppCore.threadsFor(Runtime.getRuntime().availableProcessors(), LlamaCppCore.coreMaxFreqs()).coerceAtMost(6)
-                val opts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(threads) }
+                // 9 Nov 2026: full graph optimisation (operator fusion; same model and scores, checked by the parity
+                // cases below). Phone log: 1.3 s per pair with basic optimisation.
+                val opts = OrtSession.SessionOptions().apply {
+                    setIntraOpNumThreads(threads)
+                    runCatching { setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT) }
+                }
                 OrtEnvironment.getEnvironment().createSession(file.absolutePath, opts).also {
-                    Log.i(TAG, "RERANKER_READY bytes=${file.length()} inputs=${it.inputNames}")
+                    Log.i(TAG, "RERANKER_READY bytes=${file.length()} inputs=${it.inputNames} threads=$threads opt=all")
                 }
             }.onFailure { failed = true; Log.w(TAG, "RERANKER_UNAVAILABLE ${it.message}") }.getOrNull()
                 ?.also { session = it }

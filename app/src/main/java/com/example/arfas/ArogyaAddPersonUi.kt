@@ -180,6 +180,7 @@ private fun PhotoPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Be
                 if (found.isEmpty()) throw IllegalStateException(tr("No person details found on this photo", "फ़ोटो में व्यक्ति की जानकारी नहीं मिली"))
                 onDone(found)
             } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                Log.w("ArogyaDemo", "AROGYA_ADD_PERSON_FAILED step=photo ${e.javaClass.simpleName}: ${e.message?.take(200)}")
                 busy = false; msg = (e.message ?: "").take(200)
             } finally { if (temp) runCatching { context.contentResolver.delete(uri, null, null) } }
         }
@@ -232,7 +233,7 @@ private fun CsvPersonStep(hindi: Boolean, onDone: (List<Beneficiary>, String) ->
                 headers = parsed.first(); rows = parsed.drop(1).take(500)
                 mapping = ArogyaPersonCsv.matchHeaders(parsed.first())
                 msg = ""
-            } catch (e: CancellationException) { throw e } catch (e: Exception) { msg = (e.message ?: "").take(200) }
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { Log.w("ArogyaDemo", "AROGYA_ADD_PERSON_FAILED step=csv ${e.javaClass.simpleName}: ${e.message?.take(200)}"); msg = (e.message ?: "").take(200) }
             finally { busy = false }
         }
     }
@@ -353,10 +354,15 @@ private fun PdfPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Bene
                 // Scanned handwriting (little or no OCR text): Gemma reads the first pages on the phone.
                 suspend fun gemmaPeople(): List<Beneficiary> {
                     val found = ArrayList<Beneficiary>()
-                    pageImages.forEachIndexed { i, b ->
+                    var emptyPages = 0
+                    for ((i, b) in pageImages.withIndex()) {
+                        // 11 Nov 2026 (AN): a PDF that is not a register (a guide, a letter) stops after two pages with
+                        // nobody on them instead of reading every page.
+                        if (found.isEmpty() && emptyPages >= 2) { Log.i("ArogyaDemo", "AROGYA_PERSON_PDF_STOP pages_without_people=$emptyPages"); break }
                         msg = tr("Gemma is reading page ${i + 1} on this phone…", "Gemma फ़ोन पर पेज ${i + 1} पढ़ रहा है…")
-                        ArogyaLocalVision.readPhoto(ai.localModel(), b, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it) }
-                            ?.forEach { found += ArogyaPersonCsv.toBeneficiary(it) }
+                        val got = ArogyaLocalVision.readPhoto(ai.localModel(), b, ArogyaPhotoText.Kind.PERSON)?.let { ArogyaPhotoText.people(it) }.orEmpty()
+                        if (got.isEmpty()) emptyPages++
+                        got.forEach { found += ArogyaPersonCsv.toBeneficiary(it) }
                     }
                     pageImages.forEach { it.recycle() }; pageImages.clear()
                     return found
@@ -393,7 +399,7 @@ private fun PdfPersonStep(hindi: Boolean, ai: ArogyaVisitAi?, onDone: (List<Bene
                 busy = false
                 msg = pagesNote.trim()
                 onDone(out)
-            } catch (e: CancellationException) { throw e } catch (e: Exception) { busy = false; msg = (e.message ?: "").take(200) }
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { Log.w("ArogyaDemo", "AROGYA_ADD_PERSON_FAILED step=pdf ${e.javaClass.simpleName}: ${e.message?.take(200)}"); busy = false; msg = (e.message ?: "").take(200) }
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -485,7 +491,7 @@ private fun AddPersonReview(hindi: Boolean, aiReady: Boolean, people: List<Revie
             if (ok) {
                 Log.i("ArogyaDemo", "AROGYA_ADD_PERSON source=$source rows=${people.size} saved=${toSave.size} duplicates=$dupCount")
                 done = summary
-            } else done = tr("Could not save.", "सेव नहीं हुआ।")
+            } else { Log.w("ArogyaDemo", "AROGYA_ADD_PERSON_FAILED step=save rows=${toSave.size}"); done = tr("Could not save.", "सेव नहीं हुआ।") }
         }, enabled = consent && toSave.isNotEmpty() && done.isEmpty(), modifier = Modifier.fillMaxWidth()) {
             Text(tr("Save ${toSave.size} people", "${toSave.size} लोग सेव करें"))
         }

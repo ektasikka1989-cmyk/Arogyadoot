@@ -41,16 +41,25 @@ object ArogyaAnswerFormat {
     /** A section label (not "Answer") with its colon in the middle of a line, after other text. */
     private val MID_LINE_LABEL = Regex(
         "(?i)(?<=\\S)[ \\t]+(?=(?:why it matters|what to do|when to tell (?:the )?anm|common mistakes(?: to avoid)?|" +
-            "क्यों ज़रूरी|क्यों जरूरी|क्या करें|(?:anm|एएनएम) को कब बता(?:एं|एँ|ये)|आम गलतियाँ|आम गलतिया)\\s*[:：])"
+            "क्यों ज़रूरी|क्यों जरूरी|क्या करें|(?:anm|एएनएम) को कब बता(?:एं|एँ|ये)|आम गलतियाँ|आम गलतिया|उत्?तर)\\s*[:：])"
     )
 
     /** A line starting with a known label + colon opens a section; returns (heading, rest). */
     private fun matchLabel(line: String): Pair<String, String>? {
         val l = line.trimStart('•', '-', '–', '*', ' ', '#')
         for ((key, heading) in LABELS) {
-            val hit = if (key[0] in 'a'..'z') l.lowercase(java.util.Locale.ROOT).startsWith(key) else l.startsWith(key)
+            // Hindi labels also match without the joining mark "्" (Gemma wrote "उततर:" for "उत्तर:").
+            val latin = key[0] in 'a'..'z'
+            val hit = if (latin) l.lowercase(java.util.Locale.ROOT).startsWith(key)
+                else l.startsWith(key) || l.replace("्", "").startsWith(key.replace("्", ""))
             if (!hit) continue
-            val rest = l.drop(key.length).trimStart()
+            val keyLen = if (latin || l.startsWith(key)) key.length else {
+                // Length of the label as written: walk until its virama-free form is complete.
+                val target = key.replace("्", ""); var i = 0; var n = 0
+                while (i < l.length && n < target.length) { if (l[i] != '्') n++; i++ }
+                i
+            }
+            val rest = l.drop(keyLen).trimStart()
             if (!rest.startsWith(":") && !rest.startsWith("：")) continue
             return heading to rest.drop(1).trim()
         }
@@ -137,10 +146,37 @@ object ArogyaAnswerFormat {
      * checked citations instead, so the tags only duplicated them ("[S1] ¹"). Markdown links
      * ("[text](url)") and other bracketed text stay.
      */
+    /**
+     * 11 Nov 2026 (AO): Gemma sometimes writes the question again as a title before the labelled answer
+     * ("किशिश को माहवारी में दर्द होने पर मदद कैसे करें" then "उत्तर: …"); it showed as the first line of the answer.
+     * A first line with no label and no full stop, directly followed by a section label, that shares words with
+     * the question (or ends with "?") is dropped. Anything else is left exactly as it is.
+     */
+    fun dropEchoedQuestion(text: String, question: String): String {
+        val lines = text.lines()
+        val i = lines.indexOfFirst { it.isNotBlank() }
+        if (i < 0) return text
+        val firstRaw = lines[i].trim()
+        if (firstRaw.length > 160 || matchLabel(firstRaw) != null) return text
+        if (firstRaw.trimEnd().lastOrNull() in listOf('.', '।', '!', ':')) return text
+        val j = (i + 1 until lines.size).firstOrNull { lines[it].isNotBlank() } ?: return text
+        // Only before the ANSWER label: a first line followed by "Why it matters:" may be the answer itself.
+        if (matchLabel(lines[j].trim())?.first !in setOf("Answer", "उत्तर")) return text
+        fun words(t: String) = Regex("[\\p{L}\\p{M}\\p{N}]{2,}").findAll(t.lowercase(java.util.Locale.ROOT)).map { it.value }.toList()
+        val fw = words(firstRaw)
+        if (fw.isEmpty()) return text
+        val qw = words(question).toSet()
+        val overlap = fw.count { it in qw }.toDouble() / fw.size
+        if (overlap < ECHO_MIN_OVERLAP && !firstRaw.endsWith("?")) return text
+        return lines.drop(j).joinToString("\n")
+    }
+    private const val ECHO_MIN_OVERLAP = 0.34
+
     fun stripCitationMarkers(text: String): String {
         if (text.isBlank()) return text
         val id = "(?:[SW]?\\d{1,2})"
-        val list = "\\s*(?:(?:sources?|src)\\s*:?\\s*)?$id(?:\\s*(?:,|;|–|-|and|&)\\s*$id)*\\s*"
+        // 8 Nov 2026: ids may also run together or be space-separated ("[S1S1]", "[S1 S2]").
+        val list = "\\s*(?:(?:sources?|src)\\s*:?\\s*)?$id(?:\\s*(?:,|;|–|-|and|&)\\s*$id|\\s*[SW]\\d{1,2})*\\s*"
         var out = Regex("(?i)[\\[【]$list[\\]】](?!\\()").replace(text, "")
         out = Regex("(?i)\\((?:(?:sources?|src)\\s*:?\\s*)?[SW]\\d{1,2}(?:\\s*(?:,|;|and|&)\\s*[SW]\\d{1,2})*\\)").replace(out, "")
         // Tidy what the tags leave behind: "word ." → "word.", doubled spaces.

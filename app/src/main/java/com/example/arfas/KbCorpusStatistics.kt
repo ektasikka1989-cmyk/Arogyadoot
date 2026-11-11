@@ -74,6 +74,20 @@ class KbCorpusStatistics {
         }
     }.getOrDefault(false)
 
+    /**
+     * 9 Nov: guide-wide weight of a word stem (see [GenericKbKeyFacts.stem]): ln(1 + passages / passages
+     * containing the stem). Built from this pack's own counts, so it follows a guide upgrade by itself.
+     */
+    @Synchronized
+    fun stemWeights(): ((String) -> Double)? {
+        if (documentCount <= 0) return null
+        val df = HashMap<String, Int>()
+        documentFrequency.forEach { (token, n) -> val k = GenericKbKeyFacts.stem(token); if (n > (df[k] ?: 0)) df[k] = n }
+        val total = documentCount.toDouble()
+        val unseen = kotlin.math.ln(1.0 + total)
+        return { stem -> df[stem]?.let { kotlin.math.ln(1.0 + total / it) } ?: unseen }
+    }
+
     @Synchronized
     fun meaningfulLiteralSlots(query: String): Set<String> {
         if (documentCount <= 0) return emptySet()

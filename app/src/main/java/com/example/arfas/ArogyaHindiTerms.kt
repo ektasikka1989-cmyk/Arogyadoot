@@ -116,6 +116,38 @@ object ArogyaHindiTerms {
         "ors" to "ors",
     ).sortedByDescending { it.first.length }
 
+    /**
+     * English lay words the guides never use, mapped to the guides' own words (11 Nov audit:
+     * "loose motion" appears 0 times in the ASHA pack, "diarrhoea" 215; the English question
+     * retrieved developmental-milestone pages instead of ORS/zinc). A general lay → guide
+     * vocabulary bridge, like [TERMS] for Hindi: it only adds a search view, never an answer.
+     */
+    private val ENGLISH_LAY: List<Pair<Regex, String>> = listOf(
+        Regex("\\bloose\\s*motions?\\b", RegexOption.IGNORE_CASE) to "diarrhoea",
+        Regex("\\bmotions\\b", RegexOption.IGNORE_CASE) to "diarrhoea",
+        Regex("\\b(?:stomach|tummy|belly)\\s*(?:pain|ache)\\b", RegexOption.IGNORE_CASE) to "abdominal pain",
+        Regex("\\bthrowing\\s+up\\b", RegexOption.IGNORE_CASE) to "vomiting",
+        Regex("\\b(?:high|low)?\\s*bp\\b", RegexOption.IGNORE_CASE) to "blood pressure",
+    )
+
+    /**
+     * One extra search view for an English question that uses a lay word: the question with
+     * each lay word replaced by the guide's word. Empty when no lay word is present or the
+     * guide's word is already in the question.
+     */
+    fun englishViews(question: String): List<String> {
+        var view = question
+        for ((rx, guideWord) in ENGLISH_LAY) {
+            if (guideWord in view.lowercase(java.util.Locale.ROOT)) continue
+            view = rx.replace(view) { m ->
+                val lead = m.value.takeWhile { it.isWhitespace() }
+                val prefix = Regex("^\\s*(high|low)\\s+", RegexOption.IGNORE_CASE).find(m.value)?.groupValues?.get(1)
+                lead + (if (prefix != null) "$prefix " else "") + guideWord
+            }
+        }
+        return if (view == question) emptyList() else listOf(view.replace(Regex("\\s{2,}"), " ").trim())
+    }
+
     /** True when the question has Devanagari or reads as Hinglish. */
     fun needsViews(question: String): Boolean =
         question.any { it.code in 0x0900..0x097F } || CoreHealthFacts.isHinglish(question) ||

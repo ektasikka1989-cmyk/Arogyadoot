@@ -144,7 +144,9 @@ object ArogyaQuestionNormalizer {
         if (t in vocabulary || t in COMMON) return null              // an English word ("baker") stays English
         val sk = skeleton(t)
         if (sk.length < 2) return null
-        return HINGLISH_BY_SKELETON[sk]?.takeIf { it.length >= 4 && it[0] == t[0] }
+        // 9 Nov: the consonant skeleton alone is too coarse for short words ("phula" bloated and "piliya"
+        // jaundice are both "pl"), so the match must also be a near spelling (at most 2 edits).
+        return HINGLISH_BY_SKELETON[sk]?.takeIf { it.length >= 4 && it[0] == t[0] && withinEdits(t, it, 2) }
     }
 
     /** First letter + consonants without h, repeated letters collapsed: bukhar/bukhaar/bukar → "bkr". */

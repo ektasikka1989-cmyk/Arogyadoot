@@ -15,7 +15,9 @@ object ArogyaQuestionType {
         "saans nahi", "nahi ro raha", "bleeding heavily", "bahut khoon", "बहुत खून",
         "no movement", "koi harkat", "हरकत न", "unconscious", "behosh", "बेहोश",
         "jhatke", "jhatka",
-        "convulsion", "fits", "daura"
+        // 9 Nov 2026 (AH): " fits" with its leading space: "benefits" contains "fits" and made
+        // "What are the benefits of using sanitary pads" an URGENT question.
+        "convulsion", " fits", "daura"
     )
     private val PROCEDURE = listOf(
         "how ", "how to", "kaise", "कैसे", "step", "method", "tarika", "तरीका",
@@ -75,6 +77,31 @@ object ArogyaQuestionType {
     }
 
     /**
+     * 9 Nov 2026 (AF): a statement of a problem with no question words ("child has not passed urine for 8
+     * hours and is very weak", "किशोरी को माहवारी में बहुत दर्द होता है") fell through to FACT, the "what it
+     * is, its role" shape, and got a short answer without what to do or when to refer. The on-device
+     * model restates every question ("What should be done when a child …?"); when the question itself
+     * gives FACT, the restatement decides.
+     */
+    private val ACTION_REWRITE = Regex("(?i)\\bwhat (?:should|must|can) [^?.]{0,30}?\\b(?:do|be done)\\b")
+    /** Procedure words without the bare "how " (which "how much" also contains), plus "make". */
+    private val STEPS_ASKED = PROCEDURE.filter { it != "how " } + listOf(" make ", " made ")
+    fun kindFor(query: String, rewrite: String): Kind {
+        val k = kindOf(query)
+        // 11 Nov 2026 (gap test): "How do I make ORS at home and how much to give…" asks for steps AND an amount;
+        // "how much" made it FACT (short shape, small ceiling) and the recipe could be cut. Steps asked → procedure.
+        if (k == Kind.FACT) {
+            val q = " ${runCatching { ArogyaQuestionNormalizer.forMatching(query) }.getOrDefault(query).lowercase(java.util.Locale.ROOT)} "
+            if (HOW_MANY.any { it in q } && STEPS_ASKED.any { it in q }) return Kind.PROCEDURE
+        }
+        if (k != Kind.FACT || rewrite.isBlank()) return k
+        val r = runCatching { kindOf(rewrite) }.getOrDefault(k)
+        // Gemma writes "What should an ASHA do when …" (log 14): an action question in any wording.
+        if (r == Kind.FACT && ACTION_REWRITE.containsMatchIn(rewrite)) return Kind.URGENT
+        return r
+    }
+
+    /**
      * Part B2 output ceiling per question part, routed through ArogyaBudget:
      * phone FACT 600, PROCEDURE/LIST/URGENT 800 (English); cloud 1200/1600;
      * Hindi x2.5, Hinglish x1.3. Procedures and lists must fit every step/item.
@@ -108,7 +135,12 @@ object ArogyaQuestionType {
             else "(for a \"what is\" question: what it is, its role or purpose, and its key details; " +
                 "for a comparison or a \"difference between\" question: first what each one is, then how they " +
                 "differ). "
-            Kind.URGENT -> "(this is URGENT: start with the most useful action first, then the steps and the referral conditions). "
+            // 11 Nov 2026 (audit): "URGENT" only when the question itself says so (danger words); an action question
+            // recognised from the model's restatement ("what should be done when …") gets the same order without
+            // being called urgent, so ordinary problems are not pushed towards "refer now".
+            Kind.URGENT -> if (runCatching { kindOf(query) }.getOrNull() == Kind.URGENT)
+                "(this is URGENT: start with the most useful action first, then the steps and the referral conditions). "
+            else "(start with the most useful action first, then the steps and when to refer). "
         }
         // Part B3 shape: five labelled parts; the card renders each label as a small heading.
         // A Hindi question gets the Hindi labels so the sections still parse.
@@ -136,17 +168,20 @@ object ArogyaQuestionType {
      * the model ceiling. PROCEDURE-style: every step, item, condition and limit, each on its
      * own line, in the same labelled parts the card renders (Part B3 adds the mistakes part).
      */
-    fun detailLine(): String {
+    fun detailLine(query: String = ""): String {
+        // 8 Nov 2026: only the labels of the question's language. Listing both made Gemma copy the
+        // Hindi labels ("उततर:", misspelled) into an English answer, which then did not parse.
+        val hindi = query.isNotBlank() && ArogyaBudget.langOf(query) == "hi"
+        val l = if (hindi) listOf("'उत्तर:'", "'क्यों ज़रूरी:'", "'क्या करें:'", "'ANM को कब बताएँ:'", "'आम गलतियाँ:'")
+        else listOf("'Answer:'", "'Why it matters:'", "'What to do:'", "'When to tell the ANM:'", "'Common mistakes to avoid:'")
         return "Give a fuller answer from the same material: every step, item, condition and limit it gives " +
             "on this question, each on its own numbered or bulleted line; do not merge steps and do not stop early. " +
             "Shape it in labelled parts, each part on its own lines starting with its label and a colon: " +
-            "'Answer:' with the full direct answer (five or more sentences when the material supports it); " +
-            "'Why it matters:' with why it matters; " +
-            "'What to do:' with the numbered steps, or one line per item, only from the material; " +
-            "'When to tell the ANM:' with one line, only when the material gives referral conditions; " +
-            "'Common mistakes to avoid:' with the mistakes the material warns about (skip when it gives none). " +
-            "When the question is in Hindi, use the Hindi labels 'उत्तर:', 'क्यों ज़रूरी:', 'क्या करें:', " +
-            "'ANM को कब बताएँ:', 'आम गलतियाँ:' instead. " +
+            "${l[0]} with the full direct answer (five or more sentences when the material supports it); " +
+            "${l[1]} with why it matters; " +
+            "${l[2]} with the numbered steps, or one line per item, only from the material; " +
+            "${l[3]} with one line, only when the material gives referral conditions; " +
+            "${l[4]} with the mistakes the material warns about (skip when it gives none). " +
             "The app already shows one quoted line above your answer, so do not just repeat that line."
     }
 }

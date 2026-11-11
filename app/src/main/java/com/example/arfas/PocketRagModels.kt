@@ -51,8 +51,12 @@ data class PocketRagPacket(
     /** Item 4 "More detail": replaces the type length line (ArogyaQuestionType.detailLine); empty = normal line. */
     val lengthLineOverride: String = "",
     /** Item 4 "More detail": the output budget is the full per-part ceiling, not the evidence estimate. */
-    val detailMode: Boolean = false
+    val detailMode: Boolean = false,
+    /** 9 Nov 2026 (AF): the on-device model's restatement of the question ("What should be done when …"). */
+    val rewrite: String = ""
 ) {
+    /** Answer shape: from the question, or from the model's restatement when the question has no question words. */
+    val kind: ArogyaQuestionType.Kind get() = ArogyaQuestionType.kindFor(query, rewrite)
     val evidenceText: String = evidenceBlocks.joinToString("\n\n") { block ->
         "[${block.id} | ${block.sourceId}]\n${block.text.trim()}"
     }
@@ -105,9 +109,36 @@ data class PocketRagPacket(
                 else -> emptySet()
             }
         }
-        val ids = checked.ifEmpty { supportedSourceKeys(answer) }
+        // 8 Nov 2026: Gemma tends to write [S1] after every sentence, so content it took from S2/S3 was
+        // never credited (one source shown). The passages the answer clearly drew on (same content test
+        // as the no-marker fallback) are now added to its verified citations.
+        val ids = if (checked.isEmpty()) supportedSourceKeys(answer)
+            else if (ArogyaFlags.citeAllSupportingSources) checked + supportedSourceKeys(answer) else checked
         return sources.filter { it.id.uppercase() in ids }
             .map { "kbref:${it.id} :: ${it.display}" }.distinct()
+    }
+
+    /**
+     * 8 Nov 2026: a sentence whose [S#] marker points at a passage it does not come from gets the marker of
+     * the passage it clearly matches (Gemma writes [S1] by habit). Changed only when another passage shares
+     * at least 2 distinctive items with the sentence AND at least 2 more than any passage it cited.
+     */
+    fun reattributeCitations(answer: String): String {
+        if (evidenceBlocks.size < 2) return answer
+        val queryItems = distinctiveItems(query)
+        val blockItems = evidenceBlocks.groupBy { it.sourceId.uppercase() }
+            .mapValues { (_, bs) -> bs.flatMap { distinctiveItems(it.text) }.toSet() }
+        val marker = Regex("\\[\\s*(S\\d+(?:\\s*[,;]?\\s*S\\d+)*)\\s*]", RegexOption.IGNORE_CASE)
+        return Regex("[^.!?।\\n]*?\\[\\s*S\\d+[^\\]\\n]*]").replace(answer) { m ->
+            val sentence = m.value
+            val items = distinctiveItems(marker.replace(sentence, " ")) - queryItems
+            if (items.size < 2) return@replace sentence
+            val scores = blockItems.mapValues { (_, b) -> items.count { it in b } }
+            val best = scores.maxByOrNull { it.value } ?: return@replace sentence
+            val cited = marker.findAll(sentence).flatMap { Regex("S\\d+", RegexOption.IGNORE_CASE).findAll(it.value).map { s -> s.value.uppercase() } }.toSet()
+            val citedBest = cited.maxOfOrNull { scores[it] ?: 0 } ?: 0
+            if (best.value >= 2 && best.key !in cited && best.value >= citedBest + 2) marker.replace(sentence, "[${best.key}]") else sentence
+        }
     }
 
     /** Per source ID: how many distinctive answer items (see [supportedSourceKeys]) its passage contains. */
@@ -175,5 +206,8 @@ data class PocketRagResult(
     val cloudAttempted: Boolean,
     val escalationReason: String = "",
     /** False for the app's fallback message: nothing was answered, so it is not saved or remembered. */
-    val accepted: Boolean = true
+    val accepted: Boolean = true,
+    /** 9 Nov 2026: guide passages (outside the packet) that confirmed a number in the answer, with their sources. */
+    val extraEvidence: List<PocketRagEvidenceBlock> = emptyList(),
+    val extraSources: List<PocketRagSource> = emptyList()
 )

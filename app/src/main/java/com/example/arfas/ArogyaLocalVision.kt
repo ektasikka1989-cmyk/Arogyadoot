@@ -26,6 +26,16 @@ object ArogyaLocalVision {
 
     fun ready(lm: LocalModelManager?): Boolean = lm?.isReadyForVision == true
 
+    /**
+     * Longest wait for one on-phone photo reading. 11 Nov 2026: raised after review (a slow phone or a dense register
+     * page needs time; the limit is only a safety net against a stuck generation, not a speed target).
+     */
+    fun timeLimitMs(what: String): Long = when {
+        what == "count" -> 60_000L
+        what == "describe" -> 120_000L
+        else -> 180_000L         // transcribe / read_person / read_card / read_medicine
+    }
+
     /** Factual description of a photo for the grounded answer, or null when vision is unavailable or fails. */
     suspend fun describe(lm: LocalModelManager?, bitmap: Bitmap): String? = run(lm, bitmap, DESCRIBE_PROMPT, 480, "describe")
 
@@ -54,16 +64,28 @@ object ArogyaLocalVision {
     private suspend fun run(lm: LocalModelManager?, bitmap: Bitmap, prompt: String, maxTokens: Int, what: String): String? {
         if (lm == null || !lm.isReadyForVision || bitmap.isRecycled || bitmap.width <= 0) return null
         val t = System.currentTimeMillis()
+        // 11 Nov 2026 (AN): a photo of something else (a wall, a face, a random object) could keep Gemma writing
+        // for minutes (greedy decoding loops), so "Add person", card and medicine reading looked stuck. Every
+        // reading now has a time limit; on expiry the generation is cancelled and the caller gets "nothing read",
+        // which each screen turns into its own "no details found on this photo" message.
+        val limitMs = timeLimitMs(what)
+        var timedOut = false
         val r = runCatching {
-            VisionWorkCoordinator.withVisionWork("arogya_local_vision_$what") {
-                // 8 Nov 2026: greedy (temperature 0) – copying a card or describing a photo must not vary
-                // run to run; the vision default was the chat temperature 0.8.
-                lm.inferVisionImage(bitmap = bitmap, userQueryOnly = prompt, history = emptyList(),
-                    maxOutputToken = maxTokens, taskRole = VisionTaskRole.OBSERVER, temperature = 0.0)
-            }
-        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
+            kotlinx.coroutines.withTimeoutOrNull(limitMs) {
+                VisionWorkCoordinator.withVisionWork("arogya_local_vision_$what") {
+                    // 8 Nov 2026: greedy (temperature 0) – copying a card or describing a photo must not vary
+                    // run to run; the vision default was the chat temperature 0.8.
+                    lm.inferVisionImage(bitmap = bitmap, userQueryOnly = prompt, history = emptyList(),
+                        maxOutputToken = maxTokens, taskRole = VisionTaskRole.OBSERVER, temperature = 0.0)
+                }
+            }.also { if (it == null) { timedOut = true; runCatching { lm.requestCancelActiveGeneration("arogya_vision_time_limit") } } }
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException && it !is kotlinx.coroutines.TimeoutCancellationException) throw it }.getOrNull()
         val text = r?.takeIf { it.completed }?.text?.trim().orEmpty()
-        Log.i(TAG, "AROGYA_LOCAL_VISION what=$what ok=${text.isNotBlank()} chars=${text.length} ms=${System.currentTimeMillis() - t}")
+        // A looping transcript ("Name: Name: Name: …", the same phrase over and over) is broken output, not a reading.
+        // Only consecutive exact repeats count: a register page legitimately repeats its headings for every person.
+        val looping = text.isNotBlank() && KbReplyText.degenerateRepetition(text)?.startsWith("repeat:") == true
+        Log.i(TAG, "AROGYA_LOCAL_VISION what=$what ok=${text.isNotBlank() && !looping} chars=${text.length} timedOut=$timedOut looping=$looping ms=${System.currentTimeMillis() - t}")
+        if (timedOut || looping) return null
         return text.takeIf { it.length >= (if (what == "count") 1 else 8) }?.take(2_000)
     }
 }

@@ -35,6 +35,28 @@ fun main() {
     check("dose-mismatch", ArogyaDoseCheck.check("weekly IFA dose for a school-going adolescent girl?", "Give 45 mg weekly.", evWrong) == ArogyaDoseCheck.Verdict.MISMATCH)
     check("dose-uncertain", ArogyaDoseCheck.check("weekly IFA dose?", "Give 100 mg weekly.", "Give 100 mg weekly.") == ArogyaDoseCheck.Verdict.UNCERTAIN)
     check("dose-caution", "ANM" in ArogyaDoseCheck.caution(ArogyaDoseCheck.Group.ADOLESCENT, false))
+    // 9 Nov audit: tablet strength mistaken for a dose (verbatim guide excerpts, int_b p133 / hbyc p72 / int_c p23).
+    val zIntB = "Dosage of zinc tablet: » Give 10 mg (1/2 tab of 20 mg tablet) to infants aged 2-<6 months. » Give 20mg (1 tab of 20 mg tablet) to children 6-59 months."
+    val zHbyc = "One zinc tablet in the blister pack contains 20 mg of zinc (zinc tablets will be provided to the ASHAs). 1. If zinc is to be administered to children 2 – 6 months age a. Halftablet (i.e. 10 mg)."
+    val zIntC = "Age Dose 2–6 months 10 mg (½ tablet) daily – dissolve in breast milk , clean water 6 months–5 years 20 mg (1 tablet) daily – dissolve in ORS or clean water"
+    check("strength-wrong-20mg-intb", ArogyaDoseCheck.strengthRisk("Give one full zinc tablet of 20 mg daily for 14 days.", zIntB) == "20")
+    check("strength-wrong-20mg-hbyc", ArogyaDoseCheck.strengthRisk("Give 20 mg zinc daily for 14 days.", zHbyc) == "20")
+    check("strength-hindi-digits", ArogyaDoseCheck.strengthRisk("रोज़ २० mg जिंक की एक गोली दें।", zIntB) == "20")
+    check("strength-correct-10mg", ArogyaDoseCheck.strengthRisk("Give half a zinc tablet (10 mg) daily for 14 days.", zIntB) == null)
+    check("strength-table-no-strength", ArogyaDoseCheck.strengthRisk("Give one zinc tablet (20 mg) daily for 14 days.", zIntC) == null)
+    check("strength-no-mg", ArogyaDoseCheck.strengthRisk("ORS is oral rehydration solution.", zIntB) == null)
+    check("strength-caution-text", "ANM" in ArogyaDoseCheck.strengthCaution("20", false) && "ANM" in ArogyaDoseCheck.strengthCaution("20", true))
+    check("dose-devanagari-evidence", ArogyaDoseCheck.check("What is the zinc dose for a 4 month old baby?", "Give 10 mg.", "शिशु 4 month old: १० mg") == ArogyaDoseCheck.Verdict.MATCH)
+    // English lay words → guide words (search view only).
+    check("lay-loose-motion", ArogyaHindiTerms.englishViews("Baby having loose motion and high fever, he is 12 months old, what should I do?") == listOf("Baby having diarrhoea and high fever, he is 12 months old, what should I do?"))
+    check("lay-stomach-pain", ArogyaHindiTerms.englishViews("Woman has stomach pain after delivery") == listOf("Woman has abdominal pain after delivery"))
+    check("lay-high-bp", ArogyaHindiTerms.englishViews("Pregnant woman with high BP") == listOf("Pregnant woman with high blood pressure"))
+    check("lay-none", ArogyaHindiTerms.englishViews("When should a newborn be given the first bath?").isEmpty())
+    check("lay-guide-word-present", ArogyaHindiTerms.englishViews("Baby has diarrhoea and loose motions").isEmpty())
+    check("lay-bp-not-in-word", ArogyaHindiTerms.englishViews("Check the bpl card").isEmpty())
+    // 9 Nov: pre-existing bug — the Hinglish spelling fixer matched by consonants only ("phula" bloated → "piliya" jaundice).
+    check("hinglish-phula-not-piliya", "piliya" !in ArogyaQuestionNormalizer.normalize("bachhe ka pet phula hai aur dast ho rahe hai").text)
+    check("hinglish-bukhaar-still-fixed", ArogyaQuestionNormalizer.canonicalHinglish("bukhaar") == "bukhar")
     // Hindi search views (retrieval only; question untouched).
     check("hi-needs", ArogyaHindiTerms.needsViews("नवजात शिशु में खतरे के लक्षण क्या हैं?"))
     check("hi-hinglish", ArogyaHindiTerms.needsViews("bacche ko dast ho toh kya karna chahiye"))

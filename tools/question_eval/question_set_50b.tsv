@@ -1,0 +1,51 @@
+question	model_rewrite_used_in_test	expected_in_evidence
+How do I make home made ORS if the packet is not available?	How is home-made ORS prepared when the ORS packet is not available?	salt;sugar;water
+ghar pe ORS kaise banaye agar packet nahi hai	How is home-made ORS prepared when the ORS packet is not available?	salt;sugar
+घर पर ओआरएस का घोल कैसे बनाएं?	How is ORS solution prepared at home?	ors;water|litre|glass
+what food should i give to 8 month baby, any recipe	What complementary foods should be given to a child of 6 to 8 months?	mash|dalia|khichri|porridge|complementary
+bacche ke liye khichdi ya dalia kaise de, kitni baar	What complementary foods and how many feeds should be given to a young child?	dalia|khichri|porridge;times|meals|feeds|frequency
+6 महीने के बच्चे को ऊपरी आहार में क्या दें?	What complementary food should be given to a 6 month old child?	complementary|mash|semi|soft|porridge
+How to make food energy dense for a malnourished child?	How can the food of a malnourished child be made energy dense?	oil|ghee|fat|energy dense
+kuposhit bacche ke khane mein ghee ya tel milana chahiye kya	Should oil or ghee be added to the food of a malnourished child?	oil|ghee|fat
+what snacks can be given to a 1 year old child?	What snacks can be given to a one year old child?	banana|potato|egg|halwa|upma|idli|poha|snack
+How do I make drinking water safe at home?	How can drinking water be made safe at home?	boil;chlorine|filter|covered
+paani saaf karne ka tarika kya hai ghar pe	How can drinking water be made safe at home?	boil|chlorine|filter
+How to give tepid sponging to a child with high fever?	How should tepid sponging be done for a child with high fever?	sponge|tepid;cold water|blanket|whole body
+bukhar me bacche ko kaise ponchhe, thanda pani ya gungunaa	How should tepid sponging be done for a child with fever?	tepid|sponge
+How should a mother express breast milk and feed with cup and spoon?	How should a mother express breast milk and feed the baby with a cup and spoon?	express;cup|spoon|paladai
+maa ka doodh nikal ke katori chammach se kaise pilaye	How should expressed breast milk be fed with a cup and spoon?	express|cup|spoon|paladai
+How many times a day should a 1 year old child be fed?	How many times a day should a one year old child be fed?	times|meals|feeds;snack|day
+iron wale khane konse hai garbhvati ke liye	What iron rich foods should a pregnant woman eat?	iron;green leafy|jaggery|liver|meat|egg|dal|pulses
+गर्भवती महिला को खाने में क्या क्या लेना चाहिए?	What should a pregnant woman eat during pregnancy?	extra|meal|diet|food;green|milk|fruit|iron
+What should a mother eat after delivery to increase breast milk?	What should a mother eat after delivery to support breast milk production?	extra meal|fluids|milk|diet
+cloth pad kaise saaf kare periods me	How should a cloth pad be cleaned and stored during periods?	cloth;wash|soap|sun|dried
+How often should a cloth pad be changed during heavy periods?	How often should a cloth pad be changed during heavy periods?	cloth;three to four|change
+How do I prepare ORS from the packet step by step?	How is ORS prepared from a packet?	wash;litre|liter;stir
+ORS kitne din tak rakh sakte hai bana ke	For how long can prepared ORS solution be kept?	24 h
+how much ORS after each loose stool for 1 year child	How much ORS should be given after each loose stool to a one year old child?	loose stool;cup|ml|spoon
+बच्चे को दस्त में कितना ओआरएस देना है?	How much ORS should be given to a child with diarrhoea?	ors;loose stool|cup|ml|spoon
+Zinc tablet kaise dena hai bacche ko, dudh me ya pani me	How should a zinc tablet be given to a child?	zinc;dissolve|breast milk|water
+How to dissolve zinc tablet for a 3 month baby?	How should a zinc tablet be given to an infant under six months?	zinc;dissolve|breast milk|½|half
+What is kangaroo mother care and how long to do it daily?	What is Kangaroo Mother Care and for how long should it be given each day?	kangaroo|skin-to-skin|skin to skin;hour|long
+navjat ko garam kaise rakhe sardi me	How should a newborn be kept warm in winter?	warm|skin|wrap|cap|kangaroo
+How should the cord stump be cared for at home?	How should the umbilical cord stump be cared for?	cord|stump;dry|nothing|clean
+नवजात की नाल पर क्या लगाना चाहिए?	What should be applied on the umbilical cord of a newborn?	cord|stump|नाल;nothing|dry|clean
+iodised salt kyu jaruri hai pregnancy me	Why is iodised salt important in pregnancy?	iodi
+What foods are rich in vitamin A for children?	What foods are rich in vitamin A for children?	vitamin a;green leafy|carrot|papaya|mango|yellow|orange|liver|egg
+child is not eating and is very thin, what to feed and when to refer	What should be fed to a very thin child and when should the child be referred?	feed|food|meal;refer|malnutri|muac|sam
+bacche ko sprouted dal dena thik hai kya	Can sprouted pulses be given to a young child?	sprout
+How to prepare sugar salt solution for diarrhoea in adults?	How is salt and sugar solution prepared for diarrhoea?	salt;sugar
+pregnant woman has vomiting, what food to give	What food should be given to a pregnant woman who is vomiting?	vomit;food|eat|meal|small
+How to wash hands properly, steps?	What are the steps of proper hand washing?	soap;water|rub|steps|seconds
+हाथ धोने के सही तरीके क्या हैं?	What is the correct way of washing hands?	soap|साबुन;water|पानी|rub
+baby ko pehla khana kab se dena shuru kare	When should complementary feeding be started for a baby?	six months|6 months|complementary
+When should we start giving water to a newborn?	When should water be given to a newborn?	exclusive|only breast|water
+What to give a child with cough and cold at home, honey ginger?	What home remedies can be given to a child with cough and cold?	honey|ginger|tulsi|warm|fluids
+bacche ko khansi aur zukam ho to ghar pe kya de	What home care can be given to a child with cough and cold?	honey|ginger|warm|fluids|breast
+How much water should a child with diarrhoea drink in addition to ORS?	What fluids should a child with diarrhoea get besides ORS?	fluid;soup|rice water|coconut|lassi|breast
+गर्भवती महिला को आयरन की गोली कितने दिन लेनी है?	For how many days should a pregnant woman take IFA tablets?	ifa|iron|आयरन;180|days|100
+how to store vaccine during outreach session	How should vaccines be stored during an outreach session?	vaccine;ice|cold|carrier|temperature
+What to do if a child has a burn from hot water?	What first aid should be given for a burn from hot water?	burn;water|cool|cold
+sanp kaatne par kya kare aur kya na kare	What should and should not be done after a snake bite?	snake;tourniquet|immobili|do not|refer
+How to prepare a mother for institutional delivery, what to pack?	What should be prepared for an institutional delivery?	delivery;clothes|birth preparedness|transport|money|plan
+दस्त में बच्चे को चावल का पानी दे सकते हैं क्या?	Can rice water be given to a child with diarrhoea?	rice water|fluids|ors

@@ -144,7 +144,15 @@ object GenericKbKeyFacts {
         budget: Int = DEFAULT_BUDGET,
         maxFacts: Int = MAX_FACTS,
         /** Re-ranker score of each whole passage (same order as [passages]); null when not available. */
-        passageScores: List<Float>? = null
+        passageScores: List<Float>? = null,
+        /**
+         * 9 Nov: for one part of a split question ("What should be done when a child is vomiting?"): only
+         * sentences containing the part's most specific word by guide-wide weight ("vomit") count, so a
+         * sentence sharing only filler words ("what has to be done") is never picked. Needs [corpusWeight].
+         */
+        requireFocus: Boolean = false,
+        /** The question's other parts: words they share with this part are not its focus (see [focusStem]). */
+        siblings: List<String> = emptyList()
     ): List<Fact> {
         val units = candidates(passages)
         if (units.isEmpty()) return emptyList()
@@ -170,6 +178,14 @@ object GenericKbKeyFacts {
             out
         }
         val scores = model ?: lexicalScores(question, units.map { it.text }, passages.size)
+        if (requireFocus && model == null) focusStem(question, siblings)?.let { f ->
+            units.forEachIndexed { i, u -> if (f !in stems(u.text)) scores[i] = 0f }
+            // No sentence names it: this part adds no fact (rather than one that shares only filler words).
+            if (scores.none { it > 0f }) return emptyList()
+            // Only sentences naming it (lexical mode has no paired units, so the sub-list is safe).
+            val keep = units.indices.filter { scores[it] > 0f }
+            return pick(keep.map { units[it] }, FloatArray(keep.size) { scores[keep[it]] }, budget, maxFacts)
+        }
         // No re-ranker and no question word in any sentence (e.g. a Hindi question on an English
         // pack): nothing to choose by, so the caller keeps the whole passages instead.
         if (model == null && scores.none { it > 0f }) return emptyList()
@@ -236,7 +252,61 @@ object GenericKbKeyFacts {
     }
 
     /** Question words in the unit, weighted by how rare they are among the units; earlier passages win ties. */
+    /**
+     * 9 Nov: guide-wide word weights, set from the installed pack's own statistics (no word list):
+     * weight of a word stem = ln(1 + passages / passages containing it). Words found all over the guide
+     * ("what", "done", "should", "ASHA") weigh almost nothing; specific ones ("vomit", "jaundice") weigh
+     * a lot. Null (not loaded yet) = the previous local weighting. Switch: ArogyaFlags.guideWordWeights.
+     */
+    @Volatile var corpusWeight: ((String) -> Double)? = null
+
+    /** Stem used with [corpusWeight]: the first 5 letters of a longer word ("vomiting"/"vomits" → "vomit"). */
+    fun stem(word: String): String = if (word.length > 5 && word.all(Char::isLetter)) word.take(5) else word
+
+    private fun stems(text: String): Set<String> =
+        WORD.findAll(text.lowercase(Locale.ROOT)).map { it.value }
+            .filter { it.length >= 3 || it.any(Char::isDigit) }.map(::stem).toSet()
+
+    /** A word in at most 1 of 20 guide passages is specific enough to name a topic (weight ln(1 + 20)). */
+    private val CARRY_MIN_WEIGHT = kotlin.math.ln(21.0)
+
+    /**
+     * 9 Nov: true when the model's rewrite of a follow-up names a specific word of the earlier question
+     * ([previous]: its words and its rewrite) that the new [question] itself does not contain:
+     * "aur kitne din dena hai?" → "For how many days should zinc be given …" (zinc). "Specific" is judged by
+     * rarity in the installed guide, so common words ("child", "should") never count. False without weights.
+     */
+    internal fun carriesOver(rewrite: List<String>, question: String, previous: String): Boolean {
+        if (previous.isBlank()) return false
+        val cw = corpusWeight?.takeIf { ArogyaFlags.guideWordWeights } ?: return false
+        val own = stems(question)
+        val earlier = stems(previous)
+        return rewrite.flatMap { stems(it) }.any { it.length >= 3 && it !in own && it in earlier && cw(it) >= CARRY_MIN_WEIGHT }
+    }
+
+    /** True when [text] contains the word stem [stem] (as [focusStem] returns it). */
+    internal fun hasStem(text: String, stem: String): Boolean = stem in stems(text)
+
+    /**
+     * The question's most specific stem (highest guide-wide weight); null without weights. Stems shared with
+     * [siblings] (the other parts of the same question: "What should be done when a child has fever?" /
+     * "... is vomiting?") are skipped, so the part's own problem word wins over the common wording.
+     */
+    internal fun focusStem(question: String, siblings: List<String> = emptyList()): String? {
+        val cw = corpusWeight?.takeIf { ArogyaFlags.guideWordWeights } ?: return null
+        val own = stems(question).filter { it.length >= 4 && it.any(Char::isLetter) }
+        val shared = siblings.flatMap { stems(it) }.toSet()
+        return (own.filter { it !in shared }.ifEmpty { own }).maxByOrNull { cw(it) }
+    }
+
     internal fun lexicalScores(question: String, units: List<String>, passages: Int): FloatArray {
+        val cw = corpusWeight?.takeIf { ArogyaFlags.guideWordWeights }
+        if (cw != null) {
+            val q = stems(question)
+            if (q.isEmpty()) return FloatArray(units.size)
+            val weights = q.associateWith { cw(it) }
+            return FloatArray(units.size) { i -> val t = stems(units[i]); q.sumOf { w -> if (w in t) weights[w] ?: 0.0 else 0.0 }.toFloat() }
+        }
         val q = terms(question)
         if (q.isEmpty()) return FloatArray(units.size)
         val unitTerms = units.map { terms(it) }
@@ -402,7 +472,10 @@ object GenericKbKeyFacts {
         var text = window.trim()
         val minKept = (text.length * MIN_KEPT_SHARE).toInt()
         val core = text.removePrefix("… ").removeSuffix(" …").trim()
-        if (core.isNotEmpty() && !core.last().let { it in ".!?।:)\"”'" || it.isDigit() }) {
+        // 9 Nov 2026: a cut window ending in a digit ("For one glass (200") is a half sentence, not a number at a
+        // sentence end; only an uncut window may end on a digit.
+        val cut = text.endsWith("…")
+        if (core.isNotEmpty() && !core.last().let { it in ".!?।:)\"”'" || (it.isDigit() && !cut) }) {
             val lastEnd = Regex("[.!?।](?=[\\s\"”'])").findAll(text).lastOrNull()?.range?.last
             if (lastEnd != null && lastEnd + 1 >= minKept) text = text.substring(0, lastEnd + 1) + " …"
         }

@@ -62,18 +62,37 @@ object ArogyaOfficialAnswer {
 
     /**
      * Guide-answer segments: each sentence cited to the guide excerpts supporting it.
-     * Sentences no excerpt supports are dropped; when none match at all, the whole
-     * answer stays as one block cited to every source (cross-script safety net).
+     * A sentence with no word overlap (a Hindi sentence from English passages) keeps the
+     * citation the engine itself checked for it: its own [n] marker in [markedAnswer] (the
+     * text before the markers were stripped), when n is one of [sources]. 9 Nov audit: the
+     * old "nothing matched → cite every source" fallback is gone; a sentence with neither
+     * support gets no citation (it is still shown).
      */
-    fun guideSegments(answer: String, sources: List<ArogyaSource>): List<CitedSegment> {
+    fun guideSegments(answer: String, sources: List<ArogyaSource>, markedAnswer: String? = null): List<CitedSegment> {
         if (sources.isEmpty()) return emptyList()
         val texts = sources.map { it.id to (it.excerpt + "\n" + it.title) }
-        val kept = splitSentences(answer).mapNotNull { s ->
-            val ids = matchIds(s, texts)
+        val known = sources.map { it.id }.toSet()
+        val markerIds = markedAnswer?.let { markersBySentence(it, known) }.orEmpty()
+        return splitSentences(answer).mapNotNull { s ->
+            val ids = matchIds(s, texts).ifEmpty { markerIds[sentenceKey(s)].orEmpty() }
             if (ids.isEmpty()) null else CitedSegment(s, ids)
         }
-        if (kept.isNotEmpty()) return kept
-        return listOf(CitedSegment(splitSentences(answer).joinToString(" ").ifBlank { answer.trim() }, sources.map { it.id }))
+    }
+
+    private val MARKER = Regex("[\\[【]\\s*(\\d{1,2}(?:\\s*[,;]\\s*\\d{1,2})*)\\s*[\\]】]")
+
+    private fun sentenceKey(s: String): String =
+        ArogyaAnswerFormat.stripCitationMarkers(s).lowercase(java.util.Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
+    /** Sentence (marker-free key) → the [n] ids written in it, limited to ids that are real sources. */
+    private fun markersBySentence(marked: String, known: Set<String>): Map<String, List<String>> {
+        val out = HashMap<String, List<String>>()
+        for (s in splitSentences(marked)) {
+            val ids = MARKER.findAll(s).flatMap { m -> m.groupValues[1].split(Regex("\\s*[,;]\\s*")).asSequence() }
+                .map { it.trim() }.filter { it in known }.distinct().toList()
+            if (ids.isNotEmpty()) out[sentenceKey(s)] = ids
+        }
+        return out
     }
 
     /**

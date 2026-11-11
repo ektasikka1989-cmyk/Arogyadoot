@@ -54,15 +54,31 @@ class PocketRagEngine(
      */
     private val onDraftRejected: (() -> Unit)? = null,
     /** User setting "Online backup" (off by default). */
-    private val onlineBackupEnabled: () -> Boolean = { false }
+    private val onlineBackupEnabled: () -> Boolean = { false },
+    /**
+     * 9 Nov 2026: guide passages (source label, text) holding a sentence's words, from the whole guide (keyword
+     * index). A number not in the passages the model read is kept when the guide states it elsewhere.
+     */
+    private val guideLookup: (suspend (String) -> List<Pair<String, String>>)? = null
 ) {
     companion object {
+        /** Text kept from before a decoder loop must be at least this long to count as an answer. */
+        const val LOOP_KEEP_MIN_CHARS = 500
         private const val TAG = "PocketRagEngine"
+        /** 9 Nov 2026: the copied-guide-lines fallback says plainly what it is (was "Here is what the selected knowledge base says:"). */
+        const val EXTRACTIVE_HEADER_EN = "The AI could not write a checked answer, so here are the exact lines from the guide:"
+        const val EXTRACTIVE_HEADER_HI = "AI जाँचा हुआ उत्तर नहीं लिख सका, इसलिए गाइड की सटीक पंक्तियाँ:"
         /** Cloud's reply when the KB evidence does not answer a "Check online" question. */
         const val NOT_IN_EVIDENCE = "[[NOT_IN_KB]]"
         /** escalationReason: "Check online" found no answer in the KB evidence (a web search follows). */
         const val CHECK_ONLINE_NOT_IN_KB = "check_online_not_in_kb"
         private const val MIN_OUTPUT_TOKENS = 256
+        /** 9 Nov 2026: prompt instructions + system text on the phone (log: reservedPromptTokens=1663). */
+        private const val PROMPT_RESERVE_TOKENS = 1_700
+        /** Share of a sentence's words a guide passage must hold to confirm its number. */
+        private const val GUIDE_CONFIRM_OVERLAP = 0.5
+        /** Kept free so the answer never meets the end of the model's window. */
+        private const val OUTPUT_MARGIN_TOKENS = 256
         /**
          * Hard ceiling per question part (~230 words). The model does not reliably follow the length
          * tiers (a definition came back at 3,297 characters in 37 s on the phone); at the measured
@@ -122,6 +138,91 @@ class PocketRagEngine(
     }
 
     /** Item 4: sentence counts as drafts pass the gate and the salvages (before/after each step). */
+    /**
+     * 9 Nov 2026 (phone log, "How do I make ORS at home?"): the number clean-up removed the sentences with an
+     * unsupported number, then the term check failed and nothing removed that sentence, so a good answer was
+     * thrown away for copied guide sentences. The two clean-ups now run one after the other (each removes only
+     * the offending sentences, never adds text), up to three rounds, and the full gate must pass at the end.
+     */
+    /**
+     * 9 Nov 2026 (phone 20:19: Gemma's "one litre of water with 50 gm of sugar and 5 gm of salt" is in the guide,
+     * Induction Module page 94, which the search found for the question but did not give Gemma, so it was removed):
+     * a sentence with a number the passages do not support is checked against the OTHER passages the search found
+     * for this same question ([guideLookup]; never the whole guide). One that holds all of the sentence's numbers
+     * with their units and at least half of its words confirms it: the passage joins the evidence as a new source,
+     * the sentence cites it, and the full check runs again. Medicine doses (mg) are never confirmed this way: a dose
+     * must be in the passages the model read (another row of a dose table could hold the same number for another
+     * age). Nothing is generated or changed. Null when nothing was confirmed.
+     */
+    internal suspend fun confirmFromGuide(query: String, draft: String, packet: PocketRagPacket): Pair<String, PocketRagPacket>? {
+        val lookup = guideLookup ?: return null
+        if (qualityGate.unsupportedNumericClaims(query, draft, packet.evidenceText).isEmpty()) return null
+        val blocks = packet.evidenceBlocks.toMutableList()
+        val sources = packet.sources.toMutableList()
+        val marker = Regex("\\s*\\[\\s*S\\d+(?:\\s*[,;]\\s*S\\d+)*\\s*]")
+        fun words(t: String) = Regex("[\\p{L}]{3,}").findAll(t.lowercase()).map { it.value.take(5) }.toSet()
+        var added = 0
+        val outLines = ArrayList<String>()
+        for (line in draft.lines()) {
+            val outPieces = ArrayList<String>()
+            for (raw in KbReplyText.SENTENCE_SPLIT.split(line)) {
+                val piece = raw.trim()
+                val evidenceNow = blocks.joinToString("\n\n") { it.text }
+                if (piece.isBlank() || qualityGate.unsupportedNumericClaims(query, piece, evidenceNow).isEmpty()) { outPieces += piece; continue }
+                val bare = piece.replace(marker, "").replace(Regex("^\\s*\\d{1,2}[.)]\\s+"), "").trim()
+                val pw = words(bare)
+                if (pw.size < 3 || qualityGate.unitQuantities(bare).any { it.endsWith(":mg") }) { outPieces += piece; continue }
+                val candidates = runCatching { lookup(bare) }.onFailure { if (it is CancellationException) throw it }.getOrDefault(emptyList())
+                val hit = candidates.firstOrNull { (_, text) ->
+                    qualityGate.unsupportedNumericClaims(query, bare, text).isEmpty() &&
+                        (words(text) intersect pw).size.toDouble() / pw.size >= GUIDE_CONFIRM_OVERLAP
+                }
+                if (hit == null) { outPieces += piece; continue }
+                val existing = blocks.firstOrNull { it.text == hit.second }
+                val sid = existing?.sourceId ?: "S${sources.size + 1}".also { id ->
+                    blocks += PocketRagEvidenceBlock("G${++added}", id, hit.second)
+                    sources += PocketRagSource(id, "$id :: ${hit.first}")
+                }
+                val lead = Regex("^\\s*\\d{1,2}[.)]\\s+").find(piece)?.value.orEmpty()
+                val body = piece.removePrefix(lead).replace(marker, "").trimEnd()
+                val end = body.lastOrNull()?.takeIf { it in ".!?।" }?.toString().orEmpty()
+                outPieces += "$lead${body.removeSuffix(end).trimEnd()} [$sid]$end"
+            }
+            outLines += outPieces.filter { it.isNotEmpty() }.joinToString(" ")
+        }
+        val lines = outLines
+        if (added == 0) return null
+        Log.i(TAG, "POCKET_RAG_GUIDE_CONFIRMED passages=$added sources=${sources.drop(packet.sources.size).joinToString(" | ") { it.display.take(80) }}")
+        return lines.joinToString("\n") to packet.copy(evidenceBlocks = blocks, sources = sources)
+    }
+
+    /** Confirmed against the whole guide, then checked by the full gate (and the clean-ups); null when not accepted. */
+    private suspend fun guideConfirmedAnswer(key: String, query: String, draft: String, packet: PocketRagPacket, stage: String): PocketRagResult? {
+        val (confirmed, wider) = runCatching { confirmFromGuide(query, draft, packet) }.getOrNull() ?: return null
+        val text = if (qualityGate.evaluate(query, confirmed, wider).acceptLocal) confirmed
+            else runCatching { chainedSalvage(query, confirmed, wider) }.getOrNull() ?: return null
+        val extra = wider.evidenceBlocks.drop(packet.evidenceBlocks.size)
+        Log.i(TAG, "POCKET_RAG_LOCAL_GUIDE_CONFIRMED_ACCEPT stage=$stage extra=${extra.size}")
+        return acceptLocal(key, wider, text, "local_recovery:guide_confirmed", cloudAttempted = false)
+            .copy(extraEvidence = extra, extraSources = wider.sources.drop(packet.sources.size))
+    }
+
+    internal fun chainedSalvage(query: String, draft: String, packet: PocketRagPacket): String? {
+        var text = draft
+        repeat(3) {
+            val d = qualityGate.evaluate(query, text, packet)
+            if (d.acceptLocal) return text.takeIf { it != draft }
+            val next = when {
+                d.reason.startsWith("unsupported_numeric_claim") -> qualityGate.salvageUnsupportedNumericSentences(query, text, packet)
+                d.reason.startsWith("term_swap") -> qualityGate.salvageSwappedTerms(text, packet)
+                else -> null
+            }
+            if (next.isNullOrBlank() || next == text) return null
+            text = next
+        }
+        return text.takeIf { it != draft && qualityGate.evaluate(query, it, packet).acceptLocal }
+    }
+
     private fun logAnswerLen(stage: String, before: String, after: String?) {
         val b = ArogyaAnswerFormat.sentenceCount(before)
         val a = after?.let { ArogyaAnswerFormat.sentenceCount(it) } ?: 0
@@ -293,10 +394,14 @@ class PocketRagEngine(
         Log.i(TAG, "POCKET_RAG_LOCAL_GATE reason=${decision.reason} accepted=${decision.acceptLocal} draftChars=${localDraft.length} coverage=${packet.coverageComplete}")
         if (!decision.acceptLocal) runCatching { onDraftRejected?.invoke() }
         if (!decision.acceptLocal && localDraft.isNotBlank()) {
-            Log.d(TAG, "POCKET_RAG_REJECTED_DRAFT reason=${decision.reason} text='${localDraft.take(400).replace('\n', ' ')}'")
+            Log.d(TAG, "POCKET_RAG_REJECTED_DRAFT reason=${decision.reason} text='${localDraft.take(4000).replace('\n', ' ')}'")
         }
         if (decision.acceptLocal && localDraft.isNotBlank()) {
             return acceptLocal(key, packet, localDraft, decision.reason, cloudAttempted = false)
+        }
+        // 9 Nov 2026: a number the passages lack but the guide states elsewhere is confirmed there first.
+        if (decision.reason.startsWith("unsupported_numeric_claim") && localDraft.isNotBlank()) {
+            guideConfirmedAnswer(key, packet.query, localDraft, packet, "first_draft")?.let { return it }
         }
         // An otherwise grounded draft rejected only for an unsupported number: remove just that
         // sentence first (instant) instead of regenerating the whole answer.
@@ -323,6 +428,13 @@ class PocketRagEngine(
                     Log.i(TAG, "POCKET_RAG_LOCAL_TERM_SWAP_SALVAGE_ACCEPT stage=first_draft")
                     return acceptLocal(key, packet, salvaged, "local_recovery:term_swap_salvage", cloudAttempted = false)
                 }
+            }
+        }
+        if ((decision.reason.startsWith("unsupported_numeric_claim") || decision.reason.startsWith("term_swap")) && localDraft.isNotBlank()) {
+            runCatching { chainedSalvage(packet.query, localDraft, packet) }.getOrNull()?.let { salvaged ->
+                logAnswerLen("chained_salvage", localDraft, salvaged)
+                Log.i(TAG, "POCKET_RAG_LOCAL_CHAINED_SALVAGE_ACCEPT stage=first_draft")
+                return acceptLocal(key, packet, salvaged, "local_recovery:chained_salvage", cloudAttempted = false)
             }
         }
 
@@ -413,6 +525,16 @@ class PocketRagEngine(
                 }
                 Log.w(TAG, "POCKET_RAG_LOCAL_NUMERIC_SALVAGE_REJECT reason=${salvageDecision.reason}")
                 decision = salvageDecision
+            }
+        }
+        if (decision.reason.startsWith("unsupported_numeric_claim") && bestLocalDraft.isNotBlank()) {
+            guideConfirmedAnswer(key, packet.query, bestLocalDraft, packet, "recovery")?.let { return it }
+        }
+        if ((decision.reason.startsWith("unsupported_numeric_claim") || decision.reason.startsWith("term_swap")) && bestLocalDraft.isNotBlank()) {
+            runCatching { chainedSalvage(packet.query, bestLocalDraft, packet) }.getOrNull()?.let { salvaged ->
+                logAnswerLen("chained_salvage_late", bestLocalDraft, salvaged)
+                Log.i(TAG, "POCKET_RAG_LOCAL_CHAINED_SALVAGE_ACCEPT stage=recovery")
+                return acceptLocal(key, packet, salvaged, "local_recovery:chained_salvage", cloudAttempted = false)
             }
         }
 
@@ -551,7 +673,7 @@ class PocketRagEngine(
         val devanagari = KbReplyText.dominantScript(packet.query) == KbReplyText.Script.DEVANAGARI
         val header = if (exactWordsHeader) {
             if (devanagari) "गाइड के शब्दों में (सटीक शब्द):" else "From the guide (exact words):"
-        } else if (devanagari) "चुने गए ज्ञान आधार में यह लिखा है:" else "Here is what the selected knowledge base says:"
+        } else if (devanagari) EXTRACTIVE_HEADER_HI else EXTRACTIVE_HEADER_EN
         return header + "\n" + lines.joinToString("\n")
     }
 
@@ -626,7 +748,8 @@ class PocketRagEngine(
             val draftText: String = result
             val kept = KbReplyText.keepBeforeLoop(draftText)
             Log.w(TAG, "POCKET_RAG_LOOP_KEEP_BEFORE stage=engine kept=${kept != null} before=${draftText.length} after=${kept?.length ?: 0}")
-            if (kept != null) { result = kept; degenerate = null }
+            // 9 Nov 2026 (AH): only a substantial text before the loop is kept; a short one goes to the recovery generation.
+            if (kept != null && kept.length >= LOOP_KEEP_MIN_CHARS) { result = kept; degenerate = null }
         }
         if (degenerate != null) {
             Log.w(TAG, "POCKET_RAG_LOCAL_DEGENERATE recovery=$recoveryMode reason=$degenerate chars=${result?.length ?: 0} elapsed=${System.currentTimeMillis() - started}ms")
@@ -678,6 +801,8 @@ class PocketRagEngine(
         reason: String,
         cloudAttempted: Boolean
     ): PocketRagResult {
+        // 8 Nov 2026: per-sentence citations follow the passage each sentence actually comes from.
+        val answer = if (ArogyaFlags.citeAllSupportingSources) runCatching { packet.reattributeCitations(answer) }.getOrDefault(answer) else answer
         val citedSources = packet.citedSourceIds(answer)
         // A written answer that no retrieved passage supports (no citation and no shared content,
         // e.g. the model answered in another language or from memory) is not shown as a KB answer:
@@ -696,12 +821,15 @@ class PocketRagEngine(
         // Internal passage markers ([S3], [S7]) become the numbers of the document rows shown.
         val withDisclosure = discloseUnsupportedClauses(packet, answer)
         val disclosed = KnowledgeSourcePresentation.renumberCitations(withDisclosure, citedSources)
-        sessions.record(key, packet.query, disclosed, citedSources)
+        // 9 Nov audit: copied guide sentences that stood in for a failed answer are shown (labelled), but
+        // never remembered as the assistant's answer, so a follow-up is not resolved against them.
+        if (!reason.startsWith("extractive")) sessions.record(key, packet.query, disclosed, citedSources)
         Log.i(
             TAG,
             "POCKET_RAG_ACCEPT provider=LOCAL reason=$reason sources=${citedSources.size} " +
                 "unsupportedDisclosed=${withDisclosure.length != answer.length} coverage=${packet.clauseCoverage.joinToString(",") { "${it.clauseId}:${it.state}" }}"
         )
+        Log.d(TAG, "POCKET_RAG_ACCEPTED_TEXT reason=$reason text='${disclosed.take(4000).replace('\n', ' ')}'")
         return PocketRagResult(
             disclosed,
             AndroBaselineRuntime.Provider.LOCAL,
@@ -712,8 +840,13 @@ class PocketRagEngine(
         )
     }
 
+    private fun realTokens(text: String): Int {
+        val deva = text.count { it in '\u0900'..'\u097F' }
+        return ((text.length - deva) / 3.6 + deva / 1.4).toInt() + 1
+    }
+
     /** Evidence-driven token budget; no topic/keyword routing. */
-    private fun outputBudget(packet: PocketRagPacket, cloud: Boolean = false): Int {
+    internal fun outputBudget(packet: PocketRagPacket, cloud: Boolean = false): Int {
         val blockCount = packet.evidenceBlocks.size
         val chars = packet.evidenceText.length
         val desired = GenericKbTokenBudget.desiredOutputTokens(
@@ -722,7 +855,10 @@ class PocketRagEngine(
             evidence = chars + blockCount * 64
         )
         val context = if (cloud) ArogyaBudget.CLOUD_CONTEXT else contextWindowTokens().coerceAtLeast(1_024)
-        val inputEstimate = GenericKbTokenBudget.estimateTokens(chars + packet.query.length) + 620
+        // 9 Nov 2026: real token counts (English ~3.6 chars per token, Devanagari ~1.4) plus the measured prompt
+        // reserve (instructions + system ~1,663 tokens) and a margin. The old 2-chars-per-token estimate almost
+        // doubled the evidence, so "More detail" (more evidence) was left ~1,550 tokens, less than a normal answer.
+        val inputEstimate = realTokens(packet.evidenceText + " " + packet.query) + blockCount * 40 + PROMPT_RESERVE_TOKENS + OUTPUT_MARGIN_TOKENS
         val availableOutput = (context - inputEstimate).coerceAtLeast(256)
         // The answer model picks the length from the question (PocketRagPromptBuilder.LENGTH); this
         // is the hard ceiling behind its largest tier, per independently asked question part.
@@ -730,10 +866,12 @@ class PocketRagEngine(
         val parts = packet.clauseCoverage.size.coerceAtLeast(1)
         // Item 4 "More detail": PROCEDURE-style ceiling, and the full ceiling (not the estimate).
         val perPart = if (packet.detailMode) {
-            runCatching { ArogyaBudget.askSopDetail(packet.query, cloud, inputEstimate, context) }
-                .getOrDefault(MAX_ANSWER_TOKENS_PER_PART)
+            // "More detail" never gets less room than the normal answer to the same question.
+            val normal = runCatching { ArogyaQuestionType.ceilingPerPart(packet.kind, packet.query, cloud, inputEstimate, context) }.getOrDefault(0)
+            maxOf(normal, runCatching { ArogyaBudget.askSopDetail(packet.query, cloud, inputEstimate, context) }
+                .getOrDefault(MAX_ANSWER_TOKENS_PER_PART))
         } else if (ArogyaFlags.r11LowReasoning) {
-            runCatching { ArogyaQuestionType.ceilingPerPart(ArogyaQuestionType.kindOf(packet.query), packet.query, cloud, inputEstimate, context) }
+            runCatching { ArogyaQuestionType.ceilingPerPart(packet.kind, packet.query, cloud, inputEstimate, context) }
                 .getOrDefault(MAX_ANSWER_TOKENS_PER_PART)
         } else MAX_ANSWER_TOKENS_PER_PART
         val ceiling = perPart * parts

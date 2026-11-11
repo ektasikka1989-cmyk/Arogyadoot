@@ -97,6 +97,9 @@ fun ArogyaVisitScreen(
     var aiResult by remember { mutableStateOf<ArogyaAiResult?>(null) }
     // Ask SOP chat thread per visit: survives the window closing and reopening within the visit.
     var sopThreads by remember { mutableStateOf(mapOf<String, List<SopChatMsg>>()) }
+    // 9 Nov 2026: Ask SOP history (last 10, kept on the phone) in a collapsible side panel (☰).
+    var sopHistory by remember { mutableStateOf(ArogyaSopHistoryStore.list(context)) }
+    val sopDrawer = rememberDrawerState(DrawerValue.Closed)
     // Official guides library: entry from Ask SOP + More; topic suggestions for "Ask about this guide".
     var guideOpen by remember { mutableStateOf(false) }
     var guideFromSop by remember { mutableStateOf(false) }
@@ -234,6 +237,9 @@ fun ArogyaVisitScreen(
     fun openAi(task:ArogyaAiTask, topic:String="", sop:Boolean=false) {
         aiOriginalNotes=queue.state.value.visits.firstOrNull {it.id==selectedId}?.notes.orEmpty();aiVisitId=if(sop) SOP_VISIT_ID else selectedId;aiTask=task;aiTopic=topic;aiQuestion=if(task==ArogyaAiTask.EXPLAIN && topic.isNotBlank() && topic!="home visit") "Explain $topic in simple language for the family." else ""
         showOnlineOptions=false;familyText="";askedQuestionForWarning="";aiDraft="";ai?.clearAttachments();qFiles=emptyList();aiCapture=emptyList();aiResult=null;aiError="";aiPrevious="";aiCopy="";aiOpen=true
+        // 9 Nov 2026: Ask SOP opens on a clean screen and a new conversation (earlier answers are in ☰ history),
+        // so an old answer is not shown again and the next question is not read as a follow-up of an old one.
+        if(sop && task==ArogyaAiTask.EXPLAIN && !aiBusy) { sopThreads=sopThreads-SOP_VISIT_ID;familyText="";sopSuggestions=emptyList();sopSuggestTitle="";scope.launch { ai?.newConversation() } }
     }
     DisposableEffect(Unit) { onDispose { if(aiBusy) onCancelAi();aiJob?.cancel() } }
     // Gap item 2: when the network dies mid-call, drop in-flight cloud calls now; the phone continues.
@@ -773,7 +779,7 @@ fun ArogyaVisitScreen(
         if(s.excerpt.isBlank()) Text(tr("The passage text was not recorded for this source.","इस स्रोत का पाठ उपलब्ध नहीं है।")) else ArogyaPassageText(s)
         if(s.highlights.isNotEmpty()) Text(tr("Highlighted: the sentences this answer came from.","हाइलाइट: जिन वाक्यों से उत्तर बना।"),style=MaterialTheme.typography.bodySmall)
         if(!s.url.startsWith("http")) Text(tr("No online copy is linked for this document.","इस दस्तावेज़ की ऑनलाइन प्रति उपलब्ध नहीं है।"),style=MaterialTheme.typography.bodySmall)
-    }},confirmButton={ if(s.url.startsWith("http")) Button(onClick={runCatching {uriHandler.openUri(ArogyaGuideLibrary.pageUrl(s.url, s.locator))}.onFailure {Toast.makeText(context,"No browser or PDF viewer is available.",Toast.LENGTH_LONG).show()}}) {Text(tr("Open official page","आधिकारिक पेज खोलें"))} },
+    }},confirmButton={ if(s.url.startsWith("http")) Button(onClick={ArogyaOpenLink.open(context, ArogyaGuideLibrary.pageUrl(s.url, s.locator), hindi)}) {Text(tr("Open official page","आधिकारिक पेज खोलें"))} },
         dismissButton={TextButton(onClick={source=null}) {Text(tr("Close","बंद करें"))}}) }
     ocr?.let { a ->
         var reviewedText by remember(a.id) { mutableStateOf(a.extractedText) }
@@ -783,12 +789,24 @@ fun ArogyaVisitScreen(
     val gv=if(aiVisitId==SOP_VISIT_ID) sopVisit else visit
     if(aiOpen && gv!=null && gv.id==aiVisitId) Dialog(onDismissRequest={ if(!aiBusy) aiOpen=false },properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(6.dp),shape=MaterialTheme.shapes.large) {
+            ModalNavigationDrawer(drawerState=sopDrawer,gesturesEnabled=sopDrawer.isOpen,drawerContent={
+                SopHistoryDrawer(sopHistory,hindi,
+                    onPick={ item -> if(!aiBusy) {
+                        val m=ArogyaSopHistoryStore.toMsg(item)
+                        val cur=sopThreads[SOP_VISIT_ID].orEmpty().filterNot { it.question==m.question }
+                        sopThreads=sopThreads+(SOP_VISIT_ID to cur+m)
+                        aiResult=m.result;aiCopy=m.result?.text.orEmpty();aiCapture=emptyList();aiError="";familyText=""
+                    }; scope.launch { sopDrawer.close() } },
+                    onNew={ if(!aiBusy) { sopThreads=sopThreads-SOP_VISIT_ID;aiResult=null;aiQuestion="";aiError="";familyText="";sopSuggestions=emptyList();sopSuggestTitle="";scope.launch { ai?.newConversation() } }; scope.launch { sopDrawer.close() } },
+                    onClear={ ArogyaSopHistoryStore.clear(context);sopHistory=emptyList() })
+            }) {
             Column(Modifier.padding(horizontal=12.dp,vertical=8.dp).imePadding(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 if(aiTask==ArogyaAiTask.EXPLAIN) {
                     LaunchedEffect(aiOpen,aiVisitId) { if(aiOpen && sopGuideCount<0) sopGuideCount=ai?.guideLibrary()?.size ?: 0 }
                     // UI4: chat-app top bar.
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         TextButton(onClick={aiOpen=false},enabled=!aiBusy,contentPadding=PaddingValues(0.dp),modifier=Modifier.size(44.dp)) { Text("✕",style=MaterialTheme.typography.titleLarge) }
+                        if(gv.id==SOP_VISIT_ID) TextButton(onClick={ sopHistory=ArogyaSopHistoryStore.list(context);scope.launch { sopDrawer.open() } },contentPadding=PaddingValues(0.dp),modifier=Modifier.size(44.dp)) { Text("☰",style=MaterialTheme.typography.titleLarge) }
                         Text(tr("Ask the ASHA guide","ASHA गाइड से पूछें"),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,maxLines=1,modifier=Modifier.weight(1f))
                         AiBadge("Ask SOP")
                         if(sopGuideCount>0) TextButton(onClick={guideFromSop=true;guideOpen=true}) { Text("📖 $sopGuideCount") }
@@ -845,9 +863,11 @@ fun ArogyaVisitScreen(
                                     val merged=cur[at].result!!.copy(onlineText=result.text,onlineSources=result.sources,onlineSegments=result.segments,onlineMs=result.elapsedMs,onlineTier=result.tier,onlineProvider=result.provider)
                                     sopThreads=sopThreads+(snapshot.id to cur.mapIndexed { i,m -> if(i==at) m.copy(result=merged) else m })
                                     if(cur.lastOrNull()?.question==askedQuestion) { aiResult=merged;aiCopy=merged.text;aiCapture=merged.captureItems }
+                                    if(snapshot.id==SOP_VISIT_ID) { ArogyaSopHistoryStore.add(context,cur[at].copy(result=merged));sopHistory=ArogyaSopHistoryStore.list(context) }
                                 } else {
                                     val msg=SopChatMsg(System.currentTimeMillis(),askedQuestion,result,qNow)
                                     sopThreads=sopThreads+(snapshot.id to if(cur.lastOrNull()?.question==askedQuestion) cur.dropLast(1)+msg else cur+msg)
+                                    if(snapshot.id==SOP_VISIT_ID) { ArogyaSopHistoryStore.add(context,msg);sopHistory=ArogyaSopHistoryStore.list(context) }
                                 }
                             }
                             aiPrevious="Previous question: $qNow\nPrevious draft explanation: ${result.text.take(800)}"
@@ -998,7 +1018,7 @@ fun ArogyaVisitScreen(
                             val askedH=msg.asked.ifBlank { msg.question }
                             fun familyH(h:Boolean) { val r=msg.result ?: return; val engine=ai ?: return; familyBusy=true; familyText=""; scope.launch { try { val (t,by,ms)=engine.familyExplainDetailed(r.text,r.quote,h,{ p -> if(p.draft.isNotBlank()) familyText=p.draft }); familyText=t; familyModel=by; familyMs=ms } catch(e:CancellationException) { throw e } catch(e:Exception) { familyText=""; aiError=e.message ?: "" } finally { familyBusy=false } } }
                             SopChatHistoryCard(msg,hindi,warningNow,gv.id!=SOP_VISIT_ID,ai,aiBusy,pending,
-                                { url -> runCatching {uriHandler.openUri(url)}.onFailure {Toast.makeText(context,"No browser or PDF viewer is available.",Toast.LENGTH_LONG).show()} },
+                                { url -> ArogyaOpenLink.open(context, url, hindi) },
                                 {speak(it)},{tts.stop()},{familyH(it)},{checkOnline(askedH)},{runMoreDetail(msg.question,askedH)},{saveForLater(msg.question,askedH)},{escalate(it)},context)
                         }
                         aiResult?.let { result ->
@@ -1010,7 +1030,7 @@ fun ArogyaVisitScreen(
                                     SopAssistantHeader(hindi)
                                     fun family(h:Boolean) { val engine=ai ?: return; familyBusy=true; familyText=""; scope.launch { try { val (t,by,ms)=engine.familyExplainDetailed(result.text,result.quote,h,{ p -> if(p.draft.isNotBlank()) familyText=p.draft }); familyText=t; familyModel=by; familyMs=ms } catch(e:CancellationException) { throw e } catch(e:Exception) { familyText=""; aiError=e.message ?: "" } finally { familyBusy=false } } }
                                     SopAnswerCard(result,q,askedQ,warningNow,gv.id!=SOP_VISIT_ID,ai,aiBusy,pending,true,
-                                        { url -> runCatching {uriHandler.openUri(url)}.onFailure {Toast.makeText(context,"No browser or PDF viewer is available.",Toast.LENGTH_LONG).show()} },
+                                        { url -> ArogyaOpenLink.open(context, url, hindi) },
                                         {speak(it)},{tts.stop()},familyText,familyBusy,familyModel,familyMs,{family(it)},{checkOnline(askedQ)},{runMoreDetail(q,askedQ)},{saveForLater(q,askedQ)},{escalate(it)},context,hindi)
                                 }
                             }
@@ -1113,13 +1133,14 @@ fun ArogyaVisitScreen(
                         // the shared card keeps it correct if that ever changes.
                         fun familyElse(h:Boolean) { val engine=ai ?: return; familyBusy=true; scope.launch { try { val (t,by,ms)=engine.familyExplainDetailed(result.text,result.quote,h); familyText=t; familyModel=by; familyMs=ms } catch(e:CancellationException) { throw e } catch(e:Exception) { aiError=e.message ?: "" } finally { familyBusy=false } } }
                         SopAnswerCard(result,aiQuestion,aiQuestion,warningNow,gv.id!=SOP_VISIT_ID,ai,aiBusy,pending,true,
-                            { url -> runCatching {uriHandler.openUri(url)}.onFailure {Toast.makeText(context,"No browser or PDF viewer is available.",Toast.LENGTH_LONG).show()} },
+                            { url -> ArogyaOpenLink.open(context, url, hindi) },
                             {speak(it)},{tts.stop()},familyText,familyBusy,familyModel,familyMs,{familyElse(it)},{checkOnline(aiQuestion)},{runMoreDetail(aiQuestion,aiQuestion)},{saveForLater(aiQuestion,aiQuestion)},{escalate(it)},context,hindi)
                     }
                     Row {TextButton(onClick={speak(if(result.canCopyToNotes) aiCopy else result.text)}) {Text(tr("🔊 Read aloud","🔊 सुनें"))};TextButton(onClick={tts.stop()}) {Text(tr("Stop","रोकें"))}}
                 }
                 TextButton(onClick={aiOpen=false},enabled=!aiBusy) {Text(if(aiVisitId==SOP_VISIT_ID) tr("Close","बंद करें") else tr("Back to visit","विज़िट पर वापस"))}
                 }
+            }
             }
         }
     }

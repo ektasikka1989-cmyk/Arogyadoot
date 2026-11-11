@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -291,13 +292,18 @@ fun SopAnswerCard(
 ) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     val hasOnline = result.onlineText.isNotBlank()
-    var tab by remember(result) { mutableStateOf(0) }
+    // 9 Nov: a finished "Check online" merges the online answer into this card (a new result object);
+    // open on the Online tab then. It used to reset to Offline, so the streamed online answer seemed
+    // to vanish and only the old offline answer was visible.
+    var tab by remember(result) { mutableStateOf(if (hasOnline) 1 else 0) }
     val news = remember(result) { if (hasOnline) ArogyaOfficialAnswer.newSentences(result.text, result.onlineText) else emptySet() }
     val tabText = if (tab == 1) result.onlineText else result.text
     val tabSources = if (tab == 1) result.onlineSources else result.sources
     val tabSegments = if (tab == 1) result.onlineSegments else result.segments
     val tabTier = if (tab == 1) result.onlineTier else result.tier
-    val grounded = tabSources.isNotEmpty() && !result.sourceOnly && !result.r8Blocked
+    // 9 Nov 2026 (AD): an answer that starts with a "⚠" weak-evidence line (passages do not confirm it /
+    // do not mention the topic) is not labelled "From official guides".
+    val grounded = tabSources.isNotEmpty() && !result.sourceOnly && !result.r8Blocked && !tabText.trimStart().startsWith("⚠")
     val showQuote = tab == 0 && result.quote.isNotBlank() && !ArogyaAnswerFormat.isDuplicate(result.text, result.quote)
     var srcOpen by remember(result) { mutableStateOf(false) }
     var hl by remember(result) { mutableStateOf("") }
@@ -543,12 +549,24 @@ fun SopAssistantHeader(hindi: Boolean) {
 @Composable
 fun SopEmptyState(hindi: Boolean, suggestTitle: String, suggestions: List<String>, onPick: (String) -> Unit) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
+    // 9 Nov 2026: 4 different tested questions each time the screen opens (and on "Other questions").
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val pool = remember {
+        runCatching { ctx.assets.open(ArogyaSopExamples.ASSET).bufferedReader(Charsets.UTF_8).use { ArogyaSopExamples.parse(it.readText()) } }
+            .getOrDefault(emptyList())
+    }
+    var round by remember { mutableStateOf(0) }
+    val rotating = remember(round) {
+        ArogyaSopExamples.pick(pool, avoid = ArogyaSopExamples.lastShown).also { if (it.isNotEmpty()) ArogyaSopExamples.lastShown = it }
+    }
     val examples = suggestions.take(4).ifEmpty {
-        listOf(
-            tr("What should be applied on the baby's cord stump?", "बच्चे की नाल पर क्या लगाना चाहिए?"),
-            tr("Should colostrum be given to the newborn?", "क्या नवजात को पहला गाढ़ा दूध देना चाहिए?"),
-            tr("How do I make ORS at home?", "घर पर ओआरएस कैसे बनाएँ?"),
-            tr("What are the danger signs in a newborn?", "नवजात में खतरे के लक्षण क्या हैं?"))
+        rotating.ifEmpty {
+            listOf(
+                tr("What should be applied on the baby's cord stump?", "बच्चे की नाल पर क्या लगाना चाहिए?"),
+                tr("Should colostrum be given to the newborn?", "क्या नवजात को पहला गाढ़ा दूध देना चाहिए?"),
+                tr("How do I make ORS at home?", "घर पर ओआरएस कैसे बनाएँ?"),
+                tr("What are the danger signs in a newborn?", "नवजात में खतरे के लक्षण क्या हैं?"))
+        }
     }
     Column(Modifier.fillMaxWidth().padding(top = 48.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -571,6 +589,8 @@ fun SopEmptyState(hindi: Boolean, suggestTitle: String, suggestions: List<String
                 Text(q, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodyMedium)
             }
         }
+        if (suggestions.isEmpty() && pool.size > ArogyaSopExamples.SHOWN)
+            TextButton(onClick = { round++ }) { Text(tr("↻ Other questions", "↻ दूसरे सवाल")) }
     }
 }
 
@@ -635,5 +655,48 @@ fun SopComposer(
         }
     }
     DictationStatusLine(field, hindi, Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+    }
+}
+
+/**
+ * 9 Nov 2026: collapsible side panel of Ask SOP — the last 10 questions (newest first, kept on the phone).
+ * Tapping one shows its answer again; "New conversation" starts a clean screen.
+ */
+@Composable
+fun SopHistoryDrawer(
+    items: List<ArogyaSopHistory.Item>,
+    hindi: Boolean,
+    onPick: (ArogyaSopHistory.Item) -> Unit,
+    onNew: () -> Unit,
+    onClear: () -> Unit
+) {
+    fun tr(en: String, hi: String) = if (hindi) hi else en
+    ModalDrawerSheet(Modifier.widthIn(max = 320.dp)) {
+        Text(tr("Recent questions", "पिछले सवाल"), style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp))
+        Text(tr("Last ${ArogyaSopHistory.MAX} questions, saved on this phone", "पिछले ${ArogyaSopHistory.MAX} सवाल, इसी फ़ोन पर सहेजे"),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
+        NavigationDrawerItem(label = { Text(tr("✎ New conversation", "✎ नई बातचीत")) }, selected = false, onClick = onNew,
+            modifier = Modifier.padding(horizontal = 12.dp))
+        HorizontalDivider(Modifier.padding(vertical = 6.dp))
+        if (items.isEmpty()) Text(tr("No questions yet.", "अभी कोई सवाल नहीं।"), style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(20.dp))
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            items.asReversed().forEach { i ->
+                val time = remember(i.id) { java.text.SimpleDateFormat("d MMM, h:mm a", java.util.Locale.US).format(java.util.Date(i.id)) }
+                NavigationDrawerItem(
+                    label = {
+                        Column(Modifier.padding(vertical = 6.dp)) {
+                            Text(i.question, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(time + " · " + (if (i.online) tr("☁ Online", "☁ ऑनलाइन") else tr("📱 Offline", "📱 ऑफ़लाइन")),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    selected = false, onClick = { onPick(i) }, modifier = Modifier.padding(horizontal = 12.dp)
+                )
+            }
+        }
+        if (items.isNotEmpty()) TextButton(onClick = onClear, modifier = Modifier.padding(12.dp)) { Text(tr("Clear history", "इतिहास मिटाएँ")) }
     }
 }

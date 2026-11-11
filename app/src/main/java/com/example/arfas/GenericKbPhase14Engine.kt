@@ -41,7 +41,11 @@ class GenericKbPhase14Engine<T>(
          * 42/75 with one GeM-specific question weakened, +3 → 48/75 but GeM-specific questions
          * start receiving unrelated rule-book pages. No effect when the pack declares no precedence.
          */
-        const val PRECEDENCE_STEP_LOGITS = 2.0f
+        // 11 Nov 2026 (AK, ASHA guide): 1.0. The 2.0 above was measured on the procurement pack. The ASHA guide
+        // declares four levels (int_a/b/c = 1 … 4), so 2.0 gave up to +6 logits: a loosely related training-module
+        // passage (re-ranker 0.3) outranked the right one from another guide (MUAC/malnutrition, newborn not
+        // breathing). 233 questions, concern + person in the phone's evidence: 2.0 → 223, 1.0 → 225 (0 lost), 0.5 → 224, 0 → 223.
+        const val PRECEDENCE_STEP_LOGITS = 1.0f
         /**
          * Fast re-rank (speedFastRerank): the pool's first FAST_RERANK_HEAD pairs (dense-best
          * first) are scored first; when the best is at least FAST_RERANK_MIN_BEST and leads the

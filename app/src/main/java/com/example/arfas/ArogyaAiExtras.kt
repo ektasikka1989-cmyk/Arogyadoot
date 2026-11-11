@@ -270,15 +270,30 @@ object ArogyaAiExtras {
         "gentian violet", "chlorhexidine", "iodine", "injection", "syrup", "tablet", "tablets", "ointment"
     )
 
+    /** 9 Nov 2026: family explanation length (was 8; the escalation sentence, written last, was the one cut). */
+    const val FAMILY_MAX_SENTENCES = 10
+
+    /**
+     * 9 Nov 2026: the app's copied-guide-lines answer ("Here is what …:" / "The AI could not write …:" header,
+     * "• line [S2]" bullets) as plain text for the family explanation; any other answer is returned unchanged.
+     */
+    fun plainGuideText(answer: String): String {
+        val lines = answer.lines()
+        val header = lines.firstOrNull()?.trim().orEmpty()
+        if (!header.endsWith(":") || lines.drop(1).none { it.trimStart().startsWith("\u2022") }) return answer
+        return lines.drop(1).map { it.trim().removePrefix("\u2022").replace(Regex("\\s*\\[S?\\d+(?:\\s*,\\s*S?\\d+)*]"), "").trim() }
+            .filter { it.isNotBlank() }.joinToString(" ") { if (it.last() in ".!?।") it else "$it." }
+    }
+
     fun familyPrompt(answer: String, quote: String, hindi: Boolean): String = """
         You help an ASHA health worker explain advice to a family at home.
-        Rewrite the GUIDE ANSWER below as 5 to 8 short, warm sentences spoken to "you" (the mother and family)${if (hindi) ", in simple spoken Hindi (Devanagari script)" else ", in simple English"}.
-        Cover what to do, what not to do, the warning signs to watch for, and when to call the ASHA or ANM or go to the health facility.
+        Rewrite the GUIDE ANSWER below as 6 to 10 short, warm sentences spoken to "you" (the mother and family)${if (hindi) ", in simple spoken Hindi (Devanagari script)" else ", in simple English"}.
+        First say when to call the ASHA or ANM or go to the health facility (if the guide answer says so), then what to do, what not to do and the warning signs to watch for.
         Use only facts from the guide answer and guide sentence. Do not add medicines, doses, numbers or advice that are not there.
         If they say to refer or go to a health facility, keep that.
         GUIDE SENTENCE: $quote
         GUIDE ANSWER: $answer
-        Write only the 5 to 8 sentences.
+        Write only the 6 to 10 sentences.
     """.trimIndent()
 
     // ── ANM message ──

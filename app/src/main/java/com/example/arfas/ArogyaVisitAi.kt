@@ -93,18 +93,26 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         suspend fun cloud(): Pair<T?, String>? {
             if (!cloud || ep == null || key.isBlank()) return null
             val t = System.currentTimeMillis()
-            val budget = ArogyaBudget.tokens(cloudTokens, lang, ArogyaBudget.estimatePromptTokens(cloudPrompt.length), ArogyaBudget.CLOUD_CONTEXT, feature, "cloud")
-            val client = OpenAiCompatibleClient(ep, { key }, CLOUD_DEADLINE_MS.toInt())
+            // 9 Nov 2026: what fits Groq's per-minute limit (prompt + max_tokens), not a 32K context; a long reply
+            // gets 60 s instead of 25 s; a used-up minute is waited out briefly instead of being refused.
+            val promptTok = GroqChatProvider.estimateTokens(system + "\n" + cloudPrompt) + 16
+            val budget = ArogyaGroqMinute.cap(ArogyaBudget.tokens(cloudTokens, lang, ArogyaBudget.estimatePromptTokens(cloudPrompt.length), ArogyaBudget.CLOUD_CONTEXT, feature, "cloud"), promptTok)
+            val deadline = if (budget > LONG_REPLY_TOKENS) CLOUD_LONG_DEADLINE_MS else CLOUD_DEADLINE_MS
+            ArogyaGroqMinute.waitMs(promptTok + budget).takeIf { it in 1..ArogyaGroqMinute.MAX_WAIT_MS }?.let { w ->
+                Log.i(TAG, "AROGYA_GROQ_MINUTE_WAIT feature=$feature ms=$w tokens=${promptTok + budget}"); delay(w) }
+            ArogyaGroqMinute.record(promptTok + budget)
+            Log.i(TAG, "AROGYA_CLOUD_BUDGET feature=$feature prompt≈$promptTok maxTokens=$budget deadlineS=${deadline / 1000}")
+            val client = OpenAiCompatibleClient(ep, { key }, deadline.toInt())
             val raw = if (onDelta == null) {
-                ArogyaCloud.withDeadline(CLOUD_DEADLINE_MS, feature) { client.complete(system, cloudPrompt, budget) }
+                ArogyaCloud.withDeadline(deadline, feature) { client.complete(system, cloudPrompt, budget) }
             } else {
-                val streamed = ArogyaCloud.withDeadline(CLOUD_DEADLINE_MS, feature) { runBlocking { client.completeStream(system, cloudPrompt, budget, emit) } }
+                val streamed = ArogyaCloud.withDeadline(deadline, feature) { runBlocking { client.completeStream(system, cloudPrompt, budget, emit) } }
                 if (!streamed.isNullOrBlank()) streamed
-                else if (coroutineContext.isActive) ArogyaCloud.withDeadline(CLOUD_DEADLINE_MS, feature) { client.complete(system, cloudPrompt, budget) }
+                else if (coroutineContext.isActive) ArogyaCloud.withDeadline(deadline, feature) { client.complete(system, cloudPrompt, budget) }
                 else null
             }
             Log.i(TAG, "AROGYA_ROUTE feature=$feature engine=cloud model=${ep.model} ok=${raw != null} streamed=${onDelta != null} ms=${System.currentTimeMillis() - t}")
-            if (raw == null) { cloudWhy = "no reply within ${CLOUD_DEADLINE_MS / 1000} s or the call failed"; return null }
+            if (raw == null) { cloudWhy = "no reply within ${deadline / 1000} s or the call failed"; return null }
             val ok = accept(raw)
             if (ok == null) { cloudWhy = "its answer did not pass the check against the source"; return null }
             return ok to ep.label
@@ -113,16 +121,23 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             val model = readyModel(); val t = System.currentTimeMillis()
             // 8 Nov 2026: clamp against the model's active window (8,192 when the KB extension is on), not an
             // assumed 4,096, and count Devanagari prompt text properly.
-            val ctx = maxOf(model.resolvedModelContextTokens, model.kbContextTokens).takeIf { it > 0 } ?: ArogyaBudget.PHONE_CONTEXT
+            // 9 Nov 2026 (AD): the real KV size when the engine reported a smaller one than it was opened with.
+            val ctx = model.usableContextTokens.takeIf { it > 0 } ?: ArogyaBudget.PHONE_CONTEXT
+            // A prompt the phone cannot hold is refused before any word: say so instead of trying twice.
+            val known = model.learnedKbCapacityTokens
+            if (known > 0 && ArogyaKvCapacity.estimateTokens(prompt) + 256 > known) {
+                throw IllegalStateException("prompt_too_long estTokens=${ArogyaKvCapacity.estimateTokens(prompt)} capacity=$known")
+            }
             val budget = ArogyaBudget.tokens(maxTokens, lang, promptTokensOf(prompt) + 64, ctx, feature, "phone")
-            val raw = generate(prompt, model, budget, onPartial = if (onDelta == null) null else emit).orEmpty()
+            val limit = if (feature in EXTRACT_FEATURES) EXTRACT_LIMIT_MS else 300_000L
+            val raw = generate(prompt, model, budget, onPartial = if (onDelta == null) null else emit, limitMs = limit).orEmpty()
             Log.i(TAG, "AROGYA_ROUTE feature=$feature engine=phone ms=${System.currentTimeMillis() - t} chars=${raw.length}")
             val label = "On-phone model (offline): " + (model.loadedModelFileName?.substringBeforeLast('.') ?: "local")
             // 8 Nov 2026: one retry when the phone's reply could not be used (prose instead of JSON, a cut
             // reply); the same checks apply to the retry.
             accept(raw)?.let { it to label } ?: run {
                 if (emitted) { emitted = false; onDelta?.invoke("") }
-                val raw2 = generate(prompt + RETRY_SUFFIX, model, budget, onPartial = if (onDelta == null) null else emit).orEmpty()
+                val raw2 = generate(prompt + RETRY_SUFFIX, model, budget, onPartial = if (onDelta == null) null else emit, limitMs = limit).orEmpty()
                 val ok2 = accept(raw2)
                 Log.i(TAG, "AROGYA_ROUTE_RETRY feature=$feature ok=${ok2 != null} chars=${raw2.length}")
                 ok2?.let { it to label }
@@ -311,6 +326,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         val online = request.onlineCheck && !ArogyaOnlinePolicy.localOnly(question)
         // ArogyaDoot's own turn: AndroLLM + PocketSage + semantic search + grounding, unchanged.
         val turnFiles = attachments?.claimPendingAttachmentsForTurn().orEmpty()
+        runCatching { runtime.lastTurnEarlierAttachment = "" }
         if (turnFiles.isNotEmpty()) Log.i(TAG, "AROGYA_ATTACHMENTS count=${turnFiles.size} kinds=${turnFiles.joinToString { it.kind.name }}")
         val docTurn = turnFiles.any { it.kind != Phase1AttachmentKind.IMAGE }
         runtime.useGuideWithDocument = useGuideWithDocument
@@ -383,8 +399,18 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             // Used attachments are released; on failure they stay attached for a retry.
             attachments?.releaseTurnAttachments(turnFiles.map { it.id }, consumed = answered)
         }
+        // 8 Nov 2026: a Check online that ended on the phone (online call refused, too slow or rejected)
+        // says so; the phone's answer is never shown in the Online tab as if it came from online.
+        if (online && turn.provider == AndroBaselineRuntime.Provider.LOCAL) {
+            val outcome = PocketRagEngine.lastCloudOutcome
+            val why = runCatching { ArogyaCloudOutcome.why(outcome, runtime.cloudEngineLabel(), runtime.groqProviderStatus().name) }
+                .getOrNull()?.substringAfter("not used: ", "")?.trim().orEmpty()
+            Log.w(TAG, "AROGYA_CHECK_ONLINE_FAILED outcome=$outcome")
+            error(if (request.hindi) "ऑनलाइन जाँच पूरी नहीं हुई" + (if (why.isNotBlank()) " — $why" else "") + "। ऊपर का ऑफ़लाइन उत्तर वैसा ही है।"
+                  else "The online check could not finish" + (if (why.isNotBlank()) " — $why" else "") + ". The offline answer above is unchanged.")
+        }
         return buildResult(turn, question, System.currentTimeMillis() - t0, firstWordsMs, detail = false, onlineCheck = request.onlineCheck,
-            fromDocument = docTurn && !useGuideWithDocument)
+            fromDocument = docTurn && !useGuideWithDocument, visitAge = runCatching { visitContext(request.visit) }.getOrDefault(""))
     }
 
     /**
@@ -405,6 +431,14 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         onProgress?.invoke(ArogyaProgress("search"))
         val draft = StringBuilder()
         var firstWordsMs = -1L
+        // 8 Nov 2026: More detail reads more of the guide: 8 passages for this turn (normal answers 6),
+        // the full candidate pool, and the visit's age group; restored after the turn.
+        if (ArogyaFlags.detailFreshSearch) { GenericKbKeyFacts.WINDOW_PASSAGES = DETAIL_PASSAGES; GenericKbKeyFacts.WINDOW_CHARS = 1_500 }
+        // 9 Nov 2026: on the phone, More detail reads the same evidence cap as a normal answer (4,500 chars since 11 Nov, AI1):
+        // Gemma's 8K window is shared by evidence and answer, and 12,000 characters left a Hindi detailed answer
+        // less room than the normal one. Online (Cloud first) keeps the full evidence.
+        GenericKnowledgeContextProvider.phoneEvidenceCap = runtime.answerPolicy() != AnswerPolicy.CLOUD_FIRST
+        GenericKnowledgeContextProvider.visitAgeHint = visitContext(visit)
         val turn = try {
             withTimeout(ASK_TIMEOUT_MS) {
                 runtime.chat(asked, moreDetail = true,
@@ -416,8 +450,12 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         } catch (e: TimeoutCancellationException) {
             Log.w(TAG, "AROGYA_ASK_TIMEOUT detail after ${ASK_TIMEOUT_MS / 1000}s")
             error("The fuller answer is taking too long. Your first answer is unchanged.")
+        } finally {
+            applyEvidenceSize()
+            GenericKnowledgeContextProvider.visitAgeHint = ""
         }
-        return buildResult(turn, asked, System.currentTimeMillis() - t0, firstWordsMs, detail = true, onlineCheck = false)
+        return buildResult(turn, asked, System.currentTimeMillis() - t0, firstWordsMs, detail = true, onlineCheck = false,
+            visitAge = runCatching { visitContext(visit) }.getOrDefault(""))
     }
 
     /** Shared turn → card result: breakdown log, tiers, sources, quote, dose check. */
@@ -428,7 +466,9 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         firstWordsMs: Long,
         detail: Boolean,
         onlineCheck: Boolean,
-        fromDocument: Boolean = false
+        fromDocument: Boolean = false,
+        /** The visit's age ("child, 8 months old"), for the dose table when the question names no age. */
+        visitAge: String = ""
     ): ArogyaAiResult {
         // Joined offline with the stage lines by timestamp: POCKET_RAG_SEARCH_MS (search/rerank),
         // POCKET_RAG_EVIDENCE_MS, POCKET_RAG_LOCAL_GEN_MS / POCKET_RAG_CLOUD_MS (first words),
@@ -441,7 +481,8 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         val hasGuideAnswer = turn.text.trim().isNotBlank() && notFoundMarker == null && !liveWeb
         // UI6: the model's [S1]/[1] tags are dropped from the shown text; the card draws its own
         // tappable superscripts from the checked citations (segments are built from this same text).
-        val text = ArogyaAnswerFormat.stripCitationMarkers(turn.text.trim())
+        // 11 Nov 2026 (AO): a copy of the question written as a title before "Answer:" is dropped.
+        val text = ArogyaAnswerFormat.stripCitationMarkers(ArogyaAnswerFormat.dropEchoedQuestion(turn.text.trim(), question))
         val hasAnswer = text.isNotBlank()
         val provider = when (turn.provider) {
             AndroBaselineRuntime.Provider.LOCAL -> "ArogyaDoot • offline (${runtime.localModelManager?.loadedModelFileName?.substringBeforeLast('.') ?: "local model"})".let { local ->
@@ -510,18 +551,52 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
                 online = online, sourceOnly = true,
                 timingsMs = mapOf("pramaan_turn" to elapsed), r8Blocked = true, r8Topics = topics, tier = 3)
         }
-        val quote = runCatching { KnowledgeSourcePresentation.quoteOf(turn.sourceIds) }.getOrNull()
+        // 9 Nov 2026 (AD): none of the answer's statements was found in the passages (proof 0/n): the
+        // "guide says" box would show an unrelated passage (a mother's urine after delivery for a child's
+        // question) as if it backed the answer. No quote then, and the answer says plainly it is not confirmed.
+        val proof = runCatching { AnswerProof.parseMarker(turn.sourceIds) }.getOrNull()
+        // The proof compares answer sentences with the (English) passages; a Hindi answer scores low against
+        // English text even when it says what the guide says (phone log 22:19: menstrual-pain answer, 0/7). Only a
+        // same-script answer can be called unconfirmed.
+        val sameScript = KbReplyText.dominantScript(text) != KbReplyText.Script.DEVANAGARI
+        val unproven = sameScript && proof != null && proof.second > 0 && proof.first == 0
+        val quote = if (unproven) null else runCatching { KnowledgeSourcePresentation.quoteOf(turn.sourceIds) }.getOrNull()
+        if (unproven) Log.w(TAG, "AROGYA_UNPROVEN_ANSWER proof=${proof?.first}/${proof?.second} quote=dropped")
         // Dose safety: every dose answer is logged for the M1 human review list; a dose
         // whose evidence context names only other age groups carries an ANM caution line.
         var finalText = if (hasAnswer) text else "No answer came back from the guide. Rephrase the question or ask your ANM. Your visit is unchanged."
-        if (ArogyaFlags.doseAgeMatch && hasAnswer && ArogyaDoseCheck.isDoseQuestion(question)) {
+        // 11 Nov 2026 (AP): the ASHA sees when an answer used the photo or document she attached to an earlier question.
+        val earlier = runCatching { runtime.lastTurnEarlierAttachment }.getOrDefault("")
+        if (earlier.isNotBlank() && hasAnswer) {
+            val hi = KbReplyText.dominantScript(question) == KbReplyText.Script.DEVANAGARI
+            val what = if (earlier == "photo") (if (hi) "पहले लगाई फ़ोटो" else "the photo you attached earlier")
+                else (if (hi) "पहले लगाया दस्तावेज़" else "the document you attached earlier")
+            finalText = (if (hi) "📎 यह उत्तर $what को भी ध्यान में रखता है।" else "📎 This answer also uses $what.") + "\n\n" + finalText
+            Log.i(TAG, "AROGYA_ATTACHMENT_FOLLOW_UP used=$earlier")
+        }
+        if (unproven && hasAnswer && !text.startsWith("⚠")) {
+            finalText = (if (KbReplyText.dominantScript(question) == KbReplyText.Script.DEVANAGARI)
+                "⚠ गाइड के मिले हुए अंश इस उत्तर की पुष्टि नहीं करते — अपनी ANM से ज़रूर पूछें।"
+            else "⚠ The guide passages found do not confirm this answer — check with your ANM.") + "\n\n" + finalText
+        }
+        // 9 Nov audit: also checked when only the ANSWER gives a dose (a symptom question answered with
+        // "zinc 20 mg"). Advisory only — a caution line is added, the answer is never withheld.
+        if (ArogyaFlags.doseAgeMatch && hasAnswer && (ArogyaDoseCheck.isDoseQuestion(question) || ArogyaDoseCheck.isDoseQuestion(text) || ArogyaDoseTable.stated(text).isNotEmpty())) {
             val group = ArogyaDoseCheck.askedGroup(question)
-            val verdict = runCatching { ArogyaDoseCheck.check(question, text, sources.joinToString("\n") { it.excerpt }) }.getOrDefault(ArogyaDoseCheck.Verdict.UNCERTAIN)
+            val evidence = sources.joinToString("\n") { it.excerpt }
+            val verdict = if (ArogyaDoseCheck.isDoseQuestion(question))
+                runCatching { ArogyaDoseCheck.check(question, text, evidence) }.getOrDefault(ArogyaDoseCheck.Verdict.UNCERTAIN)
+            else ArogyaDoseCheck.Verdict.UNCERTAIN
+            val strength = runCatching { ArogyaDoseCheck.strengthRisk(text, evidence) }.getOrNull()
+            // 9 Nov: the guide's own age-specific dose (ArogyaDoseTable, with page) — checked first.
+            val tableFinding = if (ArogyaFlags.doseTable) runCatching { ArogyaDoseTable.check(question, text, visitAge) }.getOrNull() else null
             val nums = runCatching { ArogyaAiExtras.numbers(text).distinct().take(6).joinToString(",") }.getOrDefault("")
-            Log.i(TAG, "AROGYA_DOSE_CHECK group=${group.name} verdict=${verdict.name} nums=[$nums] q='${question.take(80)}'")
-            if (verdict == ArogyaDoseCheck.Verdict.MISMATCH) {
-                val hindiQ = KbReplyText.dominantScript(question) == KbReplyText.Script.DEVANAGARI
-                finalText += "\n\n" + ArogyaDoseCheck.caution(group, hindiQ)
+            Log.i(TAG, "AROGYA_DOSE_CHECK group=${group.name} verdict=${verdict.name} strengthRisk=${strength ?: "-"} table=${tableFinding?.let { "${it.medicine}:${it.reason}:${it.stated}" } ?: "-"} nums=[$nums] q='${question.take(80)}'")
+            val hindiQ = KbReplyText.dominantScript(question) == KbReplyText.Script.DEVANAGARI
+            when {
+                tableFinding != null -> finalText += "\n\n" + ArogyaDoseTable.caution(tableFinding, hindiQ)
+                strength != null -> finalText += "\n\n" + ArogyaDoseCheck.strengthCaution(strength, hindiQ)
+                verdict == ArogyaDoseCheck.Verdict.MISMATCH -> finalText += "\n\n" + ArogyaDoseCheck.caution(group, hindiQ)
             }
         }
         // "Use ASHA guide too" was off: the answer is from the attached document, and says so first.
@@ -530,7 +605,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             finalText = (if (hindiQ) "📄 यह आपके दस्तावेज़ से है, ASHA गाइड से नहीं।" else "📄 From your document, not the ASHA guides.") + "\n\n" + finalText
         }
         // Item 5d: per-sentence guide citations (from the model text; the dose caution is app chrome).
-        val segments = if (hasAnswer && sources.isNotEmpty()) ArogyaOfficialAnswer.guideSegments(text, sources) else emptyList()
+        val segments = if (hasAnswer && sources.isNotEmpty()) ArogyaOfficialAnswer.guideSegments(text, sources, turn.text) else emptyList()
         Log.i(TAG, "AROGYA_ANSWER_TIER tier=1 mode=$mode sources=guide:${sources.size},web:0")
         return ArogyaAiResult(
             finalText,
@@ -618,11 +693,13 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         return ArogyaAiResult(ArogyaCapture.render(items), "ArogyaDoot • $by", System.currentTimeMillis() - start, canCopyToNotes = true, captureItems = items)
     }
 
-    private suspend fun generate(prompt: String, model: LocalModelManager, maxTokens: Int = 420, onPartial: ((String) -> Unit)? = null): String? = coroutineScope {
+    private suspend fun generate(prompt: String, model: LocalModelManager, maxTokens: Int = 420, onPartial: ((String) -> Unit)? = null,
+                                 limitMs: Long = 300_000L): String? = coroutineScope {
         val expired = AtomicBoolean(false)
         // On-device Llama can legitimately take several minutes on supported phones.
         // Preserve cancellation, but do not abort a healthy local turn after 90 seconds.
-        val watchdog = launch { delay(300_000); expired.set(true); model.requestCancelActiveGeneration("arogya_300s_limit") }
+        // 11 Nov 2026 (AN): copying details off a photo's text has a 3-minute limit (EXTRACT_LIMIT_MS).
+        val watchdog = launch { delay(limitMs); expired.set(true); model.requestCancelActiveGeneration("arogya_time_limit_${limitMs / 1000}s") }
         try {
             val result = model.generateDetachedStream(prompt, maxTokens, "arogya_visit", onPartial)
             check(!expired.get()) { "Local AI exceeded the time limit. No draft was accepted; your visit is unchanged." }
@@ -645,13 +722,15 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
     suspend fun familyExplainDetailed(answer: String, quote: String, hindi: Boolean, onProgress: ((ArogyaProgress) -> Unit)? = null): Triple<String, String, Long> = mutex.withLock {
         val t = System.currentTimeMillis()
         val buf = StringBuilder()
+        // 9 Nov 2026: a copied-guide-lines answer (the model could not write one) is read as plain guide text.
+        val answer = ArogyaAiExtras.plainGuideText(answer)
         val (opt, by) = route("family_explain", ArogyaAiExtras.familyPrompt(answer, quote, hindi), 450,
             ArogyaAiExtras.familyPrompt(ArogyaOnlinePolicy.scrubGeneric(answer), ArogyaOnlinePolicy.scrubGeneric(quote), hindi),
             cloudTokens = 900, lang = if (hindi) "hi" else "en",
             onDelta = if (onProgress == null) null else { d -> if (d.isEmpty()) buf.clear() else buf.append(d); onProgress(ArogyaProgress("draft", buf.toString())) }) { out ->
             // Numbers from the guide only (as before), plus (8 Nov 2026) no reversed "do not" rule and no
             // medicine the guide answer does not name: this is the text the family hears.
-            val grounded = ArogyaAiExtras.groundedSentences(out, answer + "\n" + quote, max = 8)
+            val grounded = ArogyaAiExtras.groundedSentences(out, answer + "\n" + quote, max = ArogyaAiExtras.FAMILY_MAX_SENTENCES)
             val noMeds = ArogyaAiExtras.dropUngroundedMedicines(grounded, answer + "\n" + quote)
             val safe = KbReplyText.dropFlippedProhibitions(noMeds, answer + "\n" + quote)
             if (safe.second > 0 || noMeds.length < grounded.length) Log.w(TAG, "AROGYA_FAMILY_GUARD flipped=${safe.second} medicineDropped=${noMeds.length < grounded.length}")
@@ -770,12 +849,14 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             val lang = ArogyaBudget.langOf(text)
             suspend fun readHalf(half: String): List<ArogyaCardField> {
                 val (o, _) = route("card_read", ArogyaAiExtras.cardPrompt(half), 1600, cloud = false, cloudTokens = 2400, lang = ArogyaBudget.langOf(half)) { out ->
-                    ArogyaAiExtras.parseCard(out, half).takeIf { it.isNotEmpty() } }
+                    ArogyaAiExtras.parseCard(out, half) }
                 return o.orEmpty()
             }
+            // 11 Nov 2026 (AN): an empty card reading is an answer ("no card values on this photo"), never a reason to
+            // run the phone model again (a photo of something else used to take several minutes here).
             val (opt, by0) = route("card_read", ArogyaAiExtras.cardPrompt(text), 1600, cloud = false, cloudTokens = 2400, lang = lang) { out ->
                 lastRaw = out
-                ArogyaAiExtras.parseCard(out, text).takeIf { it.isNotEmpty() } }
+                ArogyaAiExtras.parseCard(out, text) }
             var fields = opt.orEmpty()
             var by = by0
             // Part B6: cut JSON (unclosed brackets) → read each half and merge, so no row is lost.
@@ -792,14 +873,14 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             if (fields.isEmpty() && seen == null && photo != null) {
                 ArogyaLocalVision.readPhoto(runtime.localModelManager, photo!!.first, ArogyaPhotoText.Kind.CARD)?.let { ArogyaPhotoText.cardText(it) }?.takeIf { it.length >= 15 }?.let { v ->
                     val (o2, by2) = route("card_read", ArogyaAiExtras.cardPrompt(v), 1600, cloud = false, cloudTokens = 2400, lang = ArogyaBudget.langOf(v)) { out ->
-                        ArogyaAiExtras.parseCard(out, v).takeIf { it.isNotEmpty() } }
+                        ArogyaAiExtras.parseCard(out, v) }
                     if (!o2.isNullOrEmpty()) { fields = o2; by = ArogyaLocalVision.LABEL + " · " + by2; seen = v }
                 }
             }
             if (fields.isEmpty() && seen == null && appContext != null && photo != null && ArogyaPhotoVision.wanted(appContext, false)) {
                 vision()?.let { v ->
                     val (o2, by2) = route("card_read", ArogyaAiExtras.cardPrompt(v), 1600, cloud = false, cloudTokens = 2400, lang = ArogyaBudget.langOf(v)) { out ->
-                        ArogyaAiExtras.parseCard(out, v).takeIf { it.isNotEmpty() } }
+                        ArogyaAiExtras.parseCard(out, v) }
                     if (!o2.isNullOrEmpty()) { fields = o2; by = ArogyaPhotoVision.LABEL + " · " + by2; seen = v }
                 }
             }
@@ -821,7 +902,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         val (bmp, _) = lastCardPhoto ?: return@withLock null
         val v = ArogyaLocalVision.readPhoto(runtime.localModelManager, bmp, ArogyaPhotoText.Kind.CARD)?.let { ArogyaPhotoText.cardText(it) }?.takeIf { it.length >= 15 } ?: return@withLock null
         val (o, by) = route("card_read", ArogyaAiExtras.cardPrompt(v), 1600, cloud = false, cloudTokens = 2400, lang = ArogyaBudget.langOf(v)) { out ->
-            ArogyaAiExtras.parseCard(out, v).takeIf { it.isNotEmpty() } }
+            ArogyaAiExtras.parseCard(out, v) }
         Log.i(TAG, "AROGYA_CARD_TEXT using=gemma_on_request fields=${o?.size ?: 0}")
         if (o.isNullOrEmpty()) null else ArogyaCardReading(v, o) to (ArogyaLocalVision.LABEL + " · " + by)
     }
@@ -831,7 +912,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         val (bmp, ls) = lastCardPhoto ?: return@withLock null
         val v = ArogyaPhotoVision.transcribe(ctx, bmp, ls, ArogyaPhotoText.Kind.CARD)?.let { ArogyaPhotoText.cardText(it) }?.takeIf { it.length >= 15 } ?: return@withLock null
         val (o, by) = route("card_read", ArogyaAiExtras.cardPrompt(v), 1600, cloud = false, cloudTokens = 2400, lang = ArogyaBudget.langOf(v)) { out ->
-            ArogyaAiExtras.parseCard(out, v).takeIf { it.isNotEmpty() } }
+            ArogyaAiExtras.parseCard(out, v) }
         Log.i(TAG, "AROGYA_CARD_TEXT using=vision_on_request fields=${o?.size ?: 0}")
         if (o.isNullOrEmpty()) null else ArogyaCardReading(v, o) to (ArogyaPhotoVision.LABEL + " · " + by)
     }
@@ -894,17 +975,21 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         val blocks = ArogyaExtractSplit.splitBlocks(clean).ifEmpty { listOf(clean) }
         var by = "On-phone rules (offline): patterns"
         val out = ArrayList<Map<String, String>>()
-        blocks.forEach { block ->
+        var emptyBlocks = 0
+        for (block in blocks) {
+            // 11 Nov 2026 (AN): text that is not a list of people (a guide page, a notice) stops after three blocks
+            // with nobody in them instead of asking the phone model about every block.
+            if (out.isEmpty() && emptyBlocks >= 3) { Log.i(TAG, "AROGYA_PERSON_LIST_STOP blocks_without_people=$emptyBlocks"); break }
             val det = mutableMapOf<String, String>()
             Regex("""(?<!\d)(\d{10})(?!\d)""").find(block)?.let { det["phone"] = it.groupValues[1] }
             val (opt, label) = route("person_extract", ArogyaPersonExtract.prompt(block), 1200, cloud = false, cloudTokens = 2000, lang = ArogyaBudget.langOf(block)) { raw ->
-                ArogyaPersonExtract.ground(ArogyaPersonExtract.parse(raw), block).takeIf { it.isNotEmpty() }
+                ArogyaPersonExtract.ground(ArogyaPersonExtract.parse(raw), block)
             }
             val fields = ArogyaPersonExtract.ground(det + (opt ?: emptyMap()), block)
-            if (fields.isNotEmpty()) {
+            if (fields.isNotEmpty() && !fields["name"].isNullOrBlank()) {
                 out += fields
                 if (opt != null) by = label
-            }
+            } else emptyBlocks++
         }
         Log.i(TAG, "AROGYA_EXTRACT_SPLIT feature=person_extract parts=${blocks.size} people=${out.size}")
         Log.i(TAG, "AROGYA_TIMING event=person_extract_list ms=${System.currentTimeMillis() - t} people=${out.size}")
@@ -1030,13 +1115,17 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
         var label = ""; var wasCloud = false; var msg = ""
         val cloudReady = endpoint != null && key.isNotBlank()
         suspend fun cloud(): Map<String, FilledValue>? = try {
-            val raw = ArogyaCloud.withDeadline(CLOUD_DEADLINE_MS, "fill_form") {
-                // 8 Nov 2026: 3,000 output tokens (was 900, long forms lost their last rows), x2.5 for Hindi notes.
-                val cloudPrompt = ArogyaOfficialForms.prompt(spec, column, ArogyaOfficialForms.scrub(b, text))
-                val cloudBudget = ArogyaBudget.tokens(FORM_CLOUD_TOKENS, ArogyaBudget.langOf(text), promptTokensOf(cloudPrompt), ArogyaBudget.CLOUD_CONTEXT, "fill_form", "cloud")
-                OpenAiCompatibleClient(endpoint!!, { key }, CLOUD_DEADLINE_MS.toInt()).complete("You fill official health forms from notes. Reply with JSON only.",
-                    cloudPrompt, cloudBudget)
-            } ?: error("no reply within ${CLOUD_DEADLINE_MS / 1000} s")
+            // 8 Nov 2026: 3,000 output tokens (was 900, long forms lost their last rows), x2.5 for Hindi notes.
+            // 9 Nov 2026: capped to Groq's per-minute limit (Hindi asked 7,500 + prompt: always refused), 60 s.
+            val formSystem = "You fill official health forms from notes. Reply with JSON only."
+            val cloudPrompt = ArogyaOfficialForms.prompt(spec, column, ArogyaOfficialForms.scrub(b, text))
+            val promptTok = GroqChatProvider.estimateTokens(formSystem + "\n" + cloudPrompt) + 16
+            val cloudBudget = ArogyaGroqMinute.cap(ArogyaBudget.tokens(FORM_CLOUD_TOKENS, ArogyaBudget.langOf(text), promptTokensOf(cloudPrompt), ArogyaBudget.CLOUD_CONTEXT, "fill_form", "cloud"), promptTok)
+            ArogyaGroqMinute.waitMs(promptTok + cloudBudget).takeIf { it in 1..ArogyaGroqMinute.MAX_WAIT_MS }?.let { delay(it) }
+            ArogyaGroqMinute.record(promptTok + cloudBudget)
+            val raw = ArogyaCloud.withDeadline(CLOUD_LONG_DEADLINE_MS, "fill_form") {
+                OpenAiCompatibleClient(endpoint!!, { key }, CLOUD_LONG_DEADLINE_MS.toInt()).complete(formSystem, cloudPrompt, cloudBudget)
+            } ?: error("no reply within ${CLOUD_LONG_DEADLINE_MS / 1000} s")
             label = endpoint!!.label; wasCloud = true
             ArogyaOfficialForms.parse(raw, spec, column, text)
         } catch (e: CancellationException) { throw e }
@@ -1047,7 +1136,7 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
             // tokens, clamped to what fits the model's active window after the prompt (2,000 unchecked
             // could overflow a 4K window on a long form).
             val phonePrompt = ArogyaOfficialForms.prompt(spec, column, text)
-            val ctx = maxOf(model.resolvedModelContextTokens, model.kbContextTokens).takeIf { it > 0 } ?: ArogyaBudget.PHONE_CONTEXT
+            val ctx = model.usableContextTokens.takeIf { it > 0 } ?: ArogyaBudget.PHONE_CONTEXT
             val phoneBudget = ArogyaBudget.tokens(FORM_PHONE_TOKENS, ArogyaBudget.langOf(text), promptTokensOf(phonePrompt) + 64, ctx, "fill_form", "phone")
             val raw = generate(phonePrompt, model, phoneBudget)
             label = "On-phone model (offline): " + (model.loadedModelFileName?.substringBeforeLast('.') ?: "local")
@@ -1088,10 +1177,17 @@ class ArogyaVisitAi(private val runtime:AndroBaselineRuntime,private val feature
     private fun promptTokensOf(prompt: String): Int = prompt.length / 4 + prompt.count { it in '\u0900'..'\u097F' } / 2
 
     companion object {
-        private const val TAG = "ArogyaDemo"; const val CLOUD_DEADLINE_MS = 25_000L; const val ASK_TIMEOUT_MS = 300_000L
+        /** 11 Nov 2026 (AN): photo/document reading features: at most 3 minutes per phone generation. */
+        val EXTRACT_FEATURES = setOf("person_extract", "medicine_scan", "card_read", "card_extract")
+        const val EXTRACT_LIMIT_MS = 180_000L
+        private const val TAG = "ArogyaDemo"; const val CLOUD_DEADLINE_MS = 25_000L
+        /** 9 Nov 2026: replies longer than [LONG_REPLY_TOKENS] (long Hindi forms, notes) get 60 s. */
+        const val CLOUD_LONG_DEADLINE_MS = 60_000L; const val LONG_REPLY_TOKENS = 1_500; const val ASK_TIMEOUT_MS = 300_000L
         /** Form fill output (English base; Hindi x2.5 via ArogyaBudget), clamped to the window. */
         const val FORM_PHONE_TOKENS = 2_400
         const val FORM_CLOUD_TOKENS = 3_000
+        /** Passages read for "More detail" (normal answers read 6); ~12,000 chars fits the 8K window with a 2,400-token answer. */
+        const val DETAIL_PASSAGES = 8
         /** Added to the prompt for the one retry when the phone's first reply could not be used. */
         private const val RETRY_SUFFIX = "\n\nYour previous reply could not be used. Reply again in exactly the format asked above, with nothing before or after it."
     }

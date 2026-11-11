@@ -93,3 +93,11 @@ _work/run/*.jpg
 _work/run/*.jpeg
 _work/run/*.json
 _work/run/photo_host.ps1
+
+# 9 Nov 2026: Ask SOP rotating example questions ship with the app
+!app/src/main/assets/sop/
+!app/src/main/assets/sop/**
+# local backups and phone logs (not part of the app)
+backup_*/
+ors_log*.txt
+kb_rebuild/

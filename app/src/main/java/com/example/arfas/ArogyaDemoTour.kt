@@ -650,6 +650,9 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         val text = ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE)
                         if (text == null) { onlineNote = tr("Qwen3 could not read this label. Enter it on the stock screen.", "Qwen3 लेबल नहीं पढ़ पाया। स्टॉक स्क्रीन पर लिखें।"); return@launch }
                         val (res, eng0, _) = withContext(Dispatchers.IO) { (ai ?: error("AI is not ready")).scanMedicine(text) }
+                // 11 Nov 2026 (AN): a photo of something else (no batch, expiry or quantity, and no known medicine name) gives a
+                // clear message instead of a form with the photo's first line as the medicine name.
+                if (res.batch.isBlank() && res.expiry.isBlank() && res.qty == 0 && ArogyaMedScan.matchItem(res.name, ArogyaRegistryLogic.catalog(store.state.value.stockItems).map { it.name }).isBlank()) error(tr("No medicine name, batch or expiry was found on this photo. Check that it is a medicine strip, box or sachet and take the photo again in good light.", "इस फ़ोटो पर दवा का नाम, बैच या एक्सपायरी नहीं मिली। देखें कि यह दवा की पट्टी, डिब्बा या पाउच है और अच्छी रोशनी में दोबारा फ़ोटो लें।"))
                         medScan = res; medSaved = false; medMs = System.currentTimeMillis() - t
                         medEngine = listOf(medEngine, ArogyaPhotoVision.LABEL, eng0).filter { it.isNotBlank() }.joinToString(" · ")
                         medMatched = ArogyaMedScan.matchItem(res.name, ArogyaRegistryLogic.catalog(store.state.value.stockItems).map { it.name })
@@ -707,6 +710,9 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                         if (text.isBlank()) error(tr("No readable text on this photo", "फ़ोटो में पढ़ने लायक अक्षर नहीं मिले"))
                         medOcrLen = text.length
                         val (res, eng0, _) = withContext(Dispatchers.IO) { (ai ?: error("AI is not ready")).scanMedicine(text) }
+                // 11 Nov 2026 (AN): a photo of something else (no batch, expiry or quantity, and no known medicine name) gives a
+                // clear message instead of a form with the photo's first line as the medicine name.
+                if (res.batch.isBlank() && res.expiry.isBlank() && res.qty == 0 && ArogyaMedScan.matchItem(res.name, ArogyaRegistryLogic.catalog(store.state.value.stockItems).map { it.name }).isBlank()) error(tr("No medicine name, batch or expiry was found on this photo. Check that it is a medicine strip, box or sachet and take the photo again in good light.", "इस फ़ोटो पर दवा का नाम, बैच या एक्सपायरी नहीं मिली। देखें कि यह दवा की पट्टी, डिब्बा या पाउच है और अच्छी रोशनी में दोबारा फ़ोटो लें।"))
                         val eng = if (seen != null) ArogyaPhotoVision.LABEL + " · " + eng0 else eng0
                         medScan = res; medEngine = eng; medMs = System.currentTimeMillis() - t; medSaved = false
                         medMatched = ArogyaMedScan.matchItem(res.name,
@@ -1070,7 +1076,10 @@ fun ArogyaDemoTour(ai: ArogyaVisitAi?, queue: ArogyaVisitQueue, visits: List<Aro
                             val np0 = p.copy(id = "demo-person-${System.currentTimeMillis()}", demo = true)
                             // Workflow 1: the slip is a pregnancy registration; the ANC page follows from her LMP.
                             val np = if (wf == 1 && np0.category != BenCategory.PREGNANT) np0.copy(category = BenCategory.PREGNANT) else np0
-                            store.update { reg -> reg.copy(beneficiaries = reg.beneficiaries + np) }
+                            // 11 Nov 2026 (AM): a failed save (registers still loading) was an uncaught crash in the demo.
+                            val saved = runCatching { store.update { reg -> reg.copy(beneficiaries = reg.beneficiaries + np) } }
+                                .onFailure { Log.w("ArogyaDemo", "AROGYA_DEMO_PERSON_SAVE_FAILED ${it.javaClass.simpleName}: ${it.message?.take(200)}") }.isSuccess
+                            if (!saved) { personMsg = tr("Could not save yet — the registers are still opening. Try again in a moment.", "अभी सेव नहीं हुआ — रजिस्टर खुल रहे हैं। थोड़ी देर में फिर दबाएँ।"); return@DemoSceneBody }
                             if (wf == 1) { hero = np; spec = ArogyaOfficialForms.MCP_ANC; column = ArogyaOfficialForms.columnFor(np, "mcp_anc", store.state.value.forms)
                                 updates = updates + tr("✓ Village + pregnancy register: ${np.name} added from the slip photo", "✓ गाँव + गर्भवती रजिस्टर: ${np.name} पर्ची की फ़ोटो से जुड़ीं") }
                             addOpens("addperson", tr("Village register · ${np.name} added (${np.household.ifBlank { "—" }})", "गाँव रजिस्टर · ${np.name} जुड़ीं (${np.household.ifBlank { "—" }})") to "village:${np.id}")

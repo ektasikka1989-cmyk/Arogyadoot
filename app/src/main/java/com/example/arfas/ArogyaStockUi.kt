@@ -370,6 +370,9 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
                 val text = ArogyaPhotoVision.transcribe(context, bmp, emptyList(), ArogyaPhotoText.Kind.MEDICINE)
                 if (text == null) { onlineNote = tr("Qwen3 could not read this label.", "Qwen3 यह लेबल नहीं पढ़ पाया।"); return@launch }
                 val (res, eng0, _) = withContext(Dispatchers.IO) { ai.scanMedicine(text) }
+                // 11 Nov 2026 (AN): a photo of something else (no batch, expiry or quantity, and no known medicine name) gives a
+                // clear message instead of a form with the photo's first line as the medicine name.
+                if (res.batch.isBlank() && res.expiry.isBlank() && res.qty == 0 && ArogyaMedScan.matchItem(res.name, items.map { i -> i.name }).isBlank()) error(tr("No medicine name, batch or expiry was found on this photo. Check that it is a medicine strip, box or sachet and take the photo again in good light.", "इस फ़ोटो पर दवा का नाम, बैच या एक्सपायरी नहीं मिली। देखें कि यह दवा की पट्टी, डिब्बा या पाउच है और अच्छी रोशनी में दोबारा फ़ोटो लें।"))
                 scan = res; ocrText = text; ms = System.currentTimeMillis() - t
                 engine = listOf(engine, ArogyaPhotoVision.LABEL, eng0).filter { it.isNotBlank() }.joinToString(" · ")
                 Log.i("ArogyaDemo", "AROGYA_MEDSCAN online name=\"${res.name}\" batch=\"${res.batch}\" expiry=\"${res.expiry}\" qty=${res.qty}")
@@ -412,6 +415,9 @@ fun MedScanDialog(hindi: Boolean, ai: ArogyaVisitAi, items: List<StockItem>,
                 phase = if (ai.isBusy) tr("Waiting for the AI to finish the current answer…", "AI पिछला उत्तर पूरा कर रहा है, रुकिए…")
                     else tr("Finding name, batch and expiry…", "नाम, बैच और एक्सपायरी ढूँढ रहे हैं…")
                 val (res, eng0, _) = withContext(Dispatchers.IO) { ai.scanMedicine(ocr) }
+                // 11 Nov 2026 (AN): a photo of something else (no batch, expiry or quantity, and no known medicine name) gives a
+                // clear message instead of a form with the photo's first line as the medicine name.
+                if (res.batch.isBlank() && res.expiry.isBlank() && res.qty == 0 && ArogyaMedScan.matchItem(res.name, items.map { i -> i.name }).isBlank()) error(tr("No medicine name, batch or expiry was found on this photo. Check that it is a medicine strip, box or sachet and take the photo again in good light.", "इस फ़ोटो पर दवा का नाम, बैच या एक्सपायरी नहीं मिली। देखें कि यह दवा की पट्टी, डिब्बा या पाउच है और अच्छी रोशनी में दोबारा फ़ोटो लें।"))
                 val eng = if (seen != null) ArogyaPhotoVision.LABEL + " · " + eng0 else if (gemmaText != null) ArogyaLocalVision.LABEL + " · " + eng0 else eng0
                 scan = res; engine = eng; ms = System.currentTimeMillis() - t
                 Log.i("ArogyaDemo", "AROGYA_MEDSCAN name=\"${res.name}\" batch=\"${res.batch}\" expiry=\"${res.expiry}\" qty=${res.qty} engine=$eng ms=$ms")

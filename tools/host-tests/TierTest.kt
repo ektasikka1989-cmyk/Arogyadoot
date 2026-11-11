@@ -49,7 +49,17 @@ fun main() {
     check("seg-order", mixed.size == 1 && mixed[0].sourceIds == listOf("1", "W1"), mixed.toString())
     check("seg-med-drop", ArogyaOfficialAnswer.webSegments("Give 5ml paracetamol syrup daily.", listOf(page), emptyList()).isEmpty())
     val fb = ArogyaOfficialAnswer.guideSegments("कुछ हिन्दी उत्तर।", guides)
-    check("seg-fallback", fb.size == 1 && fb[0].sourceIds == listOf("1"), fb.toString())
+    // 9 Nov audit: no "cite every source" fallback; the engine's own [n] marker is used for a cross-script sentence.
+    check("seg-no-fabricated-citation", fb.isEmpty(), fb.toString())
+    val g2 = listOf(ArogyaSource("1", "Doc", "p.1", "The Janani scheme provides cash assistance.", "", emptyList()),
+        ArogyaSource("2", "Doc2", "p.2", "Keep the baby warm.", "", emptyList()))
+    val hiMarked = "बच्चे को गर्म रखें [2]। जननी योजना में नकद सहायता मिलती है [1]। यह बिना निशान का वाक्य है।"
+    val hi = ArogyaOfficialAnswer.guideSegments(ArogyaAnswerFormat.stripCitationMarkers(hiMarked), g2, hiMarked)
+    check("seg-hindi-uses-engine-marker", hi.size == 2 && hi[0].sourceIds == listOf("2") && hi[1].sourceIds == listOf("1"), hi.toString())
+    val unknownMarker = ArogyaOfficialAnswer.guideSegments("कुछ हिन्दी उत्तर।", g2, "कुछ हिन्दी उत्तर [7]।")
+    check("seg-unknown-marker-ignored", unknownMarker.isEmpty(), unknownMarker.toString())
+    val lexicalWins = ArogyaOfficialAnswer.guideSegments("Keep the baby warm.", g2, "Keep the baby warm [1].")
+    check("seg-lexical-first", lexicalWins.size == 1 && lexicalWins[0].sourceIds == listOf("2"), lexicalWins.toString())
     // New-information highlight for the Online tab.
     val news = ArogyaOfficialAnswer.newSentences(
         "Keep the cord clean. Apply nothing.",

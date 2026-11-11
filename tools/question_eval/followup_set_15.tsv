@@ -1,0 +1,16 @@
+previous_question	follow_up	expected_rewrite	expected_evidence_regex
+What is the dose of zinc for a 4 month old baby with diarrhoea?	aur kitne din dena hai?	For how many days should zinc be given to a young child?	14 days|14 दिन|fourteen
+What is the dose of zinc for a 4 month old baby with diarrhoea?	and for a 2 year old?	What is the dose of zinc for a 2 year old child?	20 mg|one tablet|1 tablet
+How is ORS prepared at home?	how often should it be given?	How often should ORS be given to a child with diarrhoea?	loose stool|after each|every
+Baby has fever, what should ASHA do?	what if the fever does not go down after 2 days?	What should be done when a child's fever does not go down after 2 days?	refer|health facility|phc|anm
+Newborn is not feeding well, what to do?	aur agar thanda bhi ho?	What should be done when a newborn is not feeding well and is cold?	hypotherm|cold|warm|skin-to-skin|kangaroo
+Pregnant woman has swelling of feet, what to do?	and headache also?	What should be done when a pregnant woman has swelling of feet and headache?	headache|blood pressure|pre-eclampsia|eclampsia|refer
+How many IFA tablets should a pregnant woman take?	kitne din tak?	For how many days should a pregnant woman take IFA tablets?	180|six months|100 days
+What are the danger signs in a newborn?	in which case should I refer immediately?	When should a newborn with danger signs be referred immediately?	refer|facility|danger
+When should a newborn be given the first bath?	why not earlier?	Why should a newborn not be bathed earlier?	cold|warm|hypotherm|temperature|vernix
+How to do kangaroo mother care for a low birth weight baby?	kitni der tak karna hai?	For how long should Kangaroo Mother Care be given each day?	hour|hours|long as possible|day and night
+What should ASHA do when a child has diarrhoea?	बच्चे को उल्टी भी हो रही है तो?	What should be done when a child with diarrhoea is also vomiting?	vomit
+Child has cough and fast breathing, what to do?	which antibiotic is given?	Which antibiotic is given to a child with pneumonia?	amoxicillin|cotrimoxazole|antibiotic
+Snake bit a farmer on his leg, what first aid should I give?	tourniquet bandhna chahiye?	Should a tourniquet be tied after a snake bite?	tourniquet|tight|do not|immobili
+When should the first dose of BCG be given?	aur polio ki?	When should the first dose of polio vaccine be given?	opv|polio|birth
+Pregnant woman is bleeding from vagina in 8th month, what to do?	how to arrange transport?	How should transport be arranged for a pregnant woman with bleeding?	transport|ambulance|102|108|vehicle

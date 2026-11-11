@@ -15,6 +15,12 @@ object ArogyaFlags {
     @Volatile var r8GuidelineOnly = true     // Ask SOP: not-in-guides -> ANM message (R8)
     @Volatile var r7SourceLine = true        // answers end with "Source: title, page N" (R7)
     @Volatile var doseAgeMatch = true        // dose answers must match the asked age group
+    @Volatile var guideWordWeights = true    // 9 Nov: sentence picking weighs words by how rare they are in the installed guide (no word list)
+    @Volatile var rewriteEveryQuestion = true // 9 Nov: Gemma restates every question in clear English (one search per problem) before searching
+    @Volatile var doseTable = false          // 9 Nov: dose answers checked against a typed-in copy of the guide's age dose table (caution only). Off: no fixed lists; on after ANM review if wanted
+    @Volatile var perConcernSearch = true    // 9 Nov: a problem the on-device model named that the evidence misses gets more evidence (no word lists)
+    @Volatile var rerankFocus = true         // 9 Nov (AE): long passages are re-ranked on the sentences that answer the question (re-ranker reads ~1,000 chars)
+    @Volatile var englishLayTerms = true     // 9 Nov: English lay terms ("loose motion" → diarrhoea). Used ONLY when no model could rewrite the question (safety net)
     @Volatile var hindiRewrite = true        // Hindi->English search rewrite, answer stays Hindi
     @Volatile var r3Salvage = true           // drop only the unsupported sentence (R3-lite)
     @Volatile var coverageFuzzy = true       // typo-tolerant coverage warning (§4 fix)
@@ -35,6 +41,8 @@ object ArogyaFlags {
     // 8 Nov 2026 answer fixes (docs/ANSWER_FAILURE_RCA_20261108.md).
     @Volatile var loopKeepBefore = true      // decoder loop: keep the text before the loop (else discard + regenerate)
     @Volatile var negationFlipGuard = true   // drop an answer sentence that states what the evidence says "do not" do
+    @Volatile var citeAllSupportingSources = true // sources = verified [S#] markers + passages the answer clearly used
+    @Volatile var detailFreshSearch = true    // More detail: fresh search with 8 passages (else the cached 6-passage packet)
     @Volatile var checkOnlineChecks = true    // "Check online" answers: same checks/repairs as Cloud first (never discarded)
     @Volatile var kbGeneralAnswer = true      // guide not covering the question: a general answer, shown labelled "not from the guide"
     @Volatile var r8LabelledAnswer = true     // R8: show that answer under a clear "not from your guides" label (else only the ANM message)

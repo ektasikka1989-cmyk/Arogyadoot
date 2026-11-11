@@ -1,5 +1,6 @@
 package com.example.arfas
 
+import android.util.Log
 import android.app.DatePickerDialog
 import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
@@ -461,7 +462,7 @@ fun ArogyaRegistryHub(hindi: Boolean, initial: String, visits: List<ArogyaVisit>
     var addOpen by remember { mutableStateOf(false) }
     val today = LocalDate.now()
     fun toast(m: String) = Toast.makeText(context, m, Toast.LENGTH_LONG).show()
-    fun save(change: (RegistryData) -> RegistryData) = runCatching { store.update(change) }.onFailure { toast(it.message ?: "Could not save") }.isSuccess
+    fun save(change: (RegistryData) -> RegistryData) = runCatching { store.update(change) }.onFailure { Log.w("ArogyaRegistry", "AROGYA_REGISTRY_UPDATE_FAILED ${it.javaClass.simpleName}: ${it.message?.take(200)}"); toast(it.message ?: "Could not save") }.isSuccess
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {

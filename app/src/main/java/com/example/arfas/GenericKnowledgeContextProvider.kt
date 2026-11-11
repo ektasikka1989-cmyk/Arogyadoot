@@ -66,9 +66,17 @@ class GenericKnowledgeContextProvider(
          * Speed pass (UI2): offline phone answers read at most this much evidence. Measured on the
          * phone: ~6,000 chars made a 2,135-token prompt and 29 s before the first word.
          */
-        const val PHONE_EVIDENCE_CAP_CHARS = 4_000
+        /**
+         * 9 Nov 2026 (AF): 4,500. Raised to 9,000 earlier today, which made the phone answers short and
+         * section-less: the phone's real KV cache is 4,096 tokens (ors_log4), so ~7,800 chars of evidence
+         * left Gemma little room and a long prompt; answers fell from ~2,500 chars (20:19 run, 4,485 chars
+         * of evidence) to ~650. The overlap guide now completes sentences at passage edges (the ORS recipe
+         * cut that led to the raise came from a passage edge).
+         */
+        const val PHONE_EVIDENCE_CAP_CHARS = 4_500
         /** Set per turn by the Ask path: true only while an offline (phone-model) turn runs. */
         @Volatile @JvmStatic var phoneEvidenceCap: Boolean = false
+            set(v) { field = v; PocketRagEvidenceAssembler.phoneCapChars = if (v) PHONE_EVIDENCE_CAP_CHARS else 0 }
         /** Set per Ask turn in a visit: the visit's age group ("newborn, 7 days old"); "" otherwise. */
         @Volatile @JvmStatic var visitAgeHint: String = ""
     }
@@ -115,12 +123,19 @@ class GenericKnowledgeContextProvider(
     /** Set during [contextForOnline]: more and longer passages for the online model. */
     @Volatile private var widePassages = false
     /** Answer-model question rewrite (search question + arithmetic); null until the runtime wires it. */
-    @Volatile private var questionRewriter: (suspend (String, List<String>) -> GenericKbQuestionRewrite?)? = null
+    @Volatile private var questionRewriter: (suspend (String, List<String>, String) -> GenericKbQuestionRewrite?)? = null
+    /** The last question and the model's English rewrite of it (follow-ups are compared with both). */
+    @Volatile private var lastRewriteOf: Pair<String, String>? = null
+    /** 9 Nov 2026: this turn's search results (all candidates, best first), for confirming a number. */
+    @Volatile private var turnCandidates: List<GenericKnowledgePackRepository.Hit> = emptyList()
     /** Rewrite of the current turn (for the app-side calculation in the evidence packet). */
     @Volatile private var currentRewrite: GenericKbQuestionRewrite? = null
+    /** 9 Nov: multi-symptom evidence — facts put first so a missing symptom's passage gets a window, and how many symptom passages follow the normal ones. */
+    @Volatile private var concernFacts: List<GenericKbKeyFacts.Fact> = emptyList()
+    @Volatile private var concernExtraCount: Int = 0
     @Volatile private var keyFactsScoredByModel = false
 
-    fun configureQuestionRewriter(rewriter: suspend (String, List<String>) -> GenericKbQuestionRewrite?) {
+    fun configureQuestionRewriter(rewriter: suspend (String, List<String>, String) -> GenericKbQuestionRewrite?) {
         questionRewriter = rewriter
     }
 
@@ -184,6 +199,17 @@ class GenericKnowledgeContextProvider(
 
     /** The re-ranker as a statement-vs-passages scorer for [AnswerProof]; null until it is ready. */
     fun proofScorer(): (suspend (String, List<String>) -> FloatArray?)? = repository.keyFactScorer()
+
+    /**
+     * 9 Nov 2026: (source label | url, passage text) of the passages the search found for THIS question but did
+     * not give the answer model (it reads the best 6). A number the answer states is confirmed only against them:
+     * the whole guide was too wide (a dose row for another age or another medicine could "confirm" a wrong number).
+     */
+    suspend fun guidePassagesFor(text: String, limit: Int = 30): List<Pair<String, String>> =
+        turnCandidates.take(limit).map { hit ->
+            val label = sourceLabel(hit).trim().ifBlank { hit.sourceName.orEmpty().ifBlank { hit.docId } }.replace('\n', ' ').take(500)
+            (label + (hit.sourceUrl?.takeIf { it.startsWith("http") }?.let { " | $it" } ?: "")) to hit.content
+        }
 
     /** UI2: the same re-ranker reading every statement's pairs in one batched run. */
     fun proofPairScorer(): (suspend (List<Pair<String, String>>) -> FloatArray?)? = repository.pairScorer()
@@ -377,11 +403,29 @@ class GenericKnowledgeContextProvider(
         // otherwise the literal search runs first and the rewrite is tried only when the re-ranker
         // finds no convincing passage for the user's own words.
         currentRewrite = null
+        concernFacts = emptyList()
+        turnCandidates = emptyList()
+        concernExtraCount = 0
         val rewriter = questionRewriter
-        suspend fun rewrite(): GenericKbQuestionRewrite? = rewriter?.let { r ->
-            runCatching { r(resolvedRetrievalQuery, repository.aliasExpansions(resolvedRetrievalQuery)) }.getOrNull()
+        // The conversation so far (needed before the rewrite: a follow-up is rewritten with the earlier question).
+        val previousUser = acceptedHistory.lastOrNull { it.role == "user" }?.content?.trim().orEmpty()
+        val previousAnswer = acceptedHistory.lastOrNull { it.role == "assistant" }?.content?.trim().orEmpty()
+        val basis = lastResolution?.takeIf { it.first == previousUser }?.second ?: previousUser
+        val hasPrevious = previousUser.isNotBlank() && !previousUser.equals(query.trim(), ignoreCase = true)
+        val continuation = hasPrevious && KbReplyText.isContinuationReply(query, previousAnswer)
+        val previousRewrite = lastRewriteOf?.takeIf { it.first == previousUser }?.second.orEmpty()
+        // 9 Nov (phone test: an unrelated second question was answered about the first one): the earlier question is
+        // shown to the rewriting model only when the question may depend on it — very short ("and for children?"),
+        // or the app's existing context classifier says so (embedding + structure, no word list) — and the model then
+        // says itself whether it follows (FOLLOWS: YES/NO).
+        val shortElliptical = query.trim().split(Regex("\\s+")).size <= FOLLOW_UP_SHORT_WORDS
+        val dependent = hasPrevious && !continuation && runCatching { isContextDependent(query, acceptedHistory) }.getOrDefault(false)
+        val mayFollow = hasPrevious && !continuation && (shortElliptical || dependent)
+        suspend fun rewrite(withEarlier: Boolean = mayFollow): GenericKbQuestionRewrite? = rewriter?.let { r ->
+            runCatching { r(resolvedRetrievalQuery, repository.aliasExpansions(resolvedRetrievalQuery), if (withEarlier) basis else "") }.getOrNull()
         }
         var phase14: GenericKnowledgePackRepository.Phase14Result? = null
+        var rewriteTried = false
         // Up front only when amounts must be worked out (each rewrite is one extra model call, a few
         // seconds on the phone); other questions are rewritten only when their own words find no
         // convincing passage (below).
@@ -392,8 +436,12 @@ class GenericKnowledgeContextProvider(
         if (unknownWords.isNotEmpty()) Log.i(TAG, "KB_UNKNOWN_WORDS ${unknownWords.take(6).joinToString(",")}")
         // Hindi/Hinglish questions also search English dictionary terms (the question itself
         // is untouched, so the answer stays in Hindi).
+        // 9 Nov audit: English lay words the guides never use ("loose motion" 0×, "diarrhoea" 215×) get one
+        // view with the guide's word, so an English question reaches the same passages as its guide wording.
         val languageViews = if (ArogyaFlags.hindiRewrite && ArogyaHindiTerms.needsViews(resolvedRetrievalQuery))
-            runCatching { ArogyaHindiTerms.views(resolvedRetrievalQuery) }.getOrDefault(emptyList()) else emptyList()
+            runCatching { ArogyaHindiTerms.views(resolvedRetrievalQuery) }.getOrDefault(emptyList())
+        else if (ArogyaFlags.englishLayTerms) runCatching { ArogyaHindiTerms.englishViews(resolvedRetrievalQuery) }.getOrDefault(emptyList())
+        else emptyList()
         if (languageViews.isNotEmpty()) Log.i(TAG, "KB_HINDI_VIEWS ${languageViews.joinToString(" | ").take(160)}")
         // Age group of a baby/child question searched too, so adult passages do not answer it.
         val ageViews = if (ArogyaFlags.babyAgeView) runCatching { ArogyaClinicalText.ageViewsWithVisit(resolvedRetrievalQuery, visitAgeHint) }.getOrDefault(emptyList()) else emptyList()
@@ -403,11 +451,23 @@ class GenericKnowledgeContextProvider(
         val spellingViews = if (cleaned != null && cleaned.changed) listOf(cleaned.text) else emptyList()
         if (spellingViews.isNotEmpty()) Log.i(TAG, "KB_SPELLING_VIEW fixes=${cleaned?.fixes?.size ?: 0}")
         val hindiViews = (languageViews + ageViews + spellingViews).distinct()
-        if (rewriter != null && GenericKbQuestionRewrite.worthRewritingForSearch(resolvedRetrievalQuery, unknownWords.size)) {
-            val rw = rewrite()
+        // 9 Nov: the on-device model reads EVERY question first (spelling, Hinglish, everyday words, two or more
+        // problems → one search line each) instead of word lists; the literal question is still searched too.
+        // Costs one short local model call per question. Switch: ArogyaFlags.rewriteEveryQuestion.
+        if (rewriter != null && (ArogyaFlags.rewriteEveryQuestion || GenericKbQuestionRewrite.worthRewritingForSearch(resolvedRetrievalQuery, unknownWords.size))) {
+            var rw = rewrite()
+            // The model said "new question" yet carried words over from the earlier one: rewrite it alone.
+            if (rw != null && mayFollow && rw.followsEarlier == false && GenericKbKeyFacts.carriesOver(rw.parts, query, "$basis $previousRewrite")) {
+                Log.i(TAG, "KB_FOLLOW_UP model=new_topic carried=true → rewrite alone")
+                rw = rewrite(withEarlier = false) ?: rw
+            }
             currentRewrite = rw
+            rewriteTried = true
             if (rw != null) {
-                phase14 = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, (rw.parts + hindiViews).distinct()) }
+                // The model's own lines replace the word-list views (Hindi dictionary terms, lay words, spelling
+                // fixes, age words): those are used only when the model gives no rewrite (below).
+                Log.i(TAG, "KB_QUESTION_REWRITE parts=${rw.parts.size} ${rw.parts.joinToString(" | ").take(200)}")
+                phase14 = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, rw.parts.distinct()) }
                     .onFailure { Log.w(TAG, "KB_PHASE14_REWRITE_FAILED ${it.javaClass.simpleName}:${it.message}") }
                     .getOrNull()
             }
@@ -417,10 +477,10 @@ class GenericKnowledgeContextProvider(
                 .onFailure { Log.w(TAG, "KB_PHASE14_FAILED ${it.javaClass.simpleName}:${it.message}") }
                 .getOrNull()
             val literalBestScore = phase14?.bestRerank
-            if (rewriter != null && currentRewrite == null && phase14 != null && literalBestScore != null && literalBestScore < REWRITE_BELOW_RERANK) {
+            if (rewriter != null && !rewriteTried && currentRewrite == null && phase14 != null && literalBestScore != null && literalBestScore < REWRITE_BELOW_RERANK) {
                 val rw = rewrite()
                 if (rw != null && !rw.search.equals(resolvedRetrievalQuery, ignoreCase = true)) {
-                    val viaRewrite = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, (rw.parts + hindiViews).distinct()) }.getOrNull()
+                    val viaRewrite = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, rw.parts.distinct()) }.getOrNull()
                     val rewriteBest = viaRewrite?.bestRerank
                     val use = viaRewrite != null && viaRewrite.hits.isNotEmpty() && rewriteBest != null && rewriteBest >= literalBestScore - REWRITE_MAX_LOSS
                     Log.i(TAG, "KB_REWRITE_SEARCH literalBest=${"%.2f".format(Locale.US, literalBestScore)} rewriteBest=${rewriteBest?.let { "%.2f".format(Locale.US, it) } ?: "-"} used=$use search=${rw.search.take(120)}")
@@ -435,16 +495,23 @@ class GenericKnowledgeContextProvider(
         // used only if the re-ranker judges it clearly more relevant. Independent questions keep
         // their own strong literal evidence, so topics cannot leak between turns.
         var followUpOf: String? = null
-        val previousUser = acceptedHistory.lastOrNull { it.role == "user" }?.content?.trim().orEmpty()
-        val previousAnswer = acceptedHistory.lastOrNull { it.role == "assistant" }?.content?.trim().orEmpty()
         val literalBest = phase14?.bestRerank
-        val basis = lastResolution?.takeIf { it.first == previousUser }?.second ?: previousUser
-        val hasPrevious = previousUser.isNotBlank() && !previousUser.equals(query.trim(), ignoreCase = true)
         // The app's own continuation protocol: the previous answer was cut at the output limit and
         // told the user to type "continue" (KbReplyText.MORE_EN / MORE_HI). That reply continues the
         // previous answer from the same evidence; it is never searched on its own words (it matched
         // a slide saying "Click on 'Continue' to proceed").
-        val continuation = hasPrevious && KbReplyText.isContinuationReply(query, previousAnswer)
+        // 9 Nov: the model rewrote a follow-up as the complete question (its lines name a specific word of the
+        // earlier question or of its rewrite that this question lacks: "aur kitne din?" → "... zinc ..."). The search
+        // already used those lines, so the contextual second search is not needed; the answer is told it follows up.
+        val rewroteFollowUp = mayFollow && currentRewrite?.let { rw ->
+            rw.followsEarlier != false && GenericKbKeyFacts.carriesOver(rw.parts, query, "$basis $previousRewrite")
+        } == true
+        // The model judged it a new question: no contextual search with the earlier question either.
+        val modelSaysNewTopic = mayFollow && currentRewrite?.followsEarlier == false
+        if (rewroteFollowUp) {
+            followUpOf = previousUser
+            Log.i(TAG, "KB_FOLLOW_UP rewritten=true previous=${previousUser.take(80)} lines=${currentRewrite?.parts?.joinToString(" | ")?.take(160)}")
+        }
         // Confident first pass: skip the embedding classifier and the contextual second search.
         val skipSecondPass = ArogyaFlags.speedSkipSecondPass && !continuation &&
             phase14 != null && (literalBest ?: 0f) >= SKIP_SECOND_PASS_RERANK
@@ -456,7 +523,7 @@ class GenericKnowledgeContextProvider(
                 followUpOf = previousUser
             }
             Log.i(TAG, "KB_FOLLOW_UP continuation=true used=${followUpOf != null} previous=${previousUser.take(80)}")
-        } else if (phase14 != null && literalBest != null && hasPrevious && !skipSecondPass) {
+        } else if (phase14 != null && literalBest != null && hasPrevious && !skipSecondPass && !rewroteFollowUp && !modelSaysNewTopic) {
             // Follow-up resolution, decided by evidence: (a) the literal question finds nothing
             // convincing, or (b) the question reads as dependent on the conversation (embedding
             // classifier; a complete question that names its own subject never is). The question is
@@ -469,8 +536,6 @@ class GenericKnowledgeContextProvider(
             // contextual search runs only for a question that reads as dependent on the conversation
             // (embedding classifier) or is too short to stand alone ("and for children?").
             val weak = literalBest < FOLLOW_UP_WEAK_RERANK
-            val shortElliptical = query.trim().split(Regex("\\s+")).size <= FOLLOW_UP_SHORT_WORDS
-            val dependent = runCatching { isContextDependent(query, acceptedHistory) }.getOrDefault(false)
             if (dependent || (weak && shortElliptical)) {
                 // Ask SOP conversation: chained follow-ups ("and for a newborn?", "what dose?") are
                 // rewritten from the last 2 exchanges, not just the last question (behind the flag).
@@ -478,8 +543,11 @@ class GenericKnowledgeContextProvider(
                     acceptedHistory.filter { it.role == "user" }.map { it.content.trim() }
                         .filter { it.isNotBlank() && !it.equals(query.trim(), ignoreCase = true) }
                         .takeLast(2).firstOrNull().orEmpty() else ""
-                val contextual = listOf(query.trim(), basis, prevPrev, previousAnswer.take(FOLLOW_UP_ANSWER_CHARS))
-                    .filter { it.isNotBlank() }.joinToString(" ")
+                // 8 Nov 2026: the follow-up's cleaned reading and English terms too ("aur bukhaar ho to?" →
+                // "bukhar" → fever), not only its raw words; the decision rules above are unchanged.
+                val followUpClean = listOfNotNull(cleaned?.takeIf { it.changed }?.text) + languageViews
+                val contextual = (listOf(query.trim()) + followUpClean + listOf(basis, prevPrev, previousAnswer.take(FOLLOW_UP_ANSWER_CHARS)))
+                    .filter { it.isNotBlank() }.distinct().joinToString(" ")
                 val second = runCatching { repository.searchPhase14(contextual, queryPlan.clauses, candidateWork, denseEnabled) }.getOrNull()
                 val secondBest = second?.bestRerank
                 val margin = if (weak) FOLLOW_UP_MARGIN else 0f
@@ -496,10 +564,15 @@ class GenericKnowledgeContextProvider(
                 }
             }
         }
+        lastRewriteOf = currentRewrite?.let { query.trim() to it.parts.joinToString(" ") }
         lastResolution = query.trim() to (followUpOf?.let { "${lastResolution?.takeIf { r -> r.first == it }?.second ?: it} ${query.trim()}".take(400) } ?: query.trim())
         if (phase14 != null) {
             val tEv = System.currentTimeMillis()
-            val found = phase14
+            val main14: GenericKnowledgePackRepository.Phase14Result = phase14
+            val found = if (ArogyaFlags.perConcernSearch && followUpOf == null && evidenceCharBudget >= PASSAGE_MODE_MIN_CHARS)
+                runCatching { withSymptomEvidence(query, queryPlan, main14, evidenceCharBudget, denseEnabled) }
+                    .onFailure { Log.w(TAG, "KB_SYMPTOM_SEARCH_FAILED ${it.javaClass.simpleName}:${it.message}") }.getOrDefault(main14)
+            else main14
             return phase14Attachment(query, queryPlan, found, evidenceCharBudget, started, followUpOf).also {
                 Log.i(TAG, "POCKET_RAG_EVIDENCE_MS total=${System.currentTimeMillis() - tEv} hits=${found.hits.size}")
             }
@@ -533,6 +606,7 @@ class GenericKnowledgeContextProvider(
         started: Long,
         followUpOf: String? = null
     ): BaselineContextAttachment? {
+        turnCandidates = result.hits
         lookupState = LookupState(
             attempted = true,
             ready = true,
@@ -606,10 +680,13 @@ class GenericKnowledgeContextProvider(
             // style (each cut to ~900 characters around its best sentence, plus any best sentence outside
             // them); with less room it reads only the key sentences.
             val windows = if (evidenceCharBudget >= PASSAGE_MODE_MIN_CHARS)
-                (if (widePassages) GenericKbKeyFacts.passageWindows(result.hits.take(keyFactPassageCount(queryPlan)).map { it.content }, keyFacts,
+                (if (widePassages) GenericKbKeyFacts.passageWindows(result.hits.take(keyFactPassageCount(queryPlan) + concernExtraCount).map { it.content }, keyFacts,
                     count = CHECK_PASSAGES, maxChars = ONLINE_WINDOW_CHARS)
-                else GenericKbKeyFacts.passageWindows(result.hits.take(keyFactPassageCount(queryPlan)).map { it.content }, keyFacts))
+                else GenericKbKeyFacts.passageWindows(result.hits.take(keyFactPassageCount(queryPlan) + concernExtraCount).map { it.content }, keyFacts))
             else null
+            // 9 Nov 2026: which passages the model reads (page, size, end), so a phone answer can be replayed.
+            windows?.let { ws -> Log.i(TAG, "KB_EVIDENCE_WINDOWS " + ws.joinToString(" | ") { (p, t) ->
+                "${sourceLabel(result.hits[p]).take(60).replace('\n', ' ')} chars=${t.length} end=\"${t.takeLast(50).replace('\n', ' ')}\"" }) }
             // Passages in the order of their best fact; the calculation goes with the first fact that states a percentage.
             val passageOrder = windows?.map { it.first } ?: keyFacts.map { it.passage }.distinct()
             val windowText = windows?.toMap().orEmpty()
@@ -834,8 +911,18 @@ class GenericKnowledgeContextProvider(
         // Parts: the model's one-search-per-thing split when it made one, else the planner's clauses.
         val parts = currentRewrite?.parts?.takeIf { it.size > 1 }
             ?: queryPlan.clauses.map { it.literal.trim() }.filter { it.isNotBlank() }
+        val modelParts = currentRewrite?.parts?.takeIf { it.size > 1 }
         if (parts.size <= 1) {
             GenericKbKeyFacts.select(question, passages, scorer, budget, passageScores = passageScores)
+        } else if (modelParts != null && scorer == null) {
+            // 9 Nov: one list of facts per problem the model named, taken in turns (first fact of each problem,
+            // then the second…), so the windows the model reads cover every problem. A part's facts must contain
+            // its own most specific word (guide-wide rarity, ignoring wording shared with the other parts).
+            val share = budget / modelParts.size
+            ArogyaConcerns.interleave(modelParts.map { part ->
+                GenericKbKeyFacts.select(part, passages, null, share, GenericKbKeyFacts.MAX_FACTS / 2 + 1, passageScores,
+                    requireFocus = true, siblings = modelParts.filter { it != part })
+            }) { f -> "${f.passage}:${f.index}" }
         } else {
             val share = budget / parts.size
             val out = mutableListOf<GenericKbKeyFacts.Fact>()
@@ -846,7 +933,62 @@ class GenericKnowledgeContextProvider(
             }
             out
         }
-    }.onFailure { Log.w(TAG, "KB_KEY_FACTS_FAILED ${it.javaClass.simpleName}:${it.message}") }.getOrDefault(emptyList())
+    }.map { facts -> ArogyaConcerns.prioritise(concernFacts, facts) { f -> "${f.passage}:${f.index}" } }
+        .onFailure { Log.w(TAG, "KB_KEY_FACTS_FAILED ${it.javaClass.simpleName}:${it.message}") }.getOrDefault(emptyList())
+
+    /**
+     * 9 Nov: questions with several problems, without word lists. The on-device model wrote one search line
+     * per problem. The normal evidence is built first (same facts and windows as always); only a line whose
+     * own problem word (guide-wide rarity, see [ArogyaConcerns.focus]) is in none of the windows the model
+     * will read gets more evidence: first from the main search's lower-ranked passages, else from one short
+     * search of that line (with all lines as one extra view, so a problem described only inside another
+     * one's passages is found: "if the child vomits, wait 10 minutes" sits in the diarrhoea guidance). Its
+     * passages follow the normal ones and its best fact is put first so its passage gets a window. Nothing
+     * changes when every line is already covered or the model gave one line.
+     */
+    private suspend fun withSymptomEvidence(
+        query: String,
+        queryPlan: GenericKbQueryPlan,
+        found: GenericKnowledgePackRepository.Phase14Result,
+        evidenceCharBudget: Int,
+        denseEnabled: Boolean
+    ): GenericKnowledgePackRepository.Phase14Result {
+        val lines = currentRewrite?.parts?.takeIf { it.size > 1 } ?: return found
+        val baseCount = keyFactPassageCount(queryPlan)
+        val baseFacts = selectKeyFacts(query, queryPlan, found, evidenceCharBudget)
+        val windows = GenericKbKeyFacts.passageWindows(found.hits.take(baseCount).map { it.content }, baseFacts).map { it.second }
+        val missing = ArogyaConcerns.uncovered(lines, windows).take(ArogyaConcerns.MAX_EXTRA_SEARCHES)
+        if (missing.isEmpty()) { Log.i(TAG, "KB_PARTS covered=${lines.size}"); return found }
+        val head = found.hits.take(baseCount).map { it.chunkId }.toSet()
+        val context = listOf(lines.joinToString(" "))
+        val byLine = missing.map { line ->
+            val fromMain = ArogyaConcerns.fromMain(line, lines, found.hits.drop(baseCount)) { it.content }
+            if (fromMain.isNotEmpty()) {
+                Log.i(TAG, "KB_PART_EVIDENCE focus=${ArogyaConcerns.focus(line, lines)} from=main line=${line.take(80)}")
+                return@map line to fromMain
+            }
+            val r = runCatching { repository.searchPhase14(line, GenericKbQueryPlanner.plan(line, line).clauses, ArogyaConcerns.SEARCH_POOL, denseEnabled, context) }.getOrNull()
+            val ok = (r?.bestRerank ?: Float.NEGATIVE_INFINITY) >= ArogyaConcerns.MIN_RERANK
+            Log.i(TAG, "KB_PART_SEARCH focus=${ArogyaConcerns.focus(line, lines)} best=${r?.bestRerank?.let { "%.2f".format(Locale.US, it) } ?: "-"} used=$ok line=${line.take(80)}")
+            line to (if (ok) ArogyaConcerns.pick(line, lines, r?.hits.orEmpty(), { it.content }, { it.chunkId }, head) else emptyList())
+        }
+        val merged = ArogyaConcerns.merge(found.hits, byLine.map { it.second }, { it.chunkId }, baseCount)
+        val extraCount = byLine.flatMap { it.second }.map { it.chunkId }.distinct().count { it !in head }.coerceAtMost(4)
+        if (extraCount == 0) return found
+        val passages = merged.take(baseCount + extraCount).map { it.content }
+        val scores = merged.take(baseCount + extraCount).map { it.rankScore }
+        val budget = minOf(GenericKbKeyFacts.DEFAULT_BUDGET, evidenceCharBudget)
+        val add = byLine.mapNotNull { (line, picked) ->
+            val ids = picked.map { it.chunkId }.toSet()
+            GenericKbKeyFacts.select(line, passages, null, budget / 2, 3, scores, requireFocus = true, siblings = lines.filter { it != line })
+                .firstOrNull { f -> merged[f.passage].chunkId in ids }
+        }
+        Log.i(TAG, "KB_PARTS missing=${missing.size} extraPassages=$extraCount forcedFacts=${add.size}")
+        if (add.isEmpty()) return found
+        concernFacts = add
+        concernExtraCount = extraCount
+        return found.copy(hits = merged)
+    }
 
     override suspend fun validate(
         query: String,

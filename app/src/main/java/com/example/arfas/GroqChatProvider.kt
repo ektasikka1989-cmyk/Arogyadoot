@@ -79,6 +79,19 @@ class GroqChatProvider(apiKey: String) {
         const val GROQ_QWEN_MODEL = "qwen/qwen3.8-27b"
         /** Output ceiling for guide answers online (the app's own budget decides below this). */
         const val MAX_KB_OUTPUT_TOKENS = 4_096
+        const val MIN_KB_OUTPUT_TOKENS = 512
+        /** Prompt text sent for a guide answer (the resolver fits passages under its own lower limit). */
+        const val MAX_KB_PROMPT_CHARS = 24_000
+        /** Input + max_tokens per request; Groq's free tier allows 8,000 tokens per minute for Qwen3.8 27B. */
+        const val REQUEST_TOKEN_BUDGET = 7_600
+        /** The fixed system text of a guide answer, in tokens (rounded up). */
+        const val SYSTEM_PROMPT_TOKENS = 700
+
+        /** Rough token count: ~3.6 Latin characters per token, Devanagari ~1.4 characters per token. */
+        fun estimateTokens(text: String): Int {
+            val deva = text.count { it in '\u0900'..'\u097F' }
+            return ((text.length - deva) / 3.6 + deva / 1.4).toInt() + 1
+        }
         /** Qwen3.8 27B on Groq reads at most 3 images per request. */
         private const val GROQ_MAX_IMAGES = 3
         private val GROQ_MODEL_NAMES = mapOf(
@@ -634,6 +647,34 @@ $candidateText
         return result.first != null
     }
 
+    /**
+     * 9 Nov 2026: the same guide-search rewrite the phone model does (GenericKbQuestionRewrite.prompt), for when
+     * the user chose online answers and the phone model is not loaded. Only the question (and, for a follow-up,
+     * the earlier question) is sent; null on any failure (the app then searches without a rewrite).
+     */
+    suspend fun rewriteKbSearchQuestion(question: String, aliasHints: List<String>, previous: String = ""): GenericKbQuestionRewrite? {
+        if (apiKey.isBlank() || authFailed || question.isBlank()) return null
+        val started = System.currentTimeMillis()
+        val body = JSONObject().apply {
+            put("model", PRIMARY_TEXT_MODEL)
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", GenericKbQuestionRewrite.prompt(question, aliasHints, previous))
+                })
+            })
+            put("max_tokens", 160)
+            put("temperature", 0.0)
+            put("reasoning_effort", "none")
+        }
+        val raw = runCatching { requestWithRetry(body, maxAttempts = 1).first }.getOrNull() ?: return null
+        val text = runCatching { parseText(raw) }.getOrNull().orEmpty()
+        val parsed = GenericKbQuestionRewrite.parse(text, question, previous)
+        Log.i("GroqChatProvider", "KB_QUESTION_REWRITE cloud=true ms=${System.currentTimeMillis() - started} followUp=${previous.isNotBlank()} " +
+            "parts=${parsed?.parts?.size ?: 0} search=${parsed?.parts?.joinToString(" | ")?.take(200)}")
+        return parsed
+    }
+
     suspend fun chatText(
         messages: List<Pair<String, String>>,
         currentQuery: String
@@ -823,12 +864,18 @@ $candidateText
                 }
                 put(JSONObject().apply {
                     put("role", "user")
-                    put("content", currentQuery.trim().take(8_000))
+                    put("content", currentQuery.trim().take(MAX_KB_PROMPT_CHARS))
                 })
             })
-            // 8 Nov 2026: up to 4,096 (was 1,280): full five-part, list, "More detail" and Hindi answers
-            // (Devanagari needs ~2.5x the tokens) were cut online.
-            put("max_tokens", maxOutputTokens.coerceIn(384, MAX_KB_OUTPUT_TOKENS))
+            // 8 Nov 2026: answer allowance = what fits Groq's per-minute token limit after the input
+            // (the request is refused otherwise); up to 4,096.
+            if (currentQuery.length > MAX_KB_PROMPT_CHARS) Log.w(TAG, "KB_PROMPT_CUT chars=${currentQuery.length}")
+            val inputTokens = estimateTokens(currentQuery) + boundedHistory.sumOf { estimateTokens(it.second) } + SYSTEM_PROMPT_TOKENS
+            val maxTokens = maxOutputTokens.coerceIn(384, MAX_KB_OUTPUT_TOKENS)
+                .coerceAtMost((REQUEST_TOKEN_BUDGET - inputTokens).coerceAtLeast(384))
+            Log.i(TAG, "KB_REQUEST_TOKENS input≈$inputTokens maxTokens=$maxTokens budget=$REQUEST_TOKEN_BUDGET")
+            ArogyaGroqMinute.record(inputTokens + maxTokens)
+            put("max_tokens", maxTokens)
             put("temperature", 0.15)
             put("top_p", 0.35)
             put("reasoning_effort", "none")
@@ -885,10 +932,18 @@ $candidateText
                 }
                 put(JSONObject().apply {
                     put("role", "user")
-                    put("content", currentQuery.trim().take(8_000))
+                    put("content", currentQuery.trim().take(MAX_KB_PROMPT_CHARS))
                 })
             })
-            put("max_tokens", maxOutputTokens.coerceIn(512, MAX_KB_OUTPUT_TOKENS))
+            // 8 Nov 2026: Groq refuses a request whose input + max_tokens exceeds the per-minute token
+            // limit (free tier: 8,000 for Qwen3.8 27B), so the answer allowance is what is left.
+            if (currentQuery.length > MAX_KB_PROMPT_CHARS) Log.w(TAG, "KB_PROMPT_CUT chars=${currentQuery.length}")
+            val inputTokens = estimateTokens(currentQuery) + boundedHistory.sumOf { estimateTokens(it.second) } + SYSTEM_PROMPT_TOKENS
+            val allowance = (REQUEST_TOKEN_BUDGET - inputTokens).coerceAtLeast(MIN_KB_OUTPUT_TOKENS)
+            val maxTokens = maxOutputTokens.coerceIn(MIN_KB_OUTPUT_TOKENS, MAX_KB_OUTPUT_TOKENS).coerceAtMost(allowance)
+            Log.i(TAG, "KB_REQUEST_TOKENS input≈$inputTokens maxTokens=$maxTokens budget=$REQUEST_TOKEN_BUDGET")
+            ArogyaGroqMinute.record(inputTokens + maxTokens)
+            put("max_tokens", maxTokens)
             put("temperature", 0.12)
             put("top_p", 0.35)
             put("reasoning_effort", "none")

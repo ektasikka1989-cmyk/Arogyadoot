@@ -88,8 +88,9 @@ class FixSightRuntimeGraph private constructor(context: Context) {
         // Generic KB: the answer model rewrites a weakly matched or numeric question into one
         // search question in the documents' terms plus an arithmetic expression (the app does the
         // arithmetic). Local, greedy, ~70 output tokens; the literal question is always searched too.
-        phase1Features.genericKnowledgeProvider.configureQuestionRewriter { question, aliasHints ->
-            runtime.localModelManager?.rewriteKbSearchQuestion(question, aliasHints)
+        // 9 Nov: online answers chosen → the cloud model rewrites (phone model if that fails); else the phone model.
+        phase1Features.genericKnowledgeProvider.configureQuestionRewriter { question, aliasHints, previous ->
+            runtime.rewriteKbQuestion(question, aliasHints, previous)
         }
         runtime.knowledgeTurnPause = { paused -> phase1Features.knowledgePausedForTurn = paused }
 

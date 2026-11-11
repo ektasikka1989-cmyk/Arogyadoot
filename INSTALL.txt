@@ -1,0 +1,24 @@
+ArogyaDoot README 1.0.0 — safe replacement package
+
+The previous patch failed because README.md no longer matches the expected version.
+Do not use git apply --reject or git apply --3way.
+
+1. Extract this ZIP to C:\ArogyaDoot_README_Update (outside the project).
+2. In PowerShell:
+   powershell -ExecutionPolicy Bypass -File C:\ArogyaDoot_README_Update\tools\install-readme.ps1 -RepoPath C:\Arogyadoot
+3. Review:
+   cd C:\Arogyadoot
+   git status --short
+   git diff -- README.md
+   (Get-ChildItem .\docs\readme-v1\*.jpg).Count
+   git diff --check
+4. IMPORTANT: verify all screenshot names and health data are fictitious or cleared for publication.
+5. Stage ONLY documentation when satisfied:
+   git add README.md docs/readme-v1/
+   git diff --cached --stat
+   git diff --cached --check
+   git remote -v
+   git commit -m "docs: complete visual ArogyaDoot v1.0.0 README"
+   git push origin main
+
+This tool does NOT modify Android code, delete existing resources, commit, or push. Existing README is copied to a timestamped folder in Windows TEMP.

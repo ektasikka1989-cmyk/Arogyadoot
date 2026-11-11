@@ -50,7 +50,16 @@ Never add anything that is not printed. If there is no text, reply NO_TEXT."""
             .filterNot { it.contains("[unreadable]", ignoreCase = true) }
             .map { AADHAAR.replace(it, "") }                                                 // never keep an ID from the cloud
             .joinToString("\n").trim()
+        // 11 Nov 2026 (AN): "NO_TEXT." / "NO_TEXT – this is a photo of a tree" / a line saying there is no text.
+        if (saysNothing(t)) return null
         return t.takeIf { it.length >= 4 && !it.equals("NO_TEXT", ignoreCase = true) }
+    }
+
+    private val NOTHING = Regex("(?i)^\\W*(no[_ ]text|no (person|readable|text|details|writing|medicine)\\b|there is no (text|writing)|(this|the) (photo|image) (does not|doesn't) (show|contain))")
+    /** True when the reply only says the photo has no such text (any wording the prompt allows, first line). */
+    fun saysNothing(t: String): Boolean {
+        val first = t.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return true
+        return NOTHING.containsMatchIn(first) && t.lines().count { it.contains(':') && !NOTHING.containsMatchIn(it) } == 0
     }
 
     /** People from a PERSON transcript: one per block (blank line between people), each read by [ArogyaTableOcr.readPerson]. */

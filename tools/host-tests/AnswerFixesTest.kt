@@ -161,6 +161,17 @@ fun main() {
     a(com.example.arfas.ArogyaAiExtras.dropUngroundedMedicines("The temperature drops at night. Keep the baby warm.", "Keep the baby warm.").contains("drops"), "family: ordinary words are not medicines")
     a(KbReplyText.dropFlippedProhibitions("Cover the baby with a blanket.", ev).second == 1, "family: reversed 'do not' removed")
 
+    // 17. More detail: only the question's language labels; misspelled Hindi label still a heading; "[S1S1]" cleaned.
+    val QT2 = com.example.arfas.ArogyaQuestionType
+    val dEn = QT2.detailLine("What are the danger signs in a newborn?")
+    a("'Answer:'" in dEn && "उत्तर" !in dEn, "detail line: English question gets English labels only") { dEn }
+    val dHi = QT2.detailLine("नवजात शिशु के खतरे के लक्षण क्या हैं?")
+    a("'उत्तर:'" in dHi && "'Answer:'" !in dHi, "detail line: Hindi question gets Hindi labels only") { dHi }
+    val mis = com.example.arfas.ArogyaAnswerFormat.sections("उततर: Danger signs in a newborn include fast breathing.\nWhy it matters: early care saves lives.")
+    a(mis.size == 2 && mis[0].heading == "उत्तर" && mis[0].body.startsWith("Danger signs"), "format: misspelled 'उततर:' is still a heading") { mis.toString() }
+    val cites = com.example.arfas.ArogyaAnswerFormat.stripCitationMarkers("Convulsions [S1S1]. Fever [S1 S2]. Cold [S1][S2]. In [2024] it changed.")
+    a(!cites.contains("[S") && cites.contains("[2024]"), "citations: run-together ids removed, a bracketed year kept") { cites }
+
     println(if (af == 0) "ALL $ap PASS" else "$af FAILED, $ap passed")
     if (af > 0) kotlin.system.exitProcess(1)
 }
