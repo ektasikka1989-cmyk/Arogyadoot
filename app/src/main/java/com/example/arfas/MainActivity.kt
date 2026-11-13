@@ -1600,7 +1600,12 @@ class MainActivity : ComponentActivity() {
 
             // Step 3: Load the verified file — load phase messages update modelStatusText
             withContext(kotlinx.coroutines.Dispatchers.Main) { modelStatusText = "Loading weights…" }
-            val modelPath = mfm.getModelFile(fileName).absolutePath
+            // 13 Nov 2026 (BC): the copy stores the bundle under the model-type prefix
+            // ("GEMMA_E2B_gemma-4-E2B-it.litertlm") and saves THAT name; loading the picked display name instead
+            // looked for a file that does not exist ("Model file not found" → "Load failed — file may be corrupt",
+            // phone 10:14:03) even though the install had succeeded. Load the name the copy actually stored.
+            val storedName = mfm.getSelectedModelFileName().trim().ifBlank { fileName }
+            val modelPath = mfm.getModelFile(storedName).absolutePath
             val ok = lm.loadModel(modelPath) { progress ->
                 lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                     modelStatusText = progress
@@ -1610,7 +1615,7 @@ class MainActivity : ComponentActivity() {
                 modelLoaded = ok
                 modelStatusText = if (ok) {
                     localReadyLabel(lm)
-                } else "✗ Load failed — file may be corrupt"
+                } else "✗ Load failed: " + (lm.lastLoadError.ifBlank { "the file may be incomplete — copy it again" })
             }
         }
     }

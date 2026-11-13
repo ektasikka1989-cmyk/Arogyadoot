@@ -106,6 +106,8 @@ fun ArogyaVisitScreen(
     var sopGuideCount by remember { mutableStateOf(-1) }
     var sopSuggestions by remember { mutableStateOf(listOf<String>()) }
     var sopSuggestTitle by remember { mutableStateOf("") }
+    // 13 Nov 2026 (BD): counts openings of Ask SOP, so the example questions are picked again on every opening.
+    var sopOpenEpoch by remember { mutableStateOf(0) }
     var aiOnline by remember { mutableStateOf(false) }
     var aiError by remember { mutableStateOf("") }
     var aiBusy by remember { mutableStateOf(false) }
@@ -239,6 +241,7 @@ fun ArogyaVisitScreen(
         showOnlineOptions=false;familyText="";askedQuestionForWarning="";aiDraft="";ai?.clearAttachments();qFiles=emptyList();aiCapture=emptyList();aiResult=null;aiError="";aiPrevious="";aiCopy="";aiOpen=true
         // 9 Nov 2026: Ask SOP opens on a clean screen and a new conversation (earlier answers are in ☰ history),
         // so an old answer is not shown again and the next question is not read as a follow-up of an old one.
+        if(sop && task==ArogyaAiTask.EXPLAIN) sopOpenEpoch++
         if(sop && task==ArogyaAiTask.EXPLAIN && !aiBusy) { sopThreads=sopThreads-SOP_VISIT_ID;familyText="";sopSuggestions=emptyList();sopSuggestTitle="";scope.launch { ai?.newConversation() } }
     }
     DisposableEffect(Unit) { onDispose { if(aiBusy) onCancelAi();aiJob?.cancel() } }
@@ -1012,7 +1015,7 @@ fun ArogyaVisitScreen(
                     LazyColumn(Modifier.weight(1f),state=chatState,verticalArrangement=Arrangement.spacedBy(20.dp),contentPadding=PaddingValues(vertical=8.dp)) {
                         val history=if(aiResult!=null) thread.dropLast(1) else thread
                         if(history.isEmpty() && aiResult==null && !aiBusy && aiError.isBlank()) item(key="empty") {
-                            SopEmptyState(hindi,sopSuggestTitle,sopSuggestions) { aiQuestion=it }
+                            SopEmptyState(hindi,sopSuggestTitle,sopSuggestions,sopOpenEpoch) { aiQuestion=it }
                         }
                         items(history,key={it.id}) { msg ->
                             val askedH=msg.asked.ifBlank { msg.question }

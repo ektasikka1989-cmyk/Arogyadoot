@@ -840,3 +840,41 @@ so a Gemma 4 bundle was refused ("not the Gemma 3n bundle" / failed). Fix: any .
 engine reloads on the next answer because the selected file name changed (FixSightRuntimeGraph.ensureLocalModelReady).
 Free-space check before copying. The runtime (litertlm-android 0.16.1) loads Gemma 4 bundles (PocketSage runs Gemma 4 on 0.10.2).
 Tests: BbTest 10/10, SetupPlanTest 18/18, SetupMatchTest 14/14.
+
+## BC. 13 Nov 2026 — "failed to load" after replacing the model in Settings (Gemma 4 did load)
+Phone log 10:14: the copy stores a picked bundle under the model-type prefix (GEMMA_E2B_gemma-4-E2B-it.litertlm) and
+saves that name, but Settings then loaded the picked display name (gemma-4-E2B-it.litertlm) → "Model file not found"
+→ "✗ Load failed — file may be corrupt", although the install had succeeded; the app loaded the model correctly 7 s
+later on its own (ANDROLLM_CORE_MODEL_CAPABILITY modelType=gemma4, ENGINE_INIT_OK backend=GPU, SELFTEST_PASS,
+ADAPTER_READY context=4096). Fix: load the name the copy actually stored (getSelectedModelFileName), and show the real
+error text instead of "may be corrupt". MainActivity.handleModelFilePick.
+Confirmed by the same log: **Gemma 4 E2B runs on the phone** (GPU, 4096 context, self-test passed).
+
+## BD — Ask SOP example questions stopped changing (13 Nov 2026)
+
+**Reported:** "a new question set everytime when a person reaches the Ask the SOP screen ... these issues have again popped up."
+
+**Not a lost fix.** `ArogyaSopExamples.kt`, the asset `assets/sop/example_questions.txt` (8744 bytes, present in the built APK),
+`pick()`'s randomness, the clean-screen reset in `openAi` and every `ArogyaFlags` switch were all checked and are intact;
+`ArogyaSopChat.kt` and `ArogyaVisitScreen.kt` differ from `backup_20261112_BA` / `backup_20261111_AL` only by the intended
+BA guide-first block and the `ArogyaOpenLink.open` replacements.
+
+**Cause.** `SopEmptyState` is a keyed item of the chat `LazyColumn` (`item(key="empty")`), and `ArogyaVisitScreen` is the host
+screen, which is never disposed. A `LazyColumn` keeps the state of a keyed item in its own state holder, so the `remember`
+holding the picked set survived every re-opening of Ask SOP: the four questions were picked **once per app run**, not once per
+opening. The screen did clear (`openAi` removes the thread) — only the questions looked unchanged.
+
+**Fix.** The roll is keyed to openings of the screen instead of to composition:
+- `ArogyaVisitScreen`: `var sopOpenEpoch by remember { mutableStateOf(0) }`, incremented in `openAi` for
+  `sop && task == EXPLAIN` (outside the `!aiBusy` guard — re-picking while busy is harmless), passed to `SopEmptyState`.
+- `ArogyaSopChat`: `SopEmptyState(..., openEpoch: Int, onPick)` and `remember(round, openEpoch)`.
+
+**Audit of the same class of bug.** The chat list's other keyed items are safe: `items(history, key={it.id})` is keyed per
+message, and every piece of `SopAnswerCard` state (`tab`, `srcOpen`, `hl`, `shareOpen`, `ansDoc`, `ansBusy`, `news`) is
+`remember(result)`, so the constant `key="latest"` cannot carry state from one answer to the next. Attachments are cleared
+explicitly in `openAi` (`ai?.clearAttachments(); qFiles = emptyList(); aiCapture = emptyList()`), so they are unaffected;
+`kbAttachmentFollowUpQuery` / `lastAttachmentFacts`, `lastTurnEarlierAttachment`, `EXTRACT_LIMIT_MS = 180_000`,
+`VISION_HARD_LIMIT_MS = 240_000` and `ArogyaLocalVision.timeLimitMs` are all present and unchanged.
+
+**Generic:** no knowledge base, guide or model is involved; the pool is whatever the asset holds.
+**Backup:** `backup_20261113_BD/`. No token, length or evidence budget touched.

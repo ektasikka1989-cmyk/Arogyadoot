@@ -560,7 +560,7 @@ fun SopAssistantHeader(hindi: Boolean) {
 /** Empty chat: a greeting and tappable example questions (the guide's own suggestions when known). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SopEmptyState(hindi: Boolean, suggestTitle: String, suggestions: List<String>, onPick: (String) -> Unit) {
+fun SopEmptyState(hindi: Boolean, suggestTitle: String, suggestions: List<String>, openEpoch: Int, onPick: (String) -> Unit) {
     fun tr(en: String, hi: String) = if (hindi) hi else en
     // 9 Nov 2026: 4 different tested questions each time the screen opens (and on "Other questions").
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -569,7 +569,10 @@ fun SopEmptyState(hindi: Boolean, suggestTitle: String, suggestions: List<String
             .getOrDefault(emptyList())
     }
     var round by remember { mutableStateOf(0) }
-    val rotating = remember(round) {
+    // 13 Nov 2026 (BD): this composable is a keyed item of the chat LazyColumn, whose state holder keeps its
+    // remember alive for as long as the host screen lives (it is never disposed) - so the set was picked once per
+    // app run, not once per opening. [openEpoch] counts openings of the screen, so each opening picks again.
+    val rotating = remember(round, openEpoch) {
         ArogyaSopExamples.pick(pool, avoid = ArogyaSopExamples.lastShown).also { if (it.isNotEmpty()) ArogyaSopExamples.lastShown = it }
     }
     val examples = suggestions.take(4).ifEmpty {
