@@ -21,10 +21,16 @@ data class GenericKbQuestionRewrite(
     /** One search question per thing asked, when the question asks two different things. */
     val parts: List<String> = listOf(search),
     /** 9 Nov: the model's own judgement, asked only when an earlier question was given: true = continues it, false = new topic. */
-    val followsEarlier: Boolean? = null
+    val followsEarlier: Boolean? = null,
+    /**
+     * 11 Nov 2026 (AS): the name the documents would use for what the question describes without naming it (the
+     * illness the signs point to, the rule or scheme a situation falls under), searched as one more view. Null
+     * when the question already names it. Any knowledge base: the model names it from the question, no word list.
+     */
+    val topic: String? = null
 ) {
     companion object {
-        const val MAX_OUTPUT_TOKENS = 96
+        const val MAX_OUTPUT_TOKENS = 120
         private const val MAX_PARTS = 3
         /** Long questions often ask two things at once; the model splits them into one search each. */
         private const val LONG_QUESTION_WORDS = 12
@@ -64,32 +70,46 @@ data class GenericKbQuestionRewrite(
             // 9 Nov 2026 (AE, phone log): "महिला को पेशाब में जलन और बुखार है" (burning urination) was rewritten as
             // burning "in the vulva". Hindi symptom and body words must keep their exact meaning.
             appendLine("Hindi or Hinglish words: translate each one by its exact meaning; never change the body part, the symptom or the person (woman, child, newborn).")
+            appendLine("TOPIC: the name these documents would use for what the question describes but does not name (for example the illness its signs point to, or the rule or scheme the situation falls under), in two to five words; NONE when the question already names it")
             appendLine("CALC: the arithmetic for the amount the user describes, using only + - * / and numbers, or NONE")
             if (aliasHints.isNotEmpty()) appendLine("Terms used in these documents: " + aliasHints.joinToString("; "))
-            CoreHealthFacts.hinglishHints(question).takeIf { it.isNotEmpty() }?.let { appendLine("Hindi words in this question: " + it.joinToString("; ")) }
+            // 11 Nov 2026 (AQ, phone 22:54): "पैरों में सूजन और सिरदर्द" was rewritten as "bleeding and nausea"; the known
+            // meanings of its Hindi words now go with it ("सूजन = swelling oedema").
+            (CoreHealthFacts.hinglishHints(question) + runCatching { ArogyaHindiTerms.glosses(question) }.getOrDefault(emptyList()))
+                .distinct().takeIf { it.isNotEmpty() }?.let { appendLine("Hindi words in this question: " + it.joinToString("; ")) }
             appendLine()
             // 8 Nov 2026: ASHA examples that keep the intent. The old ones came from another knowledge
             // base (room rent, office leave), and "bachche ko bukhar me kya dena chahiye -> What should be
             // given to a child with fever?" was copied for every fever question, pulling dose passages.
             appendLine("Question: child weighs 8 kg, paracetamol 15 mg per kg, how much to give")
             appendLine("SEARCH: What is the paracetamol dose for a child by body weight?")
+            appendLine("TOPIC: NONE")
             appendLine("CALC: 8*15")
             appendLine()
             appendLine("Question: bachche ko tez bukhar hai kya karein")
             appendLine("SEARCH: What should an ASHA do when a child has high fever?")
+            appendLine("TOPIC: NONE")
             appendLine("CALC: NONE")
             appendLine()
             appendLine("Question: pregnent lady bleding wat to do")
             appendLine("SEARCH: What should an ASHA do when a pregnant woman is bleeding?")
+            appendLine("TOPIC: bleeding in pregnancy")
+            appendLine("CALC: NONE")
+            appendLine()
+            appendLine("Question: aadmi ko teen hafte se khansi hai aur vajan ghat raha hai")
+            appendLine("SEARCH: What should an ASHA do when a man has cough for three weeks and is losing weight?")
+            appendLine("TOPIC: tuberculosis")
             appendLine("CALC: NONE")
             appendLine()
             appendLine("Question: ors kaise banaye")
             appendLine("SEARCH: How is ORS prepared at home?")
+            appendLine("TOPIC: NONE")
             appendLine("CALC: NONE")
             appendLine()
             appendLine("Question: ifa goli kab leni hai aur kitne din tak")
             appendLine("SEARCH: When should IFA tablets be taken in pregnancy?")
             appendLine("SEARCH: For how many days should IFA tablets be taken?")
+            appendLine("TOPIC: NONE")
             appendLine("CALC: NONE")
             appendLine()
             if (previous.isNotBlank()) {
@@ -112,7 +132,7 @@ data class GenericKbQuestionRewrite(
             append("Question: ").appendLine(question.trim().replace(Regex("\\s+"), " ").take(400))
             // Without this the 3B model often rewrote the examples again instead of the user's
             // question (every Hinglish question in the ASHA test came back with no rewrite).
-            append(if (previous.isNotBlank()) "Write only the FOLLOWS, SEARCH and CALC lines for this last question." else "Write only the SEARCH and CALC lines for this last question.")
+            append(if (previous.isNotBlank()) "Write only the FOLLOWS, SEARCH, TOPIC and CALC lines for this last question." else "Write only the SEARCH, TOPIC and CALC lines for this last question.")
         }
 
         /** Parses the model output; null when no usable SEARCH line. */
@@ -123,7 +143,10 @@ data class GenericKbQuestionRewrite(
             // When the model repeats the examples, its rewrite of the user's question follows the
             // line that repeats that question: read only what comes after it.
             val q = question.trim().replace(Regex("\\s+"), " ").lowercase(Locale.ROOT)
-            val echo = all.indexOfLast { l -> l.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ").let { it.contains(q.take(60)) && q.length >= 8 } }
+            // 12 Nov 2026 (AV, phone run): only an echo line counts, never an answer line. "SEARCH: What should an ASHA do when
+            // a pregnant woman looks pale and gets breathless while working?" contains the question itself, was taken for
+            // the echo, and the rewrite (3 of 19 questions) was thrown away.
+            val echo = all.indexOfLast { l -> !ANSWER_LINE.containsMatchIn(l) && l.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ").let { it.contains(q.take(60)) && q.length >= 8 } }
             val lines = if (echo >= 0 && echo < all.size - 1) all.drop(echo + 1) else all
             val searches = lines.mapNotNull { l ->
                 Regex("^search\\s*\\d*\\s*[:\\-]\\s*(.+)$", RegexOption.IGNORE_CASE).find(l)?.groupValues?.get(1)?.trim()
@@ -142,7 +165,43 @@ data class GenericKbQuestionRewrite(
             val follows = if (previous.isBlank()) null else lines.firstNotNullOfOrNull { l ->
                 Regex("^follows\\s*[:\\-]\\s*(yes|no)\\b", RegexOption.IGNORE_CASE).find(l)?.groupValues?.get(1)?.lowercase(Locale.ROOT)
             }?.let { it == "yes" }
-            return GenericKbQuestionRewrite(search, calc, searches, follows)
+            val topic = lines.firstNotNullOfOrNull { l ->
+                Regex("^topic\\s*[:\\-]\\s*(.+)$", RegexOption.IGNORE_CASE).find(l)?.groupValues?.get(1)?.trim()
+            }?.let { usableTopic(it, question, search, previous) }
+            return GenericKbQuestionRewrite(search, calc, searches, follows, topic)
+        }
+
+        private val ANSWER_LINE = Regex("^(?:search|topic|calc|follows)\\s*\\d*\\s*[:\\-]", RegexOption.IGNORE_CASE)
+
+        /** Topics written in the prompt's examples: kept only when the question itself is about them. */
+        private val EXAMPLE_TOPICS = listOf("bleeding in pregnancy", "tuberculosis")
+        /** The signs that make each example's topic right (word starts), required in the user's search line or question. */
+        // 12 Nov 2026 (AV): one sign is enough (phone: "tuberculosis" for cough with blood in sputum was dropped because
+        // the question did not also say "weight").
+        private val EXAMPLE_TOPIC_SIGNS = listOf(listOf("bleed"), listOf("cough"))
+
+        /**
+         * 11 Nov 2026 (AS): the model's TOPIC line, or null when it is NONE, too long to be a name, only repeats words
+         * the question or search line already has, or is an example's topic the question shares no word with.
+         */
+        internal fun usableTopic(raw: String, question: String, search: String, previous: String = ""): String? {
+            val t = raw.trim().trim('"', '\'', '.', ' ').replace(Regex("\\s+"), " ")
+            if (t.isEmpty() || t.uppercase(Locale.ROOT).startsWith("NONE") || t.length > 60 || !t.any(Char::isLetter)) return null
+            if (t.split(' ').size > 6) return null
+            // Short names count too ("TB", "PPH").
+            val words = contentWords(t).ifEmpty { t.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{M}\\p{N}]+")).filter { it.length >= 2 }.toSet() }
+            if (words.isEmpty()) return null
+            // Adds nothing: every word is already in the question or its search line.
+            val said = contentWords(question) + contentWords(search)
+            if (words.all { w -> said.any { it == w || it.startsWith(w.take(5)) || w.startsWith(it.take(5)) } }) return null
+            // A copied example ("tuberculosis" for a fever question): kept only when the example's own signs are in the
+            // user's search line or question (cough and weight for the tuberculosis example).
+            val example = EXAMPLE_TOPICS.indexOfFirst { it.equals(t, ignoreCase = true) }
+            if (example >= 0) {
+                val text = (search + " " + question).lowercase(Locale.ROOT)
+                if (!EXAMPLE_TOPIC_SIGNS[example].all { it in text }) return null
+            }
+            return t
         }
 
         private val EXAMPLE_SEARCHES = listOf(
@@ -172,7 +231,16 @@ data class GenericKbQuestionRewrite(
         internal fun copiesExample(search: String, question: String, previous: String = ""): Boolean {
             val s = contentWords(search)
             // A follow-up's rewrite names the earlier question's subject ("how long?" → "... zinc ..."): its words count.
-            val q = contentWords(question) + contentWords(previous)
+            // 12 Nov 2026 (AZ, laptop scorecard): 17 of 273 correct rewrites were thrown away as "copied examples" — all
+            // Hindi/Hinglish questions about a child with fever, cough or diarrhoea ("bacche ko dast aur bukhar hai" →
+            // "What should an ASHA do when a child has diarrhoea and fever?"), because the English words of the rewrite
+            // could not be traced to the Hindi words of the question. The known meanings of the question's Hindi words
+            // (the same dictionaries the search uses) now count as the user's own words.
+            val translated = runCatching {
+                (CoreHealthFacts.hinglishHints(question) + ArogyaHindiTerms.glosses(question) + ArogyaHindiTerms.views(question))
+                    .flatMap { h -> contentWords(h.substringAfter(" = ", h)) }
+            }.getOrDefault(emptyList())
+            val q = contentWords(question) + contentWords(previous) + translated
             fun fromQuestion(word: String) = q.any { qw -> qw == word || word.startsWith(qw.take(5)) || qw.startsWith(word.take(5)) }
             // Close to an example and adding nothing the user said: a copy.
             val example = EXAMPLE_SEARCHES.any { e ->

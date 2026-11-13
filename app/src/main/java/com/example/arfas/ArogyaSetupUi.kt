@@ -321,14 +321,14 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
                 if (!ArogyaSetupPlan.gemmaFileNameOk(pickedName)) {
                     Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD not_gemma name=$pickedName")
                     if (fromDownload) { ArogyaSetupDownload.finish(context, name); dl = null }
-                    error = tr("This file is not the Gemma 3n bundle (gemma-3n-E2B-it-int4.litertlm), so it was not installed.", "यह फ़ाइल Gemma 3n बंडल नहीं है (gemma-3n-E2B-it-int4.litertlm), इसलिए इंस्टॉल नहीं की।")
+                    error = tr("This file is not a .litertlm model bundle, so it was not installed.", "यह फ़ाइल .litertlm मॉडल बंडल नहीं है, इसलिए इंस्टॉल नहीं की।")
                     return@launch
                 }
                 if (!fromDownload) {
                     val pickedBytes = withContext(Dispatchers.IO) { runCatching { context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } }.getOrNull() ?: -1L }
-                    if (!ArogyaSetupPlan.gemmaDownloadComplete(pickedBytes)) {
-                        Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD incomplete name=$pickedName bytes=$pickedBytes expected=${ArogyaSetupPlan.GEMMA_BYTES}")
-                        error = tr("This file looks incomplete (smaller than the 2 GB Gemma bundle), so it was not installed.", "यह फ़ाइल अधूरी लगती है (2 GB Gemma बंडल से छोटी), इसलिए इंस्टॉल नहीं की।")
+                    if (pickedBytes < ArogyaSetupPlan.bundleMinBytes(pickedName)) {
+                        Log.w("ArogyaDemo", "AROGYA_SETUP_DOWNLOAD incomplete name=$pickedName bytes=$pickedBytes expected=${ArogyaSetupPlan.bundleMinBytes(pickedName)}")
+                        error = tr("This file looks incomplete (smaller than a model bundle should be), so it was not installed.", "यह फ़ाइल अधूरी लगती है (मॉडल बंडल से छोटी), इसलिए इंस्टॉल नहीं की।")
                         return@launch
                     }
                 }
@@ -444,7 +444,7 @@ private fun ModelsPage(hindi: Boolean, installed: Boolean, onChanged: () -> Unit
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(tr("Already have the file?", "फ़ाइल पहले से है?"), fontWeight = FontWeight.Bold)
-            Text(tr("Choose ${ArogyaSetupPlan.GEMMA_FILE} from the phone (for example copied from a laptop).", "फ़ोन से ${ArogyaSetupPlan.GEMMA_FILE} चुनें (जैसे लैपटॉप से कॉपी की हुई)।"), style = MaterialTheme.typography.bodySmall)
+            Text(tr("Choose a .litertlm model file from the phone (${ArogyaSetupPlan.GEMMA_FILE}, or another such as gemma-4-E2B-it.litertlm). It replaces the current phone model.", "फ़ोन से .litertlm मॉडल फ़ाइल चुनें (${ArogyaSetupPlan.GEMMA_FILE}, या gemma-4-E2B-it.litertlm जैसी दूसरी)। यह मौजूदा फ़ोन मॉडल की जगह लेगी।"), style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = { runCatching { pick.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) } }, enabled = !installing) { Text(tr("📂 Choose file", "📂 फ़ाइल चुनें")) }
         }
     }

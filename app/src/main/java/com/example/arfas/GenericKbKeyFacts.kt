@@ -132,6 +132,36 @@ object GenericKbKeyFacts {
 
     fun candidates(passages: List<String>): List<Unit> =
         passages.flatMapIndexed { p, text -> units(text).mapIndexed { i, u -> Unit(p, i, u) } }
+            // 12 Nov 2026 (BA): form and checklist rows are never key facts. On the laptop scorecard the re-ranker gave
+            // "Pus filled pustules Yes/No Yes/No Yes/No …" (a supervision form) 3.1, above the guide's own danger-sign
+            // sentence; the form then led the evidence and the model copied it. Generic: any document's forms.
+            .mapNotNull { u -> if (!ArogyaFlags.formRowsOff) u else stripFormCells(u.text)?.let { t -> if (t == u.text) u else u.copy(text = t) } }
+
+    /** A supervision/record form row: repeated Yes/No or Y/N cells, "Day 1 Day 3 …" headers, "Ask/Examine" grids. */
+    internal fun isFormRow(text: String): Boolean {
+        val yn = FORM_YN.findAll(text).count()
+        if (yn >= 2) return true
+        val words = text.split(' ').count { it.isNotBlank() }
+        return (words >= 6 && FORM_DAYS.containsMatchIn(text)) || FORM_GRID.containsMatchIn(text)
+    }
+
+    /** A window with its form rows removed sentence by sentence (sentences that are only form cells are dropped). */
+    internal fun stripFormText(text: String): String {
+        if (!FORM_YN.containsMatchIn(text) && !FORM_DAYS.containsMatchIn(text) && !FORM_GRID.containsMatchIn(text)) return text
+        val parts = Regex("(?<=[.!?।])\\s+|\\n").split(text)
+        return parts.mapNotNull { s -> if (s.isBlank()) null else stripFormCells(s) }.joinToString(" ").replace(Regex(" {2,}"), " ").trim()
+    }
+
+    /** The unit without its form cells (Yes/No runs, "Day 1 Day 3 …"); null when too little prose is left. */
+    internal fun stripFormCells(text: String): String? {
+        if (!isFormRow(text)) return text
+        val t = text.replace(FORM_YN, " ").replace(FORM_DAYS, " ").replace(FORM_GRID, " ").replace(Regex("\\s{2,}"), " ").trim()
+        val words = t.split(' ').count { w -> w.any(Char::isLetter) }
+        return if (words >= 5) t else null
+    }
+    private val FORM_YN = Regex("(?i)\\b(?:yes\\s*/\\s*no|y\\s*/\\s*n)\\b")
+    private val FORM_DAYS = Regex("(?i)(?:\\bday\\s*\\d+\\s*){3,}")
+    private val FORM_GRID = Regex("(?i)^\\s*(?:ask\\s*/\\s*examine|supervisor['’]?s note|annexure)\\b")
 
     /**
      * Best units for [question] from [passages] (in rank order). [score] is the cross-encoder
@@ -385,13 +415,21 @@ object GenericKbKeyFacts {
      * (whole passages keep lists, steps and the conditions around a rule, which sentence picking
      * loses). Returns (passage index, text) in passage rank order.
      */
-    fun passageWindows(passages: List<String>, facts: List<Fact>, count: Int = WINDOW_PASSAGES, maxChars: Int = WINDOW_CHARS): List<Pair<Int, String>> =
+    fun passageWindows(passages: List<String>, facts: List<Fact>, count: Int = WINDOW_PASSAGES, maxChars: Int = WINDOW_CHARS,
+        /**
+         * 12 Nov 2026 (AU, phone run): passages that hold none of the question's key sentences only filled the
+         * remaining slots ("avoid heat exposure" for fever with rash, an anaemia-guideline page for a newborn with
+         * pus spots) and the small model blended them into the answer. When true (phone), only the best passage and
+         * passages with a key sentence are read. 273 desktop questions: 266 → 266, 13% fewer passages.
+         */
+        factPassagesOnly: Boolean = false): List<Pair<Int, String>> =
         // Passages in the order of their best sentence (so each part of a question gets its passage),
         // then the next best-ranked passages up to [count].
         // The re-ranker's best passage (index 0) always comes first: a small answer model leans on
         // the first passage, and word overlap alone put "VHSND: ASHA, ANM and AWW attend" ahead of
         // "An ASHA is a woman selected by her community…".
-        (listOf(0).filter { passages.isNotEmpty() } + facts.map { it.passage }.distinct() + passages.indices).distinct().take(count).map { p ->
+        (listOf(0).filter { passages.isNotEmpty() } + facts.map { it.passage }.distinct() +
+            (if (factPassagesOnly && facts.isNotEmpty()) emptyList() else passages.indices.toList())).distinct().take(count).map { p ->
             val raw = passages[p]
             // R1-lite: paragraph- and step-aware cuts (newlines kept, cuts prefer them).
             if (ArogyaFlags.r1WideEvidence) return@map p to windowR1(raw, facts, p, maxChars)
@@ -411,7 +449,10 @@ object GenericKbKeyFacts {
                 end = if (cut != null) cut + 1 else text.lastIndexOf(' ', end).coerceAtLeast(start + maxChars / 2)
             }
             p to ((if (start > 0) "… " else "") + text.substring(start, end).trim() + (if (end < text.length) " …" else ""))
-        }.map { (p, w) -> p to completeSentences(w) }.filter { it.second.isNotBlank() }.let { windows ->
+        }.map { (p, w) -> p to completeSentences(w) }
+            // 12 Nov 2026 (BA): form cells never reach the model's evidence either (same rule as key facts).
+            .map { (p, w) -> p to (if (ArogyaFlags.formRowsOff) stripFormText(w) else w) }
+            .filter { it.second.isNotBlank() }.let { windows ->
             // The best sentences always reach the model: one that fell outside every window (a fifth
             // passage, or beyond the cut) is added after its passage's window, or as its own item.
             val out = windows.map { it.first to it.second }.toMutableList()

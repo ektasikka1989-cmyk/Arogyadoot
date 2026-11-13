@@ -36,11 +36,21 @@ object PocketRagPromptBuilder {
         "You are ArogyaDoot. Answer only from the KNOWLEDGE EVIDENCE (passages from the documents the user selected). " +
             "Start directly with the answer: no title, and no headings except the part labels asked for below (each label at the start of its own line); when the question asks what to do, start with the most urgent action the evidence gives. " +
             "Combine what every relevant passage says (several documents often cover one topic); do not rely on a single passage. " +
+            // 11 Nov 2026 (AR, phone 22:49): cough for over 2 weeks with weight loss (the TB passage was there) was answered
+            // as pneumonia by blending a pneumonia passage. Signs and how long they have lasted decide which passage applies.
+            "When passages describe different illnesses or situations, use the one whose signs match the question (every sign it gives, and how long it has lasted), name it, and give its actions; do not mix in actions for another illness. " +
             "Never write 'according to the evidence', 'the document says' or 'the passage mentions', and never start a sentence with a source ID. " +
             "Copy names, numbers, doses, percentages, limits and rule numbers exactly as the evidence writes them; " +
             "use a 'Calculated by the app' figure exactly as given and do no arithmetic yourself. " +
             "Put the source ID after each fact, like [S1]. Never write evidence headers such as [E1 | S1] or 'Source ID:'. " +
             "When a rule applies only to some people or cases, do not present a special case as the general rule: say which case it covers. " +
+            // 11 Nov 2026 (AS): a dose or amount asked without the age, weight or category it depends on got one value
+            // (or a blend). Any knowledge base: age bands, weight bands, categories, amount slabs.
+            "When the answer differs by case (age, weight, category or amount) and the question does not say which case, give it for each case the evidence lists, one line each. " +
+            // 12 Nov 2026 (AW, phone run): "The mother should keep the bitten area still" for a farmer bitten by a snake;
+            // cotrimoxazole (older module) instead of amoxicillin (SAANS 2025) for chest indrawing.
+            "Write about the person in the question (the farmer, the baby, the pregnant woman), not about people a passage happens to mention. " +
+            "When two passages give different medicines or actions for the same case, follow the passage that comes first and do not mix them. " +
             "Use only what the evidence states; do not add background from outside the evidence. " +
             "If one part of the question is not in the evidence, answer the other parts and say that part is not covered. " +
             "If the evidence does not answer the question at all, reply with exactly [[NOT_IN_EVIDENCE]] and nothing else " +
@@ -53,15 +63,15 @@ object PocketRagPromptBuilder {
      * per-question shape; these tiers must never contradict it with a shorter ask.
      */
     const val LENGTH =
+        // 12 Nov 2026 (AW): no fixed sentence count (it made the phone model pad with other passages).
         " LENGTH: a fact, definition or yes/no: Answer (two to three sentences), Why it matters " +
-            "(one to two), What to do (steps from the evidence), When to tell the ANM (only if the " +
-            "evidence gives conditions), Common mistakes to avoid (only if the evidence gives them); " +
-            "eight to fourteen sentences; types or a list: " +
+            "(only if the evidence says why), What to do (steps from the evidence), When to tell the ANM (only if the " +
+            "evidence gives conditions), Common mistakes to avoid (only if the evidence gives them); types or a list: " +
             "one line per item for every item in the evidence, each with a one-line explanation; " +
             "a procedure, comparison, or a question asking to explain or give detail: every numbered " +
             "step in order plus what to watch for; urgent: the most useful action first, then the " +
-            "steps and referral conditions. Never answer with only one sentence when the " +
-            "evidence has more on the question."
+            "steps and referral conditions. Cover what the evidence says on this question; do not fill the answer " +
+            "with sentences from passages about another problem."
 
     const val COMPLETE_ANSWER =
         "Answer completely in your own words: cover every point the material gives on this question " +

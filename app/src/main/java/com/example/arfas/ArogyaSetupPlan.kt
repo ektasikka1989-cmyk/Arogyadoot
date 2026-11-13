@@ -42,7 +42,20 @@ object ArogyaSetupPlan {
 
     /** Exact bundle name (case-insensitive); renamed .task files and other variants are rejected here,
      *  and the container header + model type are verified again after download. Pure, host-tested. */
-    fun gemmaFileNameOk(name: String): Boolean = name.trim().equals(GEMMA_FILE, ignoreCase = true)
+    /**
+     * 12 Nov 2026 (BB): any LiteRT-LM bundle (.litertlm) can be installed and replaces the phone model — Gemma 3n,
+     * Gemma 4 or a later one — not only the exact Gemma 3n file name. The runtime (litertlm-android ≥ 0.10) loads
+     * Gemma 4 bundles; the app's model registry already knows gemma3n and gemma4.
+     */
+    fun gemmaFileNameOk(name: String): Boolean {
+        val n = name.trim().lowercase()
+        // Web and NPU-specific builds (…-web, .mediatek., .qualcomm.) do not run on an ordinary phone CPU/GPU.
+        return n.endsWith(".litertlm") && !n.contains("-web.") && !n.contains(".mediatek.") && !n.contains(".qualcomm.") && !n.contains("-npu")
+    }
+    /** Smallest size a bundle can be: the full ~2 GB for the Gemma 3n file, 500 MB for any other bundle. */
+    fun bundleMinBytes(name: String): Long = if (name.trim().equals(GEMMA_FILE, ignoreCase = true)) GEMMA_BYTES else 500_000_000L
+    /** The file name a picked bundle is stored under (its own name, made safe). */
+    fun bundleStoreName(name: String): String = name.trim().replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { GEMMA_FILE }
 
     /** Free space needed before the models download: the zip, the installed models, and a margin. */
     const val MODELS_FREE_NEEDED = MODELS_BYTES * 2 + 300_000_000L

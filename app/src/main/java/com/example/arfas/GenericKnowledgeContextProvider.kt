@@ -130,6 +130,15 @@ class GenericKnowledgeContextProvider(
     @Volatile private var turnCandidates: List<GenericKnowledgePackRepository.Hit> = emptyList()
     /** Rewrite of the current turn (for the app-side calculation in the evidence packet). */
     @Volatile private var currentRewrite: GenericKbQuestionRewrite? = null
+
+    /**
+     * 11 Nov 2026 (AS): when the model named what the question describes ("tuberculosis" for three weeks of cough and
+     * weight loss), that name finds candidates too; the re-ranker still reads only the question and its search lines.
+     * Desktop: the right passage reached the evidence for 39 of 40 symptom-only questions with the name, 37 without;
+     * 273 questions in all: 266 vs 263; with the names shuffled to wrong ones, see FIX_LIST AS.
+     */
+    private fun topicViews(rw: GenericKbQuestionRewrite): List<String> =
+        listOfNotNull(rw.topic?.takeIf { ArogyaFlags.rewriteTopic })
     /** 9 Nov: multi-symptom evidence — facts put first so a missing symptom's passage gets a window, and how many symptom passages follow the normal ones. */
     @Volatile private var concernFacts: List<GenericKbKeyFacts.Fact> = emptyList()
     @Volatile private var concernExtraCount: Int = 0
@@ -466,8 +475,8 @@ class GenericKnowledgeContextProvider(
             if (rw != null) {
                 // The model's own lines replace the word-list views (Hindi dictionary terms, lay words, spelling
                 // fixes, age words): those are used only when the model gives no rewrite (below).
-                Log.i(TAG, "KB_QUESTION_REWRITE parts=${rw.parts.size} ${rw.parts.joinToString(" | ").take(200)}")
-                phase14 = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, rw.parts.distinct()) }
+                Log.i(TAG, "KB_QUESTION_REWRITE parts=${rw.parts.size} topic=${rw.topic ?: "-"} ${rw.parts.joinToString(" | ").take(200)}")
+                phase14 = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, rw.parts.distinct(), topicViews(rw)) }
                     .onFailure { Log.w(TAG, "KB_PHASE14_REWRITE_FAILED ${it.javaClass.simpleName}:${it.message}") }
                     .getOrNull()
             }
@@ -480,7 +489,7 @@ class GenericKnowledgeContextProvider(
             if (rewriter != null && !rewriteTried && currentRewrite == null && phase14 != null && literalBestScore != null && literalBestScore < REWRITE_BELOW_RERANK) {
                 val rw = rewrite()
                 if (rw != null && !rw.search.equals(resolvedRetrievalQuery, ignoreCase = true)) {
-                    val viaRewrite = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, rw.parts.distinct()) }.getOrNull()
+                    val viaRewrite = runCatching { repository.searchPhase14(resolvedRetrievalQuery, queryPlan.clauses, candidateWork, denseEnabled, rw.parts.distinct(), topicViews(rw)) }.getOrNull()
                     val rewriteBest = viaRewrite?.bestRerank
                     val use = viaRewrite != null && viaRewrite.hits.isNotEmpty() && rewriteBest != null && rewriteBest >= literalBestScore - REWRITE_MAX_LOSS
                     Log.i(TAG, "KB_REWRITE_SEARCH literalBest=${"%.2f".format(Locale.US, literalBestScore)} rewriteBest=${rewriteBest?.let { "%.2f".format(Locale.US, it) } ?: "-"} used=$use search=${rw.search.take(120)}")
@@ -636,7 +645,12 @@ class GenericKnowledgeContextProvider(
             val vec = repository.embedForGold(ArogyaVerifiedAnswers.QUERY_PREFIX + query)
             ArogyaVerifiedAnswers.match(query, queryVec = vec)
         }.getOrNull()
-        val goldPin = if (goldScored != null && (goldScored.strong || goldScored.medium))
+        // 11 Nov 2026 (AR): strong matches only. Medium matches (score 0.65–0.80) pinned another topic's passages at
+        // the top of the evidence on 11 of 33 desktop questions: "प्रसव के बाद माँ को बहुत खून बह रहा है" pinned "continue
+        // IFA after delivery", "newborn not crying after birth" pinned "newborn feels cold", "cough, fast breathing and
+        // fever" pinned the fever answer. The answer then described the pinned topic (the TB question's pneumonia
+        // answer is this kind of failure). Without a pin the passages are the ones search and re-ranking chose.
+        val goldPin = if (goldScored != null && goldScored.strong)
             runCatching { repository.goldPassages(goldScored.item.sources) }.getOrDefault(emptyList())
         else emptyList()
         val goldRef = if (goldScored != null && goldScored.strong && goldPin.isNotEmpty())
@@ -682,11 +696,16 @@ class GenericKnowledgeContextProvider(
             val windows = if (evidenceCharBudget >= PASSAGE_MODE_MIN_CHARS)
                 (if (widePassages) GenericKbKeyFacts.passageWindows(result.hits.take(keyFactPassageCount(queryPlan) + concernExtraCount).map { it.content }, keyFacts,
                     count = CHECK_PASSAGES, maxChars = ONLINE_WINDOW_CHARS)
-                else GenericKbKeyFacts.passageWindows(result.hits.take(keyFactPassageCount(queryPlan) + concernExtraCount).map { it.content }, keyFacts))
+                else GenericKbKeyFacts.passageWindows(result.hits.take(keyFactPassageCount(queryPlan) + concernExtraCount).map { it.content }, keyFacts,
+                    factPassagesOnly = ArogyaFlags.factPassagesOnly))
             else null
             // 9 Nov 2026: which passages the model reads (page, size, end), so a phone answer can be replayed.
             windows?.let { ws -> Log.i(TAG, "KB_EVIDENCE_WINDOWS " + ws.joinToString(" | ") { (p, t) ->
                 "${sourceLabel(result.hits[p]).take(60).replace('\n', ' ')} chars=${t.length} end=\"${t.takeLast(50).replace('\n', ' ')}\"" }) }
+            // 12 Nov 2026 (AV): during a question-file run, the exact passage text the model reads (for review; off otherwise).
+            if (ArogyaFlags.logEvidenceText) windows?.forEachIndexed { i, (p, t) ->
+                t.chunked(3000).forEachIndexed { c, part -> Log.i(TAG, "KB_EVIDENCE_TEXT w=${i + 1} part=${c + 1} src=${sourceLabel(result.hits[p]).take(60).replace('\n', ' ')} :: ${part.replace('\n', ' ')}") }
+            }
             // Passages in the order of their best fact; the calculation goes with the first fact that states a percentage.
             val passageOrder = windows?.map { it.first } ?: keyFacts.map { it.passage }.distinct()
             val windowText = windows?.toMap().orEmpty()

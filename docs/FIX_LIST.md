@@ -683,3 +683,160 @@ Tests: EchoQuestionTest 7/7 (new), AnswerFormatTest 51/51; host suite 74/74 file
 | AP3 | The ASHA sees it: such an answer starts "📎 This answer also uses the photo you attached earlier." (Hindi too). | ArogyaVisitAi.buildResult |
 Not compilable here (Android files); Gradle build is the check.
 Phone check: attach a medicine strip photo → ask "what is this for?" → then ask "how many times a day?" — the second answer starts with 📎 and talks about that medicine.
+
+## AQ. 11 Nov 2026 — phone test 22:49–22:56 (TB question, Hindi swelling + headache, links)
+
+| # | Problem seen on the phone | Cause | Fix | File |
+|---|---|---|---|---|
+| AQ1 | "Child of 3 years, cough > 2 weeks, weight loss" answered as pneumonia, cited a page that starts with diarrhoea | The re-ranker gave a Hindi feeding page 3.98, above every TB passage (2.1–2.9); the TB definition never led | For a question in Latin letters, a mostly-Devanagari passage's re-rank score −3.0. Three TB passages now in the first four. 233-question sets: 225 → 226, none lost | GenericKbScriptMatch (new), GenericKnowledgePackRepository |
+| AQ2 | Hindi "पैरों में सूजन और सिरदर्द" answered with nonsense ("पश्चात्वसंभोग में दर्द") | The phone's rewrite turned it into "bleeding and nausea"; the dictionary had no symptom words; the re-ranker read Hindi songs/stories pages as relevant | Symptom/body words added to the search dictionary (सूजन, सिरदर्द, पैर, उल्टी, खांसी, चक्कर, झटके, पीलिया, पेशाब, जलन …); their meanings go to the rewrite prompt ("सूजन = swelling oedema"); a Hindi question with an English rewrite is re-ranked on the English part | ArogyaHindiTerms (glosses), GenericKbQuestionRewrite, GenericKbScriptMatch.rerankQuestion |
+| AQ3 | Hindi answer half-written (only "उत्तर:") | Loop at 1,360 chars; the 799 chars before it were kept because ≥500 | A first-generation text kept before a loop must also have ≥2 headed parts; otherwise the recovery generation writes the answer again. Log `POCKET_RAG_LOOP_KEEP_REJECTED` | PocketRagLocalGenerator |
+| AQ4 | Hindi answer had no citation at all | The answer wrote no [n]; the proof check that attaches supporting passages took 17 s and hit its 12 s limit, so nothing was attached | Proof limit 12 → 30 s; if it still cannot run, the passages the answer was given (first three) are shown as its sources. Log `KB_PROOF_UNCHECKED_SOURCES` | AndroBaselineRuntime |
+| AQ5 | "Open PDF" showed "This site can't be reached" | Not the app: log `AROGYA_OPEN_LINK ok`, Chrome opened the right address; ERR_ADDRESS_UNREACHABLE is the phone's network not reaching nhsrcindia.org | none in code | — |
+Tests: AqTest 23/23; full host suite passes. Android files not compilable here.
+
+## AR. 11 Nov 2026 — "the TB kind of failure must not happen for other questions"
+
+Measured the whole kind, not the one question: tools/question_eval/question_set_40_symptoms.tsv, 40 questions that give
+only symptoms (TB, malaria, leprosy, anaemia, dehydration, pre-eclampsia, eclampsia, PPH, sepsis, jaundice, hypothermia,
+pneumonia, measles, SAM, night blindness, bites, burns, scabies, worms, diabetes, PPD, mastitis, LBW, dysentery,
+heat stroke, asphyxia, RTI, UTI, ear, breast lump; English, Hinglish, Hindi). The right passage reaches the answer's
+evidence for 37/40 (misses: measles from "rash + red eyes", scabies, worms in Hinglish — the re-ranker scores them low).
+
+| # | Common cause found | Fix | File |
+|---|---|---|---|
+| AR1 | Verified-answer "gold pin": a MEDIUM match (0.65–0.80) put another topic's passages at the top of the evidence. Desktop replay of the app's matcher on 273 questions: wrong-topic pins for heavy bleeding after delivery (→ IFA after delivery), newborn not crying (→ newborn cold), cough + fast breathing + fever (→ fever), newborn 1.8 kg (→ how to weigh), and others. The answer then follows the pinned topic. | Pin on strong matches only (every strong pin checked was the right topic). Without a pin the evidence is exactly what search + re-ranking chose — the evidence measured above. | GenericKnowledgeContextProvider |
+| AR2 | Answer prompt said "combine every relevant passage": with a TB and a pneumonia passage, the model blended them | One rule: when passages describe different illnesses, use the one whose signs and duration match the question, name it, give its actions, do not mix in another illness's actions | PocketRagPromptBuilder |
+Tests: sim engine OrsReplay 18/18, BudgetGaps 18/18, GuideConfirm 10/10; host suite passes. The prompt rule's effect on Gemma can only be seen on the phone.
+
+## AS. 12 Nov 2026 — answering more like a careful reader: name what the question describes; give every case
+
+Works for any knowledge base (nothing health-specific in the code).
+
+| # | Change | Measured | File |
+|---|---|---|---|
+| AS1 | The question rewrite (same model call, no extra time) writes one more line, `TOPIC:` — the name the documents would use for what the question describes but does not name (the illness the signs point to; in a procurement pack the rule or scheme). It finds candidate passages (full-text and vector lanes) but is NOT part of what the re-ranker reads, so a wrong or broad name cannot pull the ranking away from the user's own signs. Dropped when NONE, longer than 6 words, only repeating the question's words, or a copied prompt example. Flag `rewriteTopic`. Log `KB_QUESTION_REWRITE … topic=` | 273 questions with the names a careful model would give: 263 → 266 (symptom-only set 37 → 39/40). With the names shuffled onto the wrong questions (worst case): 48/50 and 36/40 vs 48/50 and 37/40 without names. Read by the re-ranker as well it was worse on wrong names (47, 35), so search-only it is | GenericKbQuestionRewrite, GenericKnowledgeContextProvider, GenericKbPhase14Engine (searchOnlyViews), GenericKnowledgePackRepository, ArogyaFlags |
+| AS2 | Answer prompt: when the answer differs by case (age, weight, category or amount) and the question does not say which, give it for each case the evidence lists, one line each | sim engine 18/18, 18/18, 10/10; Gemma's behaviour only on the phone | PocketRagPromptBuilder |
+Rewrite output limit 96 → 120 tokens (the TOPIC line). Tests: AsTest 13/13, FollowUpTest updated (prompt's last line names TOPIC).
+Known, not changed: the example-copy filter can reject a correct Hinglish fever rewrite ("…child has very high fever" resembles an old example); the dictionary views are then used instead.
+
+## AT. 12 Nov 2026 — stop the "passes my test, fails the next phone question" cycle
+
+Desktop checks only measure which passages reach the phone, on questions written for the checks; the phone's model was
+never checked on many unseen questions. Now the phone itself runs a question file through the real Ask SOP path and saves
+every full answer for review.
+- ArogyaBenchmark.runFile + button "Run question file (eval_questions.txt)" in AI page → Advanced (testing), debug builds.
+- Reads `eval_questions.txt` from the app's folder (adb push), fresh visit per question, appends one JSON line per answer
+  (question, full text, sources, quote, provider, ms, error) to `eval_answers.jsonl` after every question (adb pull).
+  Screen kept on during the run; keep the dialog open. Logs `AROGYA_EVAL_START/END/DONE`.
+- tools/question_eval/eval_questions.txt: 100 questions (40 symptom-only + 60 new: doses, schedules, home care,
+  counselling, incentives, NCDs, Hinglish, Hindi, two-part, out-of-scope).
+
+## AU. 12 Nov 2026 — first phone answer-quality run (18 answers read): 6 good, 8 partly right, 4 wrong
+
+| # | Cause seen in the real answers | Fix | Measured | File |
+|---|---|---|---|---|
+| AU1 | Unrelated passages blended in: the phone filled its 4 evidence slots with passages that hold none of the question's key sentences ("avoid heat exposure" for fever + rash; an anaemia-guideline page for a newborn with pus spots; sepsis paracetamol text in the jaundice answer) | Phone reads only the best passage and passages with a key sentence (fill-up passages dropped when key sentences exist). Flag `factPassagesOnly` | 273 desktop questions: 266 → 266, 13% fewer passages | GenericKbKeyFacts.passageWindows, GenericKnowledgeContextProvider |
+| AU2 | Padding: "Common mistakes to avoid: This part is not covered in the selected knowledge base." and the same sentence tacked onto complete answers | The generic sentence and "there are no … mentioned in the evidence" removed, then empty part labels; the app's own named line for a part really not covered is then added as before. Flag `dropFiller` | On all 18 real phone answers: no padding left, no other sentence removed | ArogyaAnswerFormat.dropNotCoveredFiller, PocketRagEngine.discloseUnsupportedClauses |
+Not yet fixed (need the phone log of the next run): TB/measles not found from symptoms (did the TOPIC line fire?); conflicting guides (cotrimoxazole in Module 7 vs amoxicillin in SAANS 2025); missing first-aid step (dog bite wound washing).
+Tests: AuTest 63/63 (on the real answers), sim engine 18/18, 18/18, 10/10, host suite passes.
+
+## AV. 12 Nov 2026 — second phone run (19 answers + log): answers identical to run 1
+
+Why identical: the phone decodes greedily (same evidence → same words), and the AU passage filter did not trigger —
+the unrelated passages (anaemia-guideline page for the newborn, sepsis text for jaundice) each held one selected key
+sentence, so they counted as relevant. Desktop check of a key-sentence score cut-off: loses good passages faster than
+bad ones (266 → 250–258); a sentence-vs-question relevance filter on the real answers: good sentences score as low as
+wrong ones. Neither shipped.
+
+Bugs of mine found in the log and fixed:
+| # | Bug | Fix | File |
+|---|---|---|---|
+| AV1 | A rewrite whose SEARCH line contains the question itself was taken for an echo of the question and thrown away (3 of 19: malaria, pale breathless pregnant woman, cold newborn) | Only lines that are not SEARCH/TOPIC/CALC/FOLLOWS can be an echo | GenericKbQuestionRewrite.parse |
+| AV2 | Gemma wrote TOPIC: tuberculosis for cough with blood in sputum; dropped because the example guard also required "weight" | One sign is enough | GenericKbQuestionRewrite |
+Observed: Gemma's TOPIC lines are mostly restatements ("pregnancy symptoms", "newborn health", "skin rash"); real names only
+sometimes (tuberculosis, postpartum bleeding, dog bite).
+Tests: AsTest 17/17, FollowUpTest, AnswerFixesTest, Batch2Test, PipelineSimTest pass.
+- AV3: during a question-file run the exact passage text the model reads is logged (KB_EVIDENCE_TEXT, flag logEvidenceText set only by runFile). tools/question_eval/eval_questions_25.txt for quick loops.
+
+## AW. 12 Nov 2026 — answer step redesigned from the phone's real answers
+
+| # | Cause in the real answers | Fix | File |
+|---|---|---|---|
+| AW1 | The model, told to combine every passage, blended passages about other problems into the answer (wrong sentences in the pus-spots, jaundice, diarrhoea, measles answers) | Pick, then write: a short first call shows the question and the opening of each passage and asks which ones are about the same problem, person and situation (numbers only); the answer is written from those (max 3, best first). Unreadable reply, "0", or all chosen → evidence unchanged; the recovery generation reuses the same choice. Flag `pickPassages`. Log `KB_PASSAGE_PICK reply= picked= of=` | ArogyaPassagePick (new), PocketRagLocalGenerator |
+| AW2 | "Eight to fourteen sentences", "never a single sentence" and a required "Why it matters" made the phone model pad (and invent a reason: "bleeding or infections" for headache + blurred vision) | Phone only: length follows the material on this question; Why it matters / When to tell the ANM / Common mistakes only when the material gives them; never a sentence from a passage about something else. Cloud shape unchanged | ArogyaQuestionType.lengthLine, PocketRagPromptBuilder.LENGTH |
+| AW3 | "The mother should…" for a farmer; cotrimoxazole (older module) vs amoxicillin (SAANS 2025) mixed | Rules: write about the person in the question; when passages give different medicines/actions for the same case, follow the first passage and do not mix | PocketRagPromptBuilder |
+Tried and NOT shipped: closest checked answer as an extra search view (273 desktop questions 266 → 263).
+Tests: AwTest 20/20, AsTest 17/17, AqTest 23/23, AnswerFixes/Batch3/Batch4/Tier/Budget/QuestionKind/PipelineSim pass, sim engine 18/18, 18/18, 10/10.
+Not compilable here: PocketRagLocalGenerator (Android) — the Gradle build is the check.
+- AW regression check (12 Nov, before build): test copy byte-identical to the laptop's 232 source files; host suite 78 files pass
+  (AnswerFormatTest/Batch2Test updated: they asserted the old phone "eight to fourteen sentences"); asset tests (AshaJourney,
+  DocRender, GoldMatch, Growth) pass; sim engine 18/18, 18/18, 10/10; AuTest 63/63 on real answers. Added guard: a question
+  with two or more parts skips the pick (a pick could keep only one part's passages).
+
+## AX. 12 Nov 2026 — phone run 3 (10 answers): 5 better, 3 worse, 2 same vs run 1
+
+Better: pus spots, bleeding after delivery, headache + blurred vision, leprosy, TB (padding and other-passage sentences gone).
+Worse: fever every alternate day (pick chose an acute-fever page, malaria dropped), fits in pregnancy (pick chose an epilepsy
+page), pale breathless pregnant woman (too short: IFA dose and Hb recheck lost).
+Fixes: the search's best passage is always kept with the model's choice (ArogyaPassagePick.withBest); phone shape asks for every
+step, dose, number and referral rule on this question; "There is no mention of … in the provided evidence" removed as filler.
+Rollback without a rebuild of code: ArogyaFlags.pickPassages / factPassagesOnly / dropFiller / rewriteTopic = false.
+Previous versions: backup_20261112_AU, _AW, _AX.
+Tests: AwTest 26/26, AuTest 63/63 + 39/39 (run 1 and run 3 answers), host suite 73 + 4 asset tests pass, sim engine 18/18, 18/18, 10/10.
+
+## Direction (agreed 12 Nov 2026)
+ASHA-specific pieces already built stay (Hindi symptom words, ASHA rewrite examples, ANM labels, 100 checked answers).
+From now on every change targets a good on-phone RAG that works for ANY knowledge base and any on-device model:
+- no guide-specific words in the core path (search → choose matching passages → write only from them → check);
+- anything guide-specific goes in that guide's data, never in core code;
+- model differences are decided by capability (context size, model size), not by model name;
+- a change ships only after the question-file run on the phone shows no question worse than its best earlier answer.
+
+## AY. 12 Nov 2026 — laptop scorecard (no phone in the loop)
+tools/eval/run_llm.py runs a prompt file through the phone's exact model file (gemma-3n-E2B-it-int4.litertlm) with
+Google's LiteRT-LM on the laptop (pip install litert-lm); tools/eval/score.py grades every answer (expected facts,
+numbers traceable to the given text, unsupported sentences, loops). prompts.jsonl holds, for 25 questions, the prompt the
+app sends today ("current") and the constrained extract→rephrase prompts ("c2"/"c3": top 2/3 whole passages, form lines
+removed; "c2_t03": gentle sampling). Nothing in the kit is guide- or model-specific.
+Finding while building it: the 900-char evidence window cut the key sentence ("umbilical cord is swollen, red or has pus
+discharge … refer") out of the best passage for the newborn question — whole passages are used in the constrained prompts.
+
+## AZ/BA. 12 Nov 2026 — measured on the laptop with the phone's own model (no phone in the loop)
+
+Measurements (tools/eval, Gemma 3n E2B on the laptop):
+- Search: 266/273 with a good English rewrite, 166/273 with none → the rewrite step carries the search.
+- The model's own rewrites are good (Hindi/Hinglish included) but the app's parser discarded 17/273 correct ones as
+  "copied examples" — all Hindi/Hinglish child fever/cough/diarrhoea questions. AZ fixes it: the question's translated
+  Hindi words (hinglishHints, glosses, dictionary views) count as the user's words. 273/273 now parse; real copies still rejected.
+- Answer prompts (25 symptom-only questions, same evidence): current prompt ~16/25 good by reading; constrained
+  rewrite-only prompts 11–13/25 (the 2B model follows off-topic text it is given, retells case stories). Current kept.
+- Evidence cleaning by re-ranker threshold or by the model's own YES/NO per passage: both drop the right passage in
+  4–7 of 25 questions → not used. The model's passage pick (AW) hurt on the phone → `pickPassages=false`.
+- Form/checklist rows ("Yes/No Yes/No …", "Day 1 Day 3 …") scored above the guide's own sentence → BA strips form cells
+  from key-fact units (`formRowsOff`).
+- BA UI: offline answer shows the matching guide passage (page, highlights) ABOVE the model's summary ("📖 From the
+  guide — … / Summary"), flag `guideFirst`. The guide's own words are always on screen first.
+- Found: the desktop harness scored key sentences lexically while the phone uses the re-ranker → harness `-Dkf=neural`.
+Token/length budgets: unchanged everywhere (owner's instruction).
+Tests: BaTest 10/10, AsTest 20/20, AwTest 26/26, AqTest, AuTest 87/87, RerankFocus, ProofBatch, GoldPin, AnswerFixes pass.
+
+## Handover 12 Nov 2026 (end of session)
+State: all changes above are in the working tree (not committed). Build with `gradlew.bat assembleDebug`.
+Measured (laptop, phone's own model Gemma 3n E2B): search 258/273 (95%) with the model's real rewrites after the AZ parser
+fix (was 242 = 89%; ideal rewrites 266 = 97%). Answer step: current prompt kept (best of 4 designs by reading);
+guide-first UI makes the guide's own passage the first thing on screen; pick step off; form rows out of evidence.
+Scorecard kit: tools/eval (run_llm.py, score.py, prompts*.jsonl). Rerun after any change:
+  python tools\eval\run_llm.py --model models\gemma-3n-E2B-it-int4.litertlm --prompts tools\eval\prompts_current_b.jsonl --out tools\eval\answers_current_b.jsonl
+  python tools\eval\score.py tools\eval\answers_current_b.jsonl   (floor check; read the answers for the real verdict)
+Open: answer quality on symptom-only questions (~65% good by reading) is bounded by the 2B model blending off-topic
+text; levers left are a stronger on-device model (Gemma 4 E2B file is in Downloads) or online when reachable.
+Rollback switches (ArogyaFlags): guideFirst, formRowsOff, pickPassages, dropFiller, factPassagesOnly, rewriteTopic.
+
+## BB. 12 Nov 2026 — any .litertlm model can replace the phone model
+Bug: Setup → "Install a Gemma .litertlm file from this phone" accepted only the exact name gemma-3n-E2B-it-int4.litertlm,
+so a Gemma 4 bundle was refused ("not the Gemma 3n bundle" / failed). Fix: any .litertlm bundle (not -web/.mediatek./
+.qualcomm./-npu builds) ≥ 500 MB is accepted, copied to a .part file first, stored under its own name and selected; the
+engine reloads on the next answer because the selected file name changed (FixSightRuntimeGraph.ensureLocalModelReady).
+Free-space check before copying. The runtime (litertlm-android 0.16.1) loads Gemma 4 bundles (PocketSage runs Gemma 4 on 0.10.2).
+Tests: BbTest 10/10, SetupPlanTest 18/18, SetupMatchTest 14/14.

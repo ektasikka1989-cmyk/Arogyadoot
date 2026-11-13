@@ -16,7 +16,7 @@ object ArogyaSetupMatch {
         if (n == GUIDE_V2_NAME.lowercase()) return Kind.GUIDE_V2
         if (n == GUIDE_V1_NAME.lowercase()) return Kind.GUIDE_V1
         if (n.endsWith(".gguf")) return Kind.LLAMA
-        if (n == "gemma-3n-e2b-it-int4.litertlm") return Kind.GEMMA
+        if (n.endsWith(".litertlm")) return Kind.GEMMA
         if ((n.contains("whisper") || n.startsWith("ggml")) && (n.endsWith(".bin") || n.endsWith(".onnx"))) return Kind.WHISPER
         return null
     }

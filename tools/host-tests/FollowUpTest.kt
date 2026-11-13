@@ -30,7 +30,7 @@ fun main() {
     val follow = GenericKbQuestionRewrite.prompt("aur kitne din dena hai?", emptyList(), prev)
     check("prompt-first-no-earlier", "Earlier question" !in first)
     check("prompt-follow-earlier", "Earlier question: $prev" in follow)
-    check("prompt-follow-question-last", follow.trimEnd().endsWith("Write only the FOLLOWS, SEARCH and CALC lines for this last question.") && first.trimEnd().endsWith("Write only the SEARCH and CALC lines for this last question."))
+    check("prompt-follow-question-last", follow.trimEnd().endsWith("Write only the FOLLOWS, SEARCH, TOPIC and CALC lines for this last question.") && first.trimEnd().endsWith("Write only the SEARCH, TOPIC and CALC lines for this last question."))
     check("prompt-follow-order", follow.indexOf("Earlier question: $prev") < follow.indexOf("Question: aur kitne din dena hai?"))
 
     // A follow-up's rewrite naming the earlier subject is kept (not taken for a copied example).

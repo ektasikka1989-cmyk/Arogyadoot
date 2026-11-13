@@ -40,6 +40,13 @@ object ArogyaFlags {
     @Volatile var salvageBeforeRecovery = false // R3-lite salvage before the recovery regeneration
     // 8 Nov 2026 answer fixes (docs/ANSWER_FAILURE_RCA_20261108.md).
     @Volatile var loopKeepBefore = true      // decoder loop: keep the text before the loop (else discard + regenerate)
+    @Volatile var pickPassages = false       // 12 Nov (BA): off — the laptop scorecard showed the 2B model's choice drops the right passage (malaria, fits in pregnancy)
+    @Volatile var formRowsOff = true         // 12 Nov (BA): form/checklist rows (Yes/No grids) are never key facts
+    @Volatile var guideFirst = true          // 12 Nov (BA): offline answer shows the guide's own passage (with page) above the model's summary
+    @Volatile var logEvidenceText = false    // 12 Nov (AV): set only during a question-file run: log the passages the model reads
+    @Volatile var factPassagesOnly = true    // 12 Nov (AU): phone reads only the best passage + passages holding a key sentence
+    @Volatile var dropFiller = true          // 12 Nov (AU): remove "This part is not covered…" padding and empty part labels
+    @Volatile var rewriteTopic = true        // 11 Nov (AS): the rewrite names what a question describes ("tuberculosis"); searched as one more view
     @Volatile var negationFlipGuard = true   // drop an answer sentence that states what the evidence says "do not" do
     @Volatile var citeAllSupportingSources = true // sources = verified [S#] markers + passages the answer clearly used
     @Volatile var detailFreshSearch = true    // More detail: fresh search with 8 passages (else the cached 6-passage packet)

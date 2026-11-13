@@ -298,7 +298,13 @@ class GenericKbPhase14Engine<T>(
         /** Pack-declared precedence of a passage's document (1 = primary); null = not declared. */
         precedenceOf: (T) -> Int? = { null },
         /** Extra search views, e.g. the question rewritten into a self-contained search question. */
-        extraViews: List<String> = emptyList()
+        extraViews: List<String> = emptyList(),
+        /**
+         * 11 Nov 2026 (AS): views that only find candidates (full-text and vector lanes) and are never part of what the
+         * re-ranker reads as the question: the rewrite's TOPIC ("tuberculosis"), so a wrong or broad name cannot pull
+         * the ranking away from the user's own signs.
+         */
+        searchOnlyViews: List<String> = emptyList()
     ): Result<T>? {
         val started = clock()
         val literalText = literal.trim()
@@ -336,7 +342,7 @@ class GenericKbPhase14Engine<T>(
             add(GenericKbRetrievalPlan.Variant(GenericKbRetrievalPlan.Lane.LITERAL, singleClause, literalText))
             if (clauses.size > 1) clauses.forEach { add(GenericKbRetrievalPlan.Variant(GenericKbRetrievalPlan.Lane.CLAUSE, it.id, it.literal)) }
             if (spelling != null) add(GenericKbRetrievalPlan.Variant(GenericKbRetrievalPlan.Lane.SPELLING, singleClause, spelling))
-            extraViews.filter { it.isNotBlank() && !it.equals(literalText, ignoreCase = true) }
+            (extraViews + searchOnlyViews).filter { it.isNotBlank() && !it.equals(literalText, ignoreCase = true) }.distinct()
                 .forEach { add(GenericKbRetrievalPlan.Variant(GenericKbRetrievalPlan.Lane.REWRITE, singleClause, it)) }
             // The abbreviation's long form on its own finds rule text written in long form.
             if (aliasText.isNotBlank()) add(GenericKbRetrievalPlan.Variant(GenericKbRetrievalPlan.Lane.ALIAS, singleClause, aliasText))
@@ -362,7 +368,7 @@ class GenericKbPhase14Engine<T>(
         // hits: the n-th hit of a rewrite counts as rank n, so each part's best full-text hits reach the
         // re-ranker (appended after all literal hits, a second part's best passage never did).
         val viewLexicalTop = HashSet<String>()
-        extraViews.filter { it.isNotBlank() }.forEach { view ->
+        (extraViews + searchOnlyViews).filter { it.isNotBlank() }.distinct().forEach { view ->
             lexicalRanks(view).forEach { (id, rank) ->
                 lexical[id] = minOf(lexical[id] ?: rank, rank)
                 if (rank <= VIEW_LEXICAL_RERANK) viewLexicalTop += id

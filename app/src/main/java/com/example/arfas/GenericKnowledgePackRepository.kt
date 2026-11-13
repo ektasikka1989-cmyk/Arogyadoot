@@ -1686,7 +1686,7 @@ class GenericKnowledgePackRepository(
         }
         val texts = hits.map { (it.headingContext?.let { h -> "$h\n" } ?: "") + it.content }
         val scores = if (hits.isNotEmpty() && semanticEngine.isReady && reranker.ready()) {
-            runCatching { reranker.score(literal.trim(), if (ArogyaFlags.rerankFocus) texts.map { GenericKbRerankFocus.focus(literal.trim(), it) } else texts) }.getOrNull()?.takeIf { it.size == hits.size }
+            runCatching { GenericKbScriptMatch.adjust(literal.trim(), texts, reranker.score(literal.trim(), if (ArogyaFlags.rerankFocus) texts.map { GenericKbRerankFocus.focus(literal.trim(), it) } else texts)) }.getOrNull()?.takeIf { it.size == hits.size }
         } else null
         val order = GenericKbRetrievalPlan.lexicalFallbackOrder(hits.map { ranks[it.chunkId] ?: Int.MAX_VALUE }, scores)
         val ordered = order.map { i -> hits[i].copy(rankScore = scores?.get(i) ?: (1f / (60 + (ranks[hits[i].chunkId] ?: 60)))) }
@@ -1929,7 +1929,9 @@ class GenericKnowledgePackRepository(
         /** False after a failed vector-space check: dense lanes off, full-text retrieval continues. */
         denseEnabled: Boolean = true,
         /** Extra search views (the question rewritten by the answer model); the literal is always searched. */
-        extraViews: List<String> = emptyList()
+        extraViews: List<String> = emptyList(),
+        /** 11 Nov 2026 (AS): views that find candidates but are not read by the re-ranker (the rewrite's topic). */
+        searchOnlyViews: List<String> = emptyList()
     ): Phase14Result? = withContext(Dispatchers.IO) {
         val database = db ?: return@withContext null
         if (!isReady() || literal.isBlank()) return@withContext null
@@ -2057,12 +2059,16 @@ class GenericKnowledgePackRepository(
                 rerankPairs += passages.size
                 // 9 Nov 2026 (AE): the re-ranker reads ~1,000 passage characters; a long passage is scored on
                 // its sentences that answer the question (GenericKbRerankFocus), not only on its first half.
-                val scored = if (ArogyaFlags.rerankFocus) passages.map { GenericKbRerankFocus.focus(question, it) } else passages
-                reranker.score(question, scored).also { rerankMs += System.currentTimeMillis() - t }
+                // 11 Nov 2026 (AQ): a Hindi question is scored on its English rewrite, and Hindi passages need a clearly
+                // better score for a question in Latin letters (GenericKbScriptMatch).
+                val rq = GenericKbScriptMatch.rerankQuestion(question)
+                val scored = if (ArogyaFlags.rerankFocus) passages.map { GenericKbRerankFocus.focus(rq, it) } else passages
+                GenericKbScriptMatch.adjust(rq, passages, reranker.score(rq, scored)).also { rerankMs += System.currentTimeMillis() - t }
             } else null,
             denseEnabled = dense && calibration != null,
             precedenceOf = { hit -> hit.sourceName?.let { catalog[it]?.precedence } },
-            extraViews = extraViews
+            extraViews = extraViews,
+            searchOnlyViews = searchOnlyViews
         ) ?: return@withContext null
         Log.i(TAG, "KB_PHASE14_TRACE ${result.trace} cal=${phase14Calibration?.encode() ?: "-"}")
         Log.i(TAG, "POCKET_RAG_SEARCH_MS fts=$ftsMs embed=$embedMs rerank=$rerankMs pairs=$rerankPairs calls=$rerankCalls engine=${System.currentTimeMillis() - tEngine}")

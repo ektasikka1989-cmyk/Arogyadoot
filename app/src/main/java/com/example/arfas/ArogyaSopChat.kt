@@ -333,6 +333,19 @@ fun SopAnswerCard(
                 if (result.quoteSource.isNotBlank()) Text("— " + result.quoteSource, style = MaterialTheme.typography.bodySmall)
             }
         }
+        // 12 Nov 2026 (BA): guide first. The matching guide passage (its answering sentences highlighted, page and
+        // document named) is shown before the model's summary, so the ASHA always sees the guide's own words first and
+        // the summary is read as a summary. Offline tab, guide sources only.
+        val guideFirstSource = tabSources.firstOrNull()?.takeIf { ArogyaFlags.guideFirst && tab == 0 && grounded && it.kind != "web" && it.excerpt.isNotBlank() }
+        if (guideFirstSource != null) Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(tr("📖 From the guide", "📖 गाइड से") + " — " + guideFirstSource.title +
+                    (if (guideFirstSource.locator.isNotBlank()) ", ${guideFirstSource.locator}" else ""),
+                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                ArogyaPassageText(guideFirstSource)
+            }
+        }
+        if (guideFirstSource != null) Text(tr("Summary", "सारांश"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
         SopAnswerText(tabText, tabSegments, if (tab == 1) news else emptySet(), ::cite)
         if (ArogyaFlags.r7SourceLine && tabSources.isNotEmpty()) {
             val s0 = tabSources.first()

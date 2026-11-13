@@ -41,16 +41,24 @@ object ArogyaSetup {
     /** Copy a Gemma .litertlm bundle from [uri] into filesDir/models and select it. */
     suspend fun installGemma(c: Context, uri: Uri, name: String, onProgress: (Int) -> Unit): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            if (!ArogyaSetupPlan.gemmaFileNameOk(name)) error("not the Gemma bundle")
+            if (!ArogyaSetupPlan.gemmaFileNameOk(name)) error("not a .litertlm model bundle")
             val dir = File(c.filesDir, "models").also { it.mkdirs() }
-            val target = File(dir, ArogyaSetupPlan.GEMMA_FILE)
+            // 12 Nov 2026 (BB): stored under its own name (so a Gemma 4 bundle can replace Gemma 3n and the engine
+            // reloads because the selected file name changed), copied to a temporary file first so a half-copied
+            // bundle is never the selected model.
+            val target = File(dir, ArogyaSetupPlan.bundleStoreName(name))
+            val tmp = File(dir, target.name + ".part")
             val total = c.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+            if (total > 0 && dir.usableSpace < total + 200_000_000L) error("not enough free space: need ${total / 1_000_000} MB")
             c.contentResolver.openInputStream(uri)?.use { inp ->
-                target.outputStream().use { out ->
+                tmp.outputStream().use { out ->
                     val buf = ByteArray(1 shl 20); var done = 0L; var n = inp.read(buf)
                     while (n > 0) { out.write(buf, 0, n); done += n; if (total > 0) onProgress(((done * 100) / total).toInt().coerceIn(0, 100)); n = inp.read(buf) }
                 }
             } ?: error("cannot open $name")
+            if (total > 0 && tmp.length() < total) error("copy incomplete (${tmp.length()} of $total bytes)")
+            if (target.exists()) target.delete()
+            if (!tmp.renameTo(target)) error("could not place the bundle")
             onProgress(100)
             ModelFileManager(c.applicationContext).saveModelFileName(ModelFileManager.ModelType.GEMMA_E2B, target.name)
             Log.i(TAG, "AROGYA_SETUP installed gemma ${target.name} ${target.length()} bytes")

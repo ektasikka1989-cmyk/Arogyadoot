@@ -41,7 +41,8 @@ fun main() {
     val list = ArogyaQuestionType.lengthLine(ArogyaQuestionType.Kind.LIST)
     check("line-list", "one line per item" in list && "'What to do:'" in list)
     val fact = ArogyaQuestionType.lengthLine(ArogyaQuestionType.Kind.FACT)
-    check("line-fact", "eight to fourteen" in fact && "'Answer:'" in fact && "'Why it matters:'" in fact && "'When to tell the ANM:'" in fact && "'Common mistakes to avoid:'" in fact)
+    // 12 Nov 2026 (AW): the phone answer has no fixed sentence count any more (it padded with other passages); labels stay.
+    check("line-fact", "eight to fourteen" !in fact && "'Answer:'" in fact && "'Why it matters:'" in fact && "'When to tell the ANM:'" in fact && "'Common mistakes to avoid:'" in fact)
     val urg = ArogyaQuestionType.lengthLine(ArogyaQuestionType.Kind.URGENT)
     check("line-urgent", "most useful action first" in urg)
     val det = ArogyaQuestionType.detailLine()

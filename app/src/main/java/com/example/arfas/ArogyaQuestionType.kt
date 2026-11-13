@@ -150,6 +150,24 @@ object ArogyaQuestionType {
         // 8 Nov 2026: the phone asks for the same full answer as the cloud (quality over speed);
         // "six to ten" on the phone made Gemma stop early even with a large output budget.
         val total = if (cloud) "eight to fourteen" else "eight to fourteen"
+        // 12 Nov 2026 (AW, phone answer-quality run): "eight to fourteen sentences" and a required "Why it matters" made
+        // the phone model pad its answer with sentences from passages about other problems (delayed cord clamping for
+        // a newborn with pus spots, walking barefoot for diarrhoea, "bleeding or infections" as the reason for headache
+        // with blurred vision). On the phone the length now follows the material on this question; the cloud keeps
+        // its full shape.
+        if (!cloud) return head.replace("cover every point the material gives on this question ", "cover every point the material gives on THIS question ") + core +
+            "Shape the answer in labelled parts, each part on its own lines starting with its label and a colon: " +
+            "${l[0]} what it is and the most important action, in two to three sentences; " +
+            // 12 Nov 2026 (AX): "a short complete answer" alone lost the IFA dose and the Hb recheck (pale breathless
+            // pregnant woman): every step, dose and referral rule of the material on this question is kept.
+            "give every step, dose, number and referral rule the material gives on this question; " +
+            "${l[1]} one sentence, only when the material says why (otherwise skip this part); " +
+            "${l[2]} the numbered steps, or one line per item, only from the material (skip when it gives none); " +
+            "${l[3]} the referral conditions, only when the material gives them (otherwise skip this part); " +
+            "${l[4]} only the mistakes the material warns about (skip when it gives none). " +
+            "Use only the passages about this problem and this person; never add a sentence from a passage about something else. " +
+            "Stop when the material on this question is covered: a short complete answer is better than a long one. " +
+            "The app already shows one quoted line above your answer, so do not just repeat that line."
         val shape = "Shape the answer in labelled parts, each part on its own lines starting with its label and a colon: " +
             "${l[0]} with the direct answer in two to three sentences; " +
             "${l[1]} with one to two sentences on why it matters; " +

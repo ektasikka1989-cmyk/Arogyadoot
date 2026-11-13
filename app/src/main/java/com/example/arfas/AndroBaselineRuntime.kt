@@ -76,7 +76,9 @@ class AndroBaselineRuntime(
         private const val KB_SELECTOR_CLOUD_TIMEOUT_MS = 18_000L
         private const val LOCAL_TURN_TIMEOUT_MS = 20_000L
         private const val SAM_ONLINE_TIMEOUT_MS = 20_000L
-        private const val PROOF_TIMEOUT_MS = 12_000L
+        // 11 Nov 2026 (AQ): 12 s was shorter than the phone's re-ranker on a Hindi answer (17 s at 22:56): the check
+        // was dropped, so the answer showed no source at all. Quality over speed.
+        private const val PROOF_TIMEOUT_MS = 30_000L
         /** Evidence budget for "Check online": the online model reads much more than the phone's 6k context. */
         /** 8 Nov 2026: was 24,000 – passages for Check online now fit Groq's free-tier 8K tokens/minute with the answer. */
         private const val CHECK_ONLINE_CONTEXT_TOKENS = 10_000
@@ -1056,6 +1058,18 @@ class AndroBaselineRuntime(
     }
 
     /**
+     * 11 Nov 2026 (AQ): an answer that cites nothing and could not be checked (proof slow or no statements) still
+     * shows where it came from: the passages it was given (first three), never an answer without any source.
+     */
+    private fun withGivenSources(result: PocketRagResult, packet: PocketRagPacket, cited: Set<String>): PocketRagResult {
+        if (cited.isNotEmpty() || packet.sources.isEmpty()) return result
+        val given = packet.evidenceBlocks.map { it.sourceId.uppercase() }.distinct().take(3)
+        val refs = packet.sources.filter { it.id.uppercase() in given }.map { "kbref:${it.id} :: ${it.display}" }
+        Log.i(TAG, "KB_PROOF_UNCHECKED_SOURCES given=${refs.size}")
+        return if (refs.isEmpty()) result else result.copy(sourceIds = result.sourceIds + refs)
+    }
+
+    /**
      * ArogyaDoot's proof check on an accepted knowledge-base answer: every statement is matched to a
      * cited passage (re-ranker + numbers); statements found nowhere are removed when the rest stands,
      * and the result carries "proof:<found>/<total>" for the Sources box.
@@ -1080,8 +1094,8 @@ class AndroBaselineRuntime(
                 AnswerProof.check(result.text, passages, genericKnowledgeProvider?.proofScorer(), packet.sources.map { it.display },
                     pairScorer = genericKnowledgeProvider?.proofPairScorer())
             }
-        }.onFailure { if (it is CancellationException) throw it }.getOrNull() ?: return result
-        if (proof.total == 0) return result
+        }.onFailure { if (it is CancellationException) throw it }.getOrNull() ?: return withGivenSources(result, packet, cited)
+        if (proof.total == 0) return withGivenSources(result, packet, cited)
         val pruned = AnswerProof.prune(result.text, proof)
         val final = pruned?.second ?: proof
         var sourceIds = result.sourceIds

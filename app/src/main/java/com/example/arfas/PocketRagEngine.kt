@@ -106,10 +106,13 @@ class PocketRagEngine(
          * wording). Skipped only when the answer already carries the app's marker sentence,
          * which replaced a model [[NOT_IN_EVIDENCE]] marker.
          */
-        fun discloseUnsupportedClauses(packet: PocketRagPacket, answer: String): String {
+        fun discloseUnsupportedClauses(packet: PocketRagPacket, raw: String): String {
+            // 12 Nov 2026 (AU): the generic "This part is not covered…" sentence and empty part labels are removed
+            // first (they padded complete answers); the app's own line below then names any part really not covered.
+            val answer = if (ArogyaFlags.dropFiller) runCatching { ArogyaAnswerFormat.dropNotCoveredFiller(raw) }.getOrDefault(raw) else raw
             val unsupported = packet.clauseCoverage.filter { it.state == GenericKbCoverageState.UNSUPPORTED }
             if (unsupported.isEmpty()) return answer
-            if (answer.contains(PocketRagQualityGate.UNSUPPORTED_PART_SENTENCE)) return answer
+            if (!ArogyaFlags.dropFiller && answer.contains(PocketRagQualityGate.UNSUPPORTED_PART_SENTENCE)) return answer
             val clauses = GenericKbQueryPlanner.plan(packet.query, packet.query).clauses.associateBy { it.id }
             // "what should I do" names no topic: it is answered by the rest of the question, never "not covered".
             val lines = unsupported.mapNotNull { c -> clauses[c.clauseId]?.literal?.trim()?.takeIf { it.isNotBlank() && !KbReplyText.isGenericAsk(it) } }

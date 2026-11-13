@@ -152,6 +152,34 @@ object ArogyaAnswerFormat {
      * A first line with no label and no full stop, directly followed by a section label, that shares words with
      * the question (or ends with "?") is dropped. Anything else is left exactly as it is.
      */
+    /**
+     * 12 Nov 2026 (AU, phone run of 18 questions): sections the guide had nothing for came out as
+     * "Common mistakes to avoid: This part is not covered in the selected knowledge base." and the same sentence
+     * was tacked onto answers that were complete. The generic sentence (the app's replacement for the model's
+     * [[NOT_IN_EVIDENCE]] marker) and the model's "there are no common mistakes mentioned in the evidence" are
+     * removed, then any part label left with nothing after it. The app's own line naming an uncovered part
+     * ("Not covered in the selected knowledge base: “…”") is a different sentence and stays. Returns [text]
+     * unchanged when nothing else would remain.
+     */
+    fun dropNotCoveredFiller(text: String): String {
+        var t = text
+        FILLER.forEach { rx -> t = rx.replace(t, "") }
+        // A label with nothing after it (end of line, end of text, or straight into the next label).
+        repeat(3) { t = EMPTY_LABEL.replace(t, "") }
+        t = t.replace(Regex("[ \\t]+\n"), "\n").replace(Regex("\n{3,}"), "\n\n").replace(Regex("[ \\t]{2,}"), " ").trim()
+        return if (t.isBlank() || !t.any { it.isLetter() }) text else t
+    }
+
+    private val FILLER = listOf(
+        Regex("(?i)\\s*This part is not covered in the selected knowledge base\\.?"),
+        Regex("(?i)\\s*There (?:are|is) no [^.\\n]{0,80}?(?:mentioned|given|provided|listed|stated) in the (?:evidence|documents?|knowledge base|passages?)\\.?"),
+        Regex("(?i)\\s*There is no mention of [^.\\n]{0,80}? in the (?:provided |given )?(?:evidence|documents?|knowledge base|passages?)\\.?"),
+        Regex("(?i)\\s*(?:This|That) (?:part|section|information) is not (?:covered|mentioned|provided|given) in the (?:selected )?(?:knowledge base|evidence|documents?|passages?)\\.?")
+    )
+    private val LABEL_WORDS = "answer|why it matters|what to do|when to tell (?:the )?anm|common mistakes(?: to avoid)?|" +
+        "उत्तर|क्यों ज़रूरी|क्यों जरूरी|क्या करें|(?:anm|एएनएम) को कब बता(?:एं|एँ|ये)|आम गलतियाँ|आम गलतिया"
+    private val EMPTY_LABEL = Regex("(?i)(?:^|(?<=\\n)|(?<=[.!?।)\\]]))[ \\t]*(?:$LABEL_WORDS)\\s*[:：][ \\t]*(?=\\n|$|(?:$LABEL_WORDS)\\s*[:：])")
+
     fun dropEchoedQuestion(text: String, question: String): String {
         val lines = text.lines()
         val i = lines.indexOfFirst { it.isNotBlank() }

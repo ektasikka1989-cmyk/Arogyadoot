@@ -223,6 +223,22 @@ private fun ArogyaAiAdvancedDialog(hindi: Boolean, ai: ArogyaVisitAi, onDismiss:
                 }
             }, modifier = Modifier.fillMaxWidth()) { Text(if (benchBusy) tr("Stop benchmark", "बेंचमार्क रोकें") else tr("Run M1 benchmark (19 questions, test aid)", "M1 बेंचमार्क चलाएँ (19 सवाल)")) }
             if (benchLog.isNotBlank()) Text(benchLog.trim(), style = MaterialTheme.typography.bodySmall)
+            // 12 Nov 2026 (AT): answer-quality run from a pushed question file; every full answer saved for review.
+            var evalBusy by remember { mutableStateOf(false) }
+            var evalLog by remember { mutableStateOf("") }
+            val view = androidx.compose.ui.platform.LocalView.current
+            OutlinedButton(onClick = {
+                if (evalBusy) { ai.cancel(); return@OutlinedButton }
+                evalBusy = true; evalLog = ""; view.keepScreenOn = true
+                benchScope.launch {
+                    try {
+                        val dir = context.getExternalFilesDir(null) ?: context.filesDir
+                        ArogyaBenchmark.runFile(ai, dir) { line -> evalLog = (evalLog + "\n" + line).takeLast(1500) }
+                    } catch (e: CancellationException) { evalLog += "\nStopped" }
+                    finally { evalBusy = false; view.keepScreenOn = false }
+                }
+            }, modifier = Modifier.fillMaxWidth(), enabled = !benchBusy) { Text(if (evalBusy) tr("Stop question-file run", "प्रश्न-फ़ाइल रन रोकें") else tr("Run question file (eval_questions.txt)", "प्रश्न-फ़ाइल चलाएँ (eval_questions.txt)")) }
+            if (evalLog.isNotBlank()) Text(evalLog.trim(), style = MaterialTheme.typography.bodySmall)
             var prof by remember { mutableStateOf(ArogyaFlags.r1Profile) }
             var fuCtx by remember { mutableStateOf(ArogyaFlags.sopFollowUpContext) }
             var salvFirst by remember { mutableStateOf(ArogyaFlags.salvageBeforeRecovery) }

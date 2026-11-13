@@ -101,3 +101,10 @@ _work/run/photo_host.ps1
 backup_*/
 ors_log*.txt
 kb_rebuild/
+# local model bundles and their compiled caches (large, licensed separately)
+models/
+*.xnnpack_cache
+# laptop scorecard: model answers are generated output (the prompts and scripts are kept)
+tools/eval/answers_*.jsonl
+eval_answers*.jsonl
+eval_log*.txt

@@ -77,6 +77,49 @@ object ArogyaBenchmark {
         return rows
     }
 
+    /** 12 Nov 2026 (AT): the question file read by [runFile] and the answers file it writes (app's own folder on the phone). */
+    const val EVAL_QUESTIONS = "eval_questions.txt"
+    const val EVAL_ANSWERS = "eval_answers.jsonl"
+
+    /**
+     * 12 Nov 2026 (AT): answer-quality run on the phone's real model. Reads one question per line from
+     * [EVAL_QUESTIONS] in the app's external files folder (adb push), asks each through the same Ask SOP path as the
+     * screen (fresh visit per question, so no question leans on the one before), and appends one JSON line per
+     * answer — the full answer text, sources, quote, provider and time — to [EVAL_ANSWERS] (adb pull). Written after
+     * every question, so a run stopped half-way keeps what it has. Lines starting with # are skipped.
+     */
+    suspend fun runFile(ai: ArogyaVisitAi, dir: java.io.File, onEvent: (String) -> Unit): Int {
+        val qFile = java.io.File(dir, EVAL_QUESTIONS)
+        if (!qFile.exists()) { onEvent("No ${qFile.absolutePath} — push it with adb first"); return 0 }
+        val questions = qFile.readLines(Charsets.UTF_8).map { it.trim().removePrefix("\uFEFF") }.filter { it.isNotEmpty() && !it.startsWith("#") }
+        val out = java.io.File(dir, EVAL_ANSWERS)
+        onEvent("Warming up… ${questions.size} questions")
+        runCatching { ai.warmUp() }
+        Log.i(TAG, "AROGYA_EVAL_START n=${questions.size} guide=${ai.guideVersion()}")
+        var done = 0
+        ArogyaFlags.logEvidenceText = true
+        try { questions.forEachIndexed { i, q ->
+            onEvent("${i + 1}/${questions.size}: ${q.take(60)}")
+            val t = System.currentTimeMillis()
+            val json = org.json.JSONObject().put("n", i + 1).put("q", q)
+            try {
+                val r = ai.run(ArogyaAiRequest(ArogyaAiTask.EXPLAIN, ArogyaVisit(name = "Eval ${i + 1}", kind = ArogyaKind.FOLLOW_UP), question = q,
+                    hindi = q.any { it.code in 0x0900..0x097F }, afterSafetyPrompt = true))
+                json.put("provider", r.provider).put("online", r.online).put("ms", r.elapsedMs).put("tier", r.tier)
+                    .put("text", r.text).put("quote", r.quote).put("quoteSource", r.quoteSource)
+                    .put("sources", org.json.JSONArray(r.sources.map { "${it.title} | ${it.locator}" }))
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                json.put("error", "${e.javaClass.simpleName}: ${e.message?.take(200)}").put("ms", System.currentTimeMillis() - t)
+            }
+            runCatching { out.appendText(json.toString() + "\n", Charsets.UTF_8) }
+            Log.i(TAG, "AROGYA_EVAL_END n=${i + 1} ms=${System.currentTimeMillis() - t} chars=${json.optString("text").length} error=${json.optString("error")}")
+            done++
+        } } finally { ArogyaFlags.logEvidenceText = false }
+        Log.i(TAG, "AROGYA_EVAL_DONE n=$done file=${out.absolutePath}")
+        onEvent("Done: $done answers in ${out.absolutePath}")
+        return done
+    }
+
     /** 3-question foreground speed check (one chat, same visit). See [SPEEDCHECK_QUESTIONS]. */
     suspend fun runSpeedCheck(ai: ArogyaVisitAi, onEvent: (String) -> Unit): List<Row> {
         onEvent("Warming up…")
